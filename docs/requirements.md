@@ -211,7 +211,7 @@ FastAPI (uvicorn 单进程, :8700)
 
 1. 读配置 → 校验 apikey（调 register 前先 heartbeat 或专用 verify）
 2. 计算 `path = process.cwd()`（opencode 工作目录）
-3. **AI 总结目录用途**：读取目录结构（顶层文件/子目录名、README 摘要），生成 purpose 与 capabilities 描述
+3. **AI 总结目录用途**：调用 LLM（opencode 已配置模型，通过 /session 接口）分析目录结构与 README 生成 purpose 与 capabilities；LLM 失败时回退启发式摘要
 4. `register_workspace` 注册，拿到 workspace_id
 5. 启动心跳定时器（30s），携带当前 session_id
 
