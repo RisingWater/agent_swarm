@@ -106,16 +106,26 @@ if (text.includes(pluginRef)) {
     console.log("==> 插件已在配置中，跳过注册")
     process.exit(0)
 }
-// 解析 plugin 数组的插入点（容忍 jsonc 注释）
+// 在 plugin 数组中插入新项：逗号插在最后一个非空非注释项的末尾
 const m = text.match(/("plugin"\s*:\s*\[)([\s\S]*?)(\])/)
 let out
 if (m) {
-    const inner = m[2].trim()
-    const needComma = inner && !inner.endsWith(",")
-    out = text.replace(m[0], `${m[1]}${m[2]}${needComma ? "," : ""}\n    "${pluginRef}"\n  ${m[3]}`)
+    const inner = m[2]
+    // 去掉注释与空白后判断是否需要逗号
+    const stripped = inner.replace(/\/\/[^\n]*/g, "").replace(/\/\*[\s\S]*?\*\//g, "").trim()
+    const needComma = stripped && !stripped.endsWith(",")
+    let newInner
+    if (needComma) {
+        // 找到最后一个非空白/非注释字符（应为 " 或 ]），在其后补逗号
+        const tail = inner.replace(/[ \t\n\r]+$/, "")          // 去尾部空白
+        newInner = tail + ",\n    \"" + pluginRef + "\"\n  "
+    } else {
+        newInner = inner + "\n    \"" + pluginRef + "\"\n  "
+    }
+    out = text.replace(m[0], m[1] + newInner + m[3])
 } else {
-    // 没有 plugin 字段：插到最外层 { 后
-    out = text.replace(/^\s*\{/, `{\n  "plugin": [\n    "${pluginRef}"\n  ],`)
+    // 没有 plugin 字段：插到最外层 { 后（保留 ], 后逗号——其后还有其他字段，合法）
+    out = text.replace(/^\s*\{/, "{\n  \"plugin\": [\n    \"" + pluginRef + "\"\n  ],\n")
 }
 fs.writeFileSync(cfgPath, out)
 console.log(`==> 已注册插件到 ${cfgPath}`)
