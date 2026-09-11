@@ -28,7 +28,18 @@ def _migrate() -> None:
         cols = {r[1] for r in con.execute("PRAGMA table_info(users)")}
         if "api_key" not in cols:
             con.execute("ALTER TABLE users ADD COLUMN api_key TEXT DEFAULT ''")
-            con.commit()
+        # 旧用户没有明文（哈希不可逆）：补发新 key，旧 key 立即失效
+        from server import models
+
+        for uid, old_hash in con.execute(
+            "SELECT id, api_key_hash FROM users WHERE api_key = '' OR api_key IS NULL"
+        ).fetchall():
+            new_key = models.new_api_key()
+            con.execute(
+                "UPDATE users SET api_key = ?, api_key_hash = ? WHERE id = ?",
+                (new_key, models.hash_api_key(new_key), uid),
+            )
+        con.commit()
     finally:
         con.close()
 
