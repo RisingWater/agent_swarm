@@ -9,6 +9,8 @@ export default defineConfig({
     proxy: {
       '/api': 'http://localhost:8700',
       '/download': 'http://localhost:8700',
+      '/mcp': { target: 'http://localhost:8700', changeOrigin: true },
+      '/health': 'http://localhost:8700',
     },
   },
 })
