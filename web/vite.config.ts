@@ -8,6 +8,7 @@ export default defineConfig({
     port: 8701,
     proxy: {
       '/api': 'http://localhost:8700',
+      '/download': 'http://localhost:8700',
     },
   },
 })
