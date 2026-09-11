@@ -18,8 +18,7 @@ const statusTag = (s: Workspace["status"]) => {
   return <Badge status="default" text={<Text type="secondary">离线</Text>} />
 }
 
-const maskKey = (k: string) =>
-  k.length > 12 ? `${k.slice(0, 6)}${"*".repeat(8)}${k.slice(-4)}` : "*".repeat(k.length)
+const maskKey = (k: string) => "*".repeat(k.length - 2) + k.slice(-2)
 
 export default function App() {
   const [token, setToken] = useState(localStorage.getItem("swarm_token"))
