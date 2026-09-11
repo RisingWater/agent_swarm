@@ -34,15 +34,23 @@ async function main() {
   const ca = new SwarmClient({ serverUrl: BASE, apiKey: alice.api_key })
   const cb = new SwarmClient({ serverUrl: BASE, apiKey: bob.api_key })
 
-  // 3. 注册工作区（模拟 LLM 总结结果）
+  // 3. 注册工作区（不带总结）—— 应返回 need_summary=true
   const wsa = await ca.registerWorkspace({
     path: `/home/pa${t}/proj`,
-    purpose: "LLM 总结：前端项目 React+Vite",
-    capabilities: "改组件、修样式",
     teamName: team.name,
   })
-  console.log("3. registerWorkspace:", wsa.workspace_id, "created =", wsa.created)
+  console.log("3. registerWorkspace:", wsa.workspace_id, "created =", wsa.created, "need_summary =", wsa.need_summary)
   if (!wsa.workspace_id) throw new Error("register failed")
+  if (!wsa.need_summary) throw new Error("new workspace should need_summary=true")
+
+  // 3b. LLM 总结回写（模拟插件 summarizeAndSave）
+  await ca.updateInfo(wsa.workspace_id, "LLM 总结：前端项目 React+Vite", "改组件、修样式")
+
+  // 3c. 再次注册（模拟重启）—— need_summary 应为 false
+  const wsa2 = await ca.registerWorkspace({ path: `/home/pa${t}/proj`, teamName: team.name })
+  console.log("3c. re-register: need_summary =", wsa2.need_summary, "purpose =", wsa2.purpose)
+  if (wsa2.need_summary) throw new Error("existing summary should not need re-summary")
+  if (wsa2.purpose !== "LLM 总结：前端项目 React+Vite") throw new Error("purpose lost on re-register")
 
   const wsb = await cb.registerWorkspace({
     path: `/home/pb${t}/proj`,

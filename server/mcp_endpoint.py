@@ -88,17 +88,20 @@ mcp = FastMCP(
 @mcp.tool()
 def register_workspace(
     path: str,
-    purpose: str,
+    purpose: str = "",
     capabilities: str = "",
     team_name: str = "",
     name: str = "",
 ) -> dict:
     """注册（或更新）当前 opencode 工作区。
 
+    purpose 为空时不覆盖已有总结；返回 need_summary=true 表示该工作区
+    还没有用途总结，客户端应调 LLM 生成后用 update_info 回写。
+
     Args:
         path: 工作目录绝对路径
-        purpose: 目录用途的 AI 总结
-        capabilities: 这个工作区能干什么（可选）
+        purpose: 目录用途的 AI 总结（留空 = 不修改，触发 need_summary 提示）
+        capabilities: 这个工作区能干什么（留空 = 不修改）
         team_name: 归属团队名，必须是当前用户所在团队（可选）
         name: 工作区名称，默认取目录名（可选）
     """
@@ -147,16 +150,22 @@ def register_workspace(
                 ws.name = name
             if team_id is not None:
                 ws.team_id = team_id
-        ws.purpose = purpose
-        ws.capabilities = capabilities or ws.capabilities
+        if purpose:
+            ws.purpose = purpose
+        if capabilities:
+            ws.capabilities = capabilities
         ws.status = "online"
         ws.last_heartbeat = now
         ws.updated_at = now
         session.add(ws)
         session.commit()
+        need_summary = not ws.purpose
         return {
             "workspace_id": ws.id,
             "created": created,
+            "need_summary": need_summary,
+            "purpose": ws.purpose,
+            "capabilities": ws.capabilities,
             "name": ws.name,
             "status": ws.status,
         }

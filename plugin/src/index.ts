@@ -34,17 +34,26 @@ const plugin: Plugin = async (input) => {
   // ---------------- 注册 + 心跳 ----------------
 
   async function register() {
-    // 用 LLM 总结目录用途（失败回退启发式）
-    const { purpose, capabilities } = await summarizeWithLLM(client, directory)
+    // 先注册（不带总结），仅当服务端提示缺总结时才调 LLM
     const r = await swarm.registerWorkspace({
       path: directory,
-      purpose,
-      capabilities,
       teamName,
     })
     workspaceId = r.workspace_id
     log(`workspace registered: ${r.name} (${workspaceId}) created=${r.created}`)
-    log(`purpose: ${purpose.slice(0, 50)}`)
+    if (r.need_summary) {
+      log("no summary yet, asking LLM...")
+      await summarizeAndSave()
+    } else {
+      log(`purpose: ${(r.purpose ?? "").slice(0, 50)}`)
+    }
+  }
+
+  /** 调 LLM 总结目录并回写到服务端（注册时缺总结 / /swarm-resummarize 手动触发） */
+  async function summarizeAndSave() {
+    const { purpose, capabilities } = await summarizeWithLLM(client, directory)
+    await swarm.updateInfo(workspaceId, purpose, capabilities)
+    log(`summary saved: ${purpose.slice(0, 50)}`)
   }
 
   async function heartbeatLoop() {
@@ -177,19 +186,28 @@ const plugin: Plugin = async (input) => {
 
     // ---------------- 自定义命令 ----------------
 
-    // /swarm-note <内容>：追加工作区备注
+    // /swarm-note <内容>：追加工作区备注；/swarm-desc <描述>：更新描述；
+    // /swarm-resummarize：手动触发 LLM 重新总结目录
     "command.execute.before": async ({ command, arguments: args }) => {
-      if (command !== "swarm-note" && command !== "swarm-desc") return
+      if (command !== "swarm-note" && command !== "swarm-desc" && command !== "swarm-resummarize")
+        return
       // 阻止默认执行：通过抛错中断命令流（opencode 会展示错误但命令不会发给 LLM）
       if (!workspaceId) throw new Error("agent_swarm: 工作区尚未注册成功")
       const content = (args ?? "").trim()
-      if (!content) throw new Error(`用法: /${command} <内容>`)
       if (command === "swarm-note") {
+        if (!content) throw new Error("用法: /swarm-note <内容>")
         await swarm.updateNotes(workspaceId, content, true)
         throw new Error(`agent_swarm: 备注已追加 ✓`)
-      } else {
+      } else if (command === "swarm-desc") {
+        if (!content) throw new Error("用法: /swarm-desc <描述>")
         await swarm.updateInfo(workspaceId, content)
         throw new Error(`agent_swarm: 工作区描述已更新 ✓`)
+      } else {
+        throw new Error(
+          await summarizeAndSave()
+            .then(() => "agent_swarm: 已重新总结目录用途 ✓")
+            .catch((e) => `agent_swarm: 总结失败 - ${e}`),
+        )
       }
     },
 

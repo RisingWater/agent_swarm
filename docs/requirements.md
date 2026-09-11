@@ -146,7 +146,7 @@ FastAPI (uvicorn 单进程, :8700)
 
 | 工具 | 参数 | 返回 | 说明 |
 |------|------|------|------|
-| `register_workspace` | path, purpose, capabilities?, team_name? | workspace_id, status | 注册/更新工作区；purpose 由 AI 总结 |
+| `register_workspace` | path, purpose?, capabilities?, team_name? | workspace_id, created, **need_summary**, purpose | 注册/更新工作区；purpose 留空不覆盖已有值；need_summary=true 表示尚无总结，客户端应调 LLM 生成后 update_info 回写 |
 | `heartbeat` | workspace_id | ok | 刷新在线状态 + last_heartbeat；同时可上报当前 session_id |
 | `update_notes` | workspace_id, notes | ok | `/swarm-note` 命令落库（追加） |
 | `update_info` | workspace_id, purpose?, capabilities? | ok | `/swarm-desc` 更新用途/能力 |
@@ -211,7 +211,7 @@ FastAPI (uvicorn 单进程, :8700)
 
 1. 读配置 → 校验 apikey（调 register 前先 heartbeat 或专用 verify）
 2. 计算 `path = process.cwd()`（opencode 工作目录）
-3. **AI 总结目录用途**：调用 LLM（opencode 已配置模型，通过 /session 接口）分析目录结构与 README 生成 purpose 与 capabilities；LLM 失败时回退启发式摘要
+3. **AI 总结目录用途（按需）**：仅当 register 返回 `need_summary=true`（首次注册或尚无总结）才调 LLM（opencode 已配置模型，通过 /session 接口）分析目录结构生成 purpose 与 capabilities，再用 update_info 回写；LLM 失败时回退启发式摘要。已有总结则直接复用，不重复消耗 LLM
 4. `register_workspace` 注册，拿到 workspace_id
 5. 启动心跳定时器（30s），携带当前 session_id
 
@@ -221,6 +221,7 @@ FastAPI (uvicorn 单进程, :8700)
 |------|------|
 | `/swarm-note <内容>` | 向工作区 notes 追加备注（调 `update_notes`） |
 | `/swarm-desc <用途描述>` | 更新 purpose/capabilities（调 `update_info`） |
+| `/swarm-resummarize` | 手动触发 LLM 重新总结目录用途并回写 |
 
 ### 6.4 工具注入（给当前 agent 用）
 

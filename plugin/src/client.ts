@@ -119,13 +119,21 @@ export class SwarmClient {
 
   registerWorkspace(p: {
     path: string
-    purpose: string
+    purpose?: string
     capabilities?: string
     teamName?: string
-  }): Promise<{ workspace_id: string; created: boolean; name: string; status: string }> {
+  }): Promise<{
+    workspace_id: string
+    created: boolean
+    need_summary: boolean
+    purpose?: string
+    capabilities?: string
+    name: string
+    status: string
+  }> {
     return this.callTool("register_workspace", {
       path: p.path,
-      purpose: p.purpose,
+      purpose: p.purpose ?? "",
       capabilities: p.capabilities ?? "",
       team_name: p.teamName ?? "",
     })
