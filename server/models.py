@@ -1,4 +1,5 @@
 import hashlib
+import hmac
 import secrets
 from datetime import datetime, timezone
 from typing import Optional
@@ -15,18 +16,18 @@ def hash_api_key(api_key: str) -> str:
 
 
 def hash_password(password: str) -> str:
-    from passlib.context import CryptContext
-
-    ctx = CryptContext(schemes=["bcrypt"], deprecated="auto")
-    return ctx.hash(password)
+    salt = secrets.token_hex(16)
+    digest = hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), 200_000).hex()
+    return f"pbkdf2_sha256$200000${salt}${digest}"
 
 
 def verify_password(password: str, password_hash: str) -> bool:
-    from passlib.context import CryptContext
-
-    ctx = CryptContext(schemes=["bcrypt"], deprecated="auto")
     try:
-        return ctx.verify(password, password_hash)
+        _, iters, salt, digest = password_hash.split("$")
+        calc = hashlib.pbkdf2_hmac(
+            "sha256", password.encode(), salt.encode(), int(iters)
+        ).hex()
+        return hmac.compare_digest(calc, digest)
     except Exception:
         return False
 
