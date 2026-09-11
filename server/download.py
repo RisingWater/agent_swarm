@@ -26,10 +26,20 @@ async def plugin_tarball(request: Request) -> FileResponse:
 async def installer(request: Request) -> PlainTextResponse:
     if not INSTALL_SH.exists():
         return PlainTextResponse("install.sh not found", 404)
-    return PlainTextResponse(
-        INSTALL_SH.read_text(encoding="utf-8"),
-        media_type="application/x-sh",
-    )
+    text = INSTALL_SH.read_text(encoding="utf-8")
+    # 从请求 Host 推断服务地址并注入脚本（有公网域名/反代时用户可设
+    # AGENT_SWARM_PUBLIC_URL 覆盖，环境变量或项目根 .env 均可）
+    from server.config import get
+
+    server = get("AGENT_SWARM_PUBLIC_URL") or _guess_base(request)
+    text = text.replace("__SERVER_URL__", server.rstrip("/"))
+    return PlainTextResponse(text, media_type="application/x-sh")
+
+
+def _guess_base(request: Request) -> str:
+    host = request.headers.get("host", "127.0.0.1:8700")
+    scheme = request.headers.get("x-forwarded-proto", "http")
+    return f"{scheme}://{host}"
 
 
 routes = [

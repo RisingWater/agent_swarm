@@ -7,7 +7,7 @@
 
 set -euo pipefail
 
-SERVER="${AGENT_SWARM_SERVER:-}"
+SERVER="${AGENT_SWARM_SERVER:-__SERVER_URL__}"
 API_KEY="${AGENT_SWARM_API_KEY:-}"
 INSTALL_DIR="${HOME}/.config/opencode/plugins/agent-swarm"
 GLOBAL=false
@@ -19,7 +19,8 @@ while [ $# -gt 0 ]; do
         --dir)      INSTALL_DIR="$2"; shift 2 ;;
         -g|--global) GLOBAL=true; shift ;;
         -h|--help)
-            echo "用法: install.sh --server <url> --api-key <key> [--dir <安装目录>] [-g]"
+            echo "用法: install.sh [--api-key <key>] [--server <url>] [--dir <安装目录>] [-g]"
+            echo "  server 地址默认已内置（由服务端注入），apikey 可用环境变量 AGENT_SWARM_API_KEY"
             exit 0 ;;
         *) echo "未知参数: $1" >&2; exit 1 ;;
     esac

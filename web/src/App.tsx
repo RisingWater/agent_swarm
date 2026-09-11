@@ -307,27 +307,43 @@ function AccountPage() {
   const key = me?.api_key ?? ""
 
   return (
-    <div style={{ maxWidth: 860 }}>
+    <div style={{ maxWidth: 1080 }}>
       <Card style={{ marginBottom: 16 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <Text strong style={{ flexShrink: 0 }}>API Key</Text>
-          <Text code style={{ fontSize: 13, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          <Text
+            code
+            copyable={false}
+            style={{
+              flex: 1,
+              minWidth: 0,
+              fontSize: 13,
+              padding: "7px 12px",
+              background: "#f6f6f6",
+              borderRadius: 6,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
             {me ? (showKey ? key : maskKey(key)) : "加载中..."}
           </Text>
-          <Tooltip title={showKey ? "隐藏" : "显示"}>
-            <Button type="text" size="small" icon={showKey ? <EyeInvisibleOutlined /> : <EyeOutlined />}
-              onClick={() => setShowKey(!showKey)} />
-          </Tooltip>
-          <Tooltip title="复制">
-            <Button type="text" size="small" icon={<CopyOutlined />} onClick={() => {
-              navigator.clipboard.writeText(key)
-              message.success("已复制")
-            }} />
-          </Tooltip>
-          <Popconfirm title="重置后旧 Key 立即失效，所有使用旧 Key 的 agent 将无法连接。确认重置？"
-            onConfirm={reset}>
-            <Button danger size="small">重置</Button>
-          </Popconfirm>
+          <div style={{ display: "flex", gap: 2, flexShrink: 0 }}>
+            <Tooltip title={showKey ? "隐藏" : "显示"}>
+              <Button type="text" size="small" icon={showKey ? <EyeInvisibleOutlined /> : <EyeOutlined />}
+                onClick={() => setShowKey(!showKey)} />
+            </Tooltip>
+            <Tooltip title="复制">
+              <Button type="text" size="small" icon={<CopyOutlined />} onClick={() => {
+                navigator.clipboard.writeText(key)
+                message.success("已复制")
+              }} />
+            </Tooltip>
+            <Popconfirm title="重置后旧 Key 立即失效，所有使用旧 Key 的 agent 将无法连接。确认重置？"
+              onConfirm={reset}>
+              <Button danger size="small">重置</Button>
+            </Popconfirm>
+          </div>
         </div>
       </Card>
       <InstallPluginCard apiKey={key} />
@@ -336,7 +352,7 @@ function AccountPage() {
 }
 
 function InstallPluginCard({ apiKey }: { apiKey: string }) {
-  const installCmd = `curl -fsSL ${pageOrigin}/download/install.sh | bash -s -- --server ${pageOrigin} --api-key ${apiKey}`
+  const installCmd = `curl -fsSL ${pageOrigin}/download/install.sh | bash -s -- --api-key ${apiKey}`
   const hasKey = !!apiKey
 
   return (
@@ -345,7 +361,20 @@ function InstallPluginCard({ apiKey }: { apiKey: string }) {
         在装有 AI 编程工具的机器上执行以下命令，即可接入 agent_swarm：
       </Text>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 12 }}>
-        <Text code style={{ flex: 1, minWidth: 0, fontSize: 12, padding: "8px 10px", background: "#f6f6f6", borderRadius: 6, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+        <Text
+          code
+          style={{
+            flex: 1,
+            minWidth: 0,
+            fontSize: 12,
+            padding: "9px 12px",
+            background: "#f6f6f6",
+            borderRadius: 6,
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}
+        >
           {hasKey ? installCmd : "请先获取 API Key"}
         </Text>
         <Tooltip title="复制安装命令">
