@@ -36,10 +36,9 @@ FastAPI (uvicorn 单进程, :8700)
 ├── /api/...    管理后端 REST API —— Web 页面调用（JWT 鉴权）
 └── SQLite (data/agent_swarm.db)
     ├── users
-    ├── teams
-    ├── team_members        (team_id, user_id 多对多)
     ├── workspaces
     └── help_requests
+    （teams / team_members 表结构保留在 models.py 中备用，功能暂未启用）
 ```
 
 ### 2.2 鉴权体系（所有 /mcp 请求强制 apikey 校验）
@@ -146,7 +145,7 @@ FastAPI (uvicorn 单进程, :8700)
 
 | 工具 | 参数 | 返回 | 说明 |
 |------|------|------|------|
-| `register_workspace` | path, purpose?, capabilities?, team_name? | workspace_id, created, **need_summary**, purpose | 注册/更新工作区；purpose 留空不覆盖已有值；need_summary=true 表示尚无总结，客户端应调 LLM 生成后 update_info 回写 |
+| `register_workspace` | path, purpose?, capabilities? | workspace_id, created, **need_summary**, purpose | 注册/更新工作区；purpose 留空不覆盖已有值；need_summary=true 表示尚无总结，客户端应调 LLM 生成后 update_info 回写 |
 | `heartbeat` | workspace_id | ok | 刷新在线状态 + last_heartbeat；同时可上报当前 session_id |
 | `update_notes` | workspace_id, notes | ok | `/swarm-note` 命令落库（追加） |
 | `update_info` | workspace_id, purpose?, capabilities? | ok | `/swarm-desc` 更新用途/能力 |

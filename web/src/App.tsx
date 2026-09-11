@@ -1,13 +1,13 @@
 import { useEffect, useState, useCallback } from "react"
 import {
   Layout, Menu, Button, Input, Table, Tag, Card, Modal, message, Space,
-  Typography, Tabs, List, Popconfirm, Switch, Tooltip, Badge, Descriptions,
+  Typography, Tabs, Popconfirm, Switch, Tooltip, Badge, Descriptions,
 } from "antd"
 import {
-  TeamOutlined, ApiOutlined, ClusterOutlined, HistoryOutlined,
-  UserOutlined, LogoutOutlined, CopyOutlined, PlusOutlined,
+  ApiOutlined, ClusterOutlined, HistoryOutlined,
+  UserOutlined, LogoutOutlined, CopyOutlined,
 } from "@ant-design/icons"
-import { api, type Team, type Workspace, type HelpRequest, type User } from "./api"
+import { api, type Workspace, type HelpRequest, type User } from "./api"
 
 const { Header, Sider, Content } = Layout
 const { Text, Title } = Typography
@@ -32,7 +32,6 @@ export default function App() {
           theme="dark" mode="inline" selectedKeys={[page]} onClick={(e) => setPage(e.key)}
           items={[
             { key: "workspaces", icon: <ClusterOutlined />, label: "工作区" },
-            { key: "teams", icon: <TeamOutlined />, label: "团队" },
             { key: "help", icon: <HistoryOutlined />, label: "求助记录" },
             { key: "account", icon: <ApiOutlined />, label: "API Key" },
           ]}
@@ -41,7 +40,7 @@ export default function App() {
       <Layout>
         <Header style={{ background: "#fff", padding: "0 24px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <Title level={4} style={{ margin: 0 }}>
-            {{ workspaces: "工作区看板", teams: "团队管理", help: "求助记录", account: "账号设置" }[page]}
+            {{ workspaces: "工作区看板", help: "求助记录", account: "账号设置" }[page]}
           </Title>
           <Space>
             <span><UserOutlined /> {localStorage.getItem("swarm_user")}</span>
@@ -52,7 +51,6 @@ export default function App() {
         </Header>
         <Content style={{ padding: 24 }}>
           {page === "workspaces" && <WorkspacesPage />}
-          {page === "teams" && <TeamsPage />}
           {page === "help" && <HelpPage />}
           {page === "account" && <AccountPage />}
         </Content>
@@ -169,11 +167,8 @@ function WorkspacesPage() {
           { title: "路径", dataIndex: "path", ellipsis: true,
             render: (v: string) => <Tooltip title={v}><Text code style={{ fontSize: 12 }}>{v}</Text></Tooltip> },
           { title: "用途", dataIndex: "purpose", ellipsis: true },
-          { title: "归属", width: 200,
-            render: (_: any, w) => <Space size={4} wrap>
-              <Tag>{w.owner?.username}</Tag>
-              {w.team && <Tag color="blue">{w.team.name}</Tag>}
-            </Space> },
+          { title: "归属", width: 120,
+            render: (_: any, w) => <Tag>{w.owner?.username}</Tag> },
           { title: "最后心跳", dataIndex: "last_heartbeat", width: 170,
             render: (v: string | null) => v ? new Date(v + "Z").toLocaleString() : "-" },
           {
@@ -213,93 +208,13 @@ function WorkspacesPage() {
             <Descriptions.Item label="备注">
               <pre style={{ margin: 0, whiteSpace: "pre-wrap", fontSize: 12 }}>{detail.notes || "-"}</pre>
             </Descriptions.Item>
-            <Descriptions.Item label="归属">
-              {detail.owner?.username}{detail.team ? ` / ${detail.team.name}` : ""}
-            </Descriptions.Item>
+            <Descriptions.Item label="归属">{detail.owner?.username ?? "-"}</Descriptions.Item>
             <Descriptions.Item label="最后心跳">
               {detail.last_heartbeat ? new Date(detail.last_heartbeat + "Z").toLocaleString() : "-"}
             </Descriptions.Item>
           </Descriptions>
         )}
       </Modal>
-    </>
-  )
-}
-
-// ---------------- 团队 ----------------
-
-function TeamsPage() {
-  const myName = localStorage.getItem("swarm_user")
-  const [teams, setTeams] = useState<Team[]>([])
-  const [loading, setLoading] = useState(false)
-  const [newName, setNewName] = useState("")
-  const [members, setMembers] = useState<Record<string, Array<{ id: string; username: string; is_owner: boolean }>>>({})
-  const [addName, setAddName] = useState<Record<string, string>>({})
-
-  const refresh = useCallback(async () => {
-    setLoading(true)
-    try {
-      const ts = await api.myTeams()
-      setTeams(ts)
-      for (const t of ts) {
-        members[t.id] = await api.listMembers(t.id)
-      }
-      setMembers({ ...members })
-    } catch (e: any) { message.error(e.message) }
-    setLoading(false)
-  }, [])
-  useEffect(() => { refresh() }, [refresh])
-
-  const create = async () => {
-    try {
-      await api.createTeam(newName.trim())
-      message.success("团队已创建")
-      setNewName("")
-      refresh()
-    } catch (e: any) { message.error(e.message) }
-  }
-
-  return (
-    <>
-      <Space.Compact style={{ marginBottom: 16, width: 360 }}>
-        <Input placeholder="新团队名称" value={newName} onChange={(e) => setNewName(e.target.value)} onPressEnter={create} />
-        <Button type="primary" icon={<PlusOutlined />} onClick={create}>创建团队</Button>
-      </Space.Compact>
-      <List
-        loading={loading}
-        dataSource={teams}
-        renderItem={(t) => {
-          const isOwner = t.owner_id && members[t.id]?.some((m) => m.is_owner && m.username === myName)
-          return (
-            <Card size="small" style={{ marginBottom: 12 }}
-              title={<Space><TeamOutlined />{t.name}<Tag>{t.member_count} 成员</Tag></Space>}>
-              {members[t.id]?.map((m) => (
-                <Tag key={m.id} color={m.is_owner ? "gold" : "default"} closable={!!isOwner && !m.is_owner}
-                  onClose={async () => {
-                    try { await api.removeMember(t.id, m.id); refresh() } catch (e: any) { message.error(e.message) }
-                  }}>
-                  {m.username}{m.is_owner ? " (owner)" : ""}
-                </Tag>
-              ))}
-              {isOwner !== undefined && (
-                <Space.Compact style={{ marginTop: 8, display: "flex" }}>
-                  <Input size="small" placeholder="按用户名添加成员" style={{ width: 200 }}
-                    value={addName[t.id] ?? ""} onChange={(e) => setAddName({ ...addName, [t.id]: e.target.value })} />
-                  <Button size="small" type="primary" disabled={!isOwner} title={isOwner ? "" : "仅 owner 可添加"}
-                    onClick={async () => {
-                      try {
-                        await api.addMember(t.id, (addName[t.id] ?? "").trim())
-                        message.success("已添加")
-                        setAddName({ ...addName, [t.id]: "" })
-                        refresh()
-                      } catch (e: any) { message.error(e.message) }
-                    }}>添加</Button>
-                </Space.Compact>
-              )}
-            </Card>
-          )
-        }}
-      />
     </>
   )
 }

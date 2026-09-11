@@ -23,7 +23,6 @@ def ws_is_online(ws: models.Workspace) -> bool:
 
 def ws_out(ws: models.Workspace, session: Session) -> dict:
     owner = session.get(models.User, ws.user_id)
-    team = session.get(models.Team, ws.team_id) if ws.team_id else None
     online = ws_is_online(ws)
     effective = "online" if online else ("disabled" if ws.status == "disabled" else "offline")
     return {
@@ -36,29 +35,16 @@ def ws_out(ws: models.Workspace, session: Session) -> dict:
         "status": effective,
         "raw_status": ws.status,
         "owner": {"id": owner.id, "username": owner.username} if owner else None,
-        "team": {"id": team.id, "name": team.name} if team else None,
         "last_heartbeat": ws.last_heartbeat.isoformat() + "Z" if ws.last_heartbeat else None,
         "session_id": ws.session_id,
         "created_at": ws.created_at.isoformat() + "Z",
     }
 
 
-def my_team_ids(user_id: str, session: Session) -> list[str]:
-    rows = session.exec(
-        select(models.TeamMember.team_id).where(models.TeamMember.user_id == user_id)
-    ).all()
-    return [r[0] if isinstance(r, tuple) else r for r in rows]
-
-
 def visible_workspace_ids(user: models.User, session: Session) -> set[str]:
     ids = {w.id for w in session.exec(
         select(models.Workspace).where(models.Workspace.user_id == user.id)
     ).all()}
-    for tid in my_team_ids(user.id, session):
-        for w in session.exec(
-            select(models.Workspace).where(models.Workspace.team_id == tid)
-        ).all():
-            ids.add(w.id)
     return ids
 
 
@@ -73,7 +59,7 @@ def list_workspaces(
         ws = session.get(models.Workspace, wid)
         if ws:
             out.append(ws_out(ws, session))
-    out.sort(key=lambda x: (x["team"]["name"] if x["team"] else "", x["name"]))
+    out.sort(key=lambda x: x["name"])
     return out
 
 
@@ -131,19 +117,6 @@ def _get_ws_with_perm(workspace_id: str, user: models.User, session: Session) ->
     ws = session.get(models.Workspace, workspace_id)
     if not ws:
         raise HTTPException(404, "workspace not found")
-    if ws.user_id != user.id and ws.user_id not in _team_mate_ids(user, session):
-        # team 管理权限：同 team 成员可管理
+    if ws.user_id != user.id:
         raise HTTPException(403, "no permission on this workspace")
     return ws
-
-
-def _team_mate_ids(user: models.User, session: Session) -> set[str]:
-    ids: set[str] = set()
-    for tid in my_team_ids(user.id, session):
-        for r in session.exec(
-            select(models.TeamMember.user_id).where(models.TeamMember.team_id == tid)
-        ).all():
-            uid = r[0] if isinstance(r, tuple) else r
-            if uid != user.id:
-                ids.add(uid)
-    return ids

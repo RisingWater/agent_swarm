@@ -16,7 +16,7 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 
 from server import models
 from server.db import get_session
-from server.api.workspaces import my_team_ids, ws_is_online
+from server.api.workspaces import ws_is_online
 
 HEARTBEAT_TIMEOUT_SECONDS = 90
 
@@ -90,7 +90,6 @@ def register_workspace(
     path: str,
     purpose: str = "",
     capabilities: str = "",
-    team_name: str = "",
     name: str = "",
 ) -> dict:
     """注册（或更新）当前 opencode 工作区。
@@ -102,29 +101,12 @@ def register_workspace(
         path: 工作目录绝对路径
         purpose: 目录用途的 AI 总结（留空 = 不修改，触发 need_summary 提示）
         capabilities: 这个工作区能干什么（留空 = 不修改）
-        team_name: 归属团队名，必须是当前用户所在团队（可选）
         name: 工作区名称，默认取目录名（可选）
     """
     user = get_user()
     session = next(get_session())
     try:
         path = path.strip().rstrip("/") or "/"
-        team_id = None
-        if team_name.strip():
-            team = session.exec(
-                select(models.Team).where(
-                    models.Team.name == team_name.strip()
-                )
-            ).first()
-            if team:
-                member = session.exec(
-                    select(models.TeamMember).where(
-                        models.TeamMember.team_id == team.id,
-                        models.TeamMember.user_id == user.id,
-                    )
-                ).first()
-                if member:
-                    team_id = team.id
 
         ws = session.exec(
             select(models.Workspace).where(
@@ -139,7 +121,6 @@ def register_workspace(
             ws = models.Workspace(
                 id=shortuuid.uuid(),
                 user_id=user.id,
-                team_id=team_id,
                 name=name or os.path.basename(path) or path,
                 path=path,
             )
@@ -148,8 +129,6 @@ def register_workspace(
             created = False
             if name:
                 ws.name = name
-            if team_id is not None:
-                ws.team_id = team_id
         if purpose:
             ws.purpose = purpose
         if capabilities:
@@ -254,7 +233,7 @@ def update_info(
 
 @mcp.tool()
 def list_workspaces(include_offline: bool = False) -> dict:
-    """列出当前用户可见的 agent 工作区（自己创建的 + 所在团队的）。
+    """列出当前用户可见的 agent 工作区（自己创建的）。
 
     默认只返回在线且启用的工作区；请求方可直接挑选目标发起求助。
 
@@ -264,21 +243,11 @@ def list_workspaces(include_offline: bool = False) -> dict:
     user = get_user()
     session = next(get_session())
     try:
-
         mine = session.exec(
             select(models.Workspace).where(models.Workspace.user_id == user.id)
         ).all()
-        team_ids = my_team_ids(user.id, session)
-        teams_ws = []
-        if team_ids:
-            teams_ws = session.exec(
-                select(models.Workspace).where(models.Workspace.team_id.in_(team_ids))
-            ).all()
-        seen, out = set(), []
-        for ws in list(mine) + list(teams_ws):
-            if ws.id in seen:
-                continue
-            seen.add(ws.id)
+        out = []
+        for ws in mine:
             online = ws_is_online(ws)
             if not include_offline and not online:
                 continue
@@ -334,8 +303,8 @@ def request_help(
             raise ValueError(f"target workspace {target_workspace_id} not found")
         if not ws_is_online(tgt) or tgt.status == "disabled":
             raise ValueError("target workspace is not online")
-        # 可见性：目标必须是自己或所在团队的
-        if tgt.user_id != user.id and tgt.team_id not in my_team_ids(user.id, session):
+        # 可见性：只能向自己的工作区求助（团队功能暂未启用）
+        if tgt.user_id != user.id:
             raise ValueError("target workspace is not visible to you")
         if mode not in ("foreground", "background"):
             raise ValueError("mode must be 'foreground' or 'background'")

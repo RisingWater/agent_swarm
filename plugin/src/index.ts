@@ -17,7 +17,6 @@ const plugin: Plugin = async (input) => {
     // 未配置 apikey：插件静默不启用
     return {}
   }
-  const teamName: string | undefined = cfg.teamName
   const heartbeatMs = cfg.heartbeatIntervalMs ?? 30_000
   const pollMs = cfg.pollIntervalMs ?? 10_000
   const swarm = new SwarmClient(cfg)
@@ -37,7 +36,6 @@ const plugin: Plugin = async (input) => {
     // 先注册（不带总结），仅当服务端提示缺总结时才调 LLM
     const r = await swarm.registerWorkspace({
       path: directory,
-      teamName,
     })
     workspaceId = r.workspace_id
     log(`workspace registered: ${r.name} (${workspaceId}) created=${r.created}`)

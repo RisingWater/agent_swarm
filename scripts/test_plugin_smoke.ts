@@ -16,20 +16,6 @@ async function main() {
   const bob = await reg(`pb${t}`)
   const tokenA = alice.token
 
-  // alice 建 team，拉 bob
-  const team = await (
-    await fetch(`${BASE}/api/teams`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${tokenA}` },
-      body: JSON.stringify({ name: `pt${t}` }),
-    })
-  ).json()
-  await fetch(`${BASE}/api/teams/${team.id}/members`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${tokenA}` },
-    body: JSON.stringify({ username: `pb${t}` }),
-  })
-
   // 2. 模拟两个 opencode 实例的 plugin client
   const ca = new SwarmClient({ serverUrl: BASE, apiKey: alice.api_key })
   const cb = new SwarmClient({ serverUrl: BASE, apiKey: bob.api_key })
@@ -37,7 +23,6 @@ async function main() {
   // 3. 注册工作区（不带总结）—— 应返回 need_summary=true
   const wsa = await ca.registerWorkspace({
     path: `/home/pa${t}/proj`,
-    teamName: team.name,
   })
   console.log("3. registerWorkspace:", wsa.workspace_id, "created =", wsa.created, "need_summary =", wsa.need_summary)
   if (!wsa.workspace_id) throw new Error("register failed")
@@ -47,7 +32,7 @@ async function main() {
   await ca.updateInfo(wsa.workspace_id, "LLM 总结：前端项目 React+Vite", "改组件、修样式")
 
   // 3c. 再次注册（模拟重启）—— need_summary 应为 false
-  const wsa2 = await ca.registerWorkspace({ path: `/home/pa${t}/proj`, teamName: team.name })
+  const wsa2 = await ca.registerWorkspace({ path: `/home/pa${t}/proj` })
   console.log("3c. re-register: need_summary =", wsa2.need_summary, "purpose =", wsa2.purpose)
   if (wsa2.need_summary) throw new Error("existing summary should not need re-summary")
   if (wsa2.purpose !== "LLM 总结：前端项目 React+Vite") throw new Error("purpose lost on re-register")
@@ -56,7 +41,6 @@ async function main() {
     path: `/home/pb${t}/proj`,
     purpose: "LLM 总结：Python 数据管道",
     capabilities: "写 ETL、修数据 bug",
-    teamName: team.name,
   })
 
   // 4. 心跳
@@ -67,23 +51,35 @@ async function main() {
   const lst = await ca.listWorkspaces()
   console.log("5. listWorkspaces:", lst.workspaces.map((w) => `${w.name}(${w.owner})`).join(", "))
 
-  // 6. bob 请求 alice 帮助 background
+  // 6. 跨用户求助应被拒绝（team 功能移除后仅自己的工作区可见）
+  let rejected = false
+  try {
+    await cb.requestHelp({
+      requesterWorkspaceId: wsb.workspace_id,
+      targetWorkspaceId: wsa.workspace_id,
+      question: "x",
+    })
+  } catch { rejected = true }
+  if (!rejected) throw new Error("cross-user help should be rejected")
+  console.log("6. cross-user requestHelp rejected ok")
+
+  // 6b. bob 自闭环求助（自己的 ws -> 自己的 ws）
   const hr = await cb.requestHelp({
     requesterWorkspaceId: wsb.workspace_id,
-    targetWorkspaceId: wsa.workspace_id,
+    targetWorkspaceId: wsb.workspace_id,
     question: "Button 组件点击无反应，帮忙看看",
     mode: "background",
   })
-  console.log("6. requestHelp:", hr.request_id, hr.status)
+  console.log("6b. self requestHelp:", hr.request_id, hr.status)
 
-  // 7. alice poll
-  const tasks = await ca.pollHelpRequests(wsa.workspace_id)
+  // 7. bob poll
+  const tasks = await cb.pollHelpRequests(wsb.workspace_id)
   console.log("7. pollHelpRequests:", tasks.requests.length, "task(s), mode =", tasks.requests[0]?.mode)
   if (tasks.requests[0]?.session_id !== null && tasks.requests[0]?.session_id !== undefined)
     throw new Error("unexpected session_id")
 
   // 8. 提交结果（模拟 agent 调 swarm_submit_help）
-  const sub = await ca.submitHelpResult(hr.request_id, true, "已修复：事件绑定写错了")
+  const sub = await cb.submitHelpResult(hr.request_id, true, "已修复：事件绑定写错了")
   console.log("8. submitHelpResult:", JSON.stringify(sub))
 
   // 9. bob 查结果

@@ -29,14 +29,6 @@ export interface User {
   created_at?: string
 }
 
-export interface Team {
-  id: string
-  name: string
-  owner_id: string
-  member_count: number
-  created_at: string
-}
-
 export interface Workspace {
   id: string
   name: string
@@ -46,7 +38,6 @@ export interface Workspace {
   notes: string | null
   status: "online" | "offline" | "disabled"
   owner: { id: string; username: string } | null
-  team: { id: string; name: string } | null
   last_heartbeat: string | null
   created_at: string
 }
@@ -89,15 +80,6 @@ export const api = {
   me: () => request("/api/me") as Promise<User & { api_key: string }>,
 
   resetApiKey: () => request("/api/me/apikey/reset", { method: "POST" }) as Promise<{ api_key: string }>,
-
-  createTeam: (name: string) => request("/api/teams", { method: "POST", body: JSON.stringify({ name }) }),
-  myTeams: () => request("/api/teams") as Promise<Team[]>,
-  addMember: (teamId: string, username: string) =>
-    request(`/api/teams/${teamId}/members`, { method: "POST", body: JSON.stringify({ username }) }),
-  listMembers: (teamId: string) =>
-    request(`/api/teams/${teamId}/members`) as Promise<Array<{ id: string; username: string; is_owner: boolean }>>,
-  removeMember: (teamId: string, userId: string) =>
-    request(`/api/teams/${teamId}/members/${userId}`, { method: "DELETE" }),
 
   workspaces: () => request("/api/workspaces") as Promise<Workspace[]>,
   disableWorkspace: (id: string) => request(`/api/workspaces/${id}/disable`, { method: "POST" }),

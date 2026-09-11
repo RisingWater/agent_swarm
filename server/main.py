@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from server.db import init_db
-from server.api import auth, me, teams, workspaces, help_requests
+from server.api import auth, me, workspaces, help_requests
 from server.mcp_endpoint import build_mcp_asgi_app, mcp_lifespan
 
 
@@ -28,7 +28,6 @@ def create_app() -> FastAPI:
 
     app.include_router(auth.router)
     app.include_router(me.router)
-    app.include_router(teams.router)
     app.include_router(workspaces.router)
     app.include_router(help_requests.router)
 

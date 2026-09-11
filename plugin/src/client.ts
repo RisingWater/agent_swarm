@@ -3,7 +3,6 @@
 export interface SwarmConfig {
   serverUrl: string
   apiKey: string
-  teamName?: string
   heartbeatIntervalMs?: number
   pollIntervalMs?: number
 }
@@ -121,7 +120,6 @@ export class SwarmClient {
     path: string
     purpose?: string
     capabilities?: string
-    teamName?: string
   }): Promise<{
     workspace_id: string
     created: boolean
@@ -135,7 +133,6 @@ export class SwarmClient {
       path: p.path,
       purpose: p.purpose ?? "",
       capabilities: p.capabilities ?? "",
-      team_name: p.teamName ?? "",
     })
   }
 
