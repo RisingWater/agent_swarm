@@ -86,7 +86,7 @@ export const api = {
     return body as { token: string; user: User }
   },
 
-  me: () => request("/api/me") as Promise<User & { api_key_masked: string }>,
+  me: () => request("/api/me") as Promise<User & { api_key: string }>,
 
   resetApiKey: () => request("/api/me/apikey/reset", { method: "POST" }) as Promise<{ api_key: string }>,
 

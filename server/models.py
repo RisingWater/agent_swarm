@@ -47,6 +47,7 @@ class User(SQLModel, table=True):
     username: str = Field(index=True, unique=True)
     password_hash: str
     api_key_hash: str = Field(index=True, unique=True)
+    api_key: str = ""  # 明文，登录后可随时查看
     created_at: datetime = Field(default_factory=utcnow)
 
 

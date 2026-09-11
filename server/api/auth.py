@@ -43,6 +43,7 @@ def register(body: RegisterBody, session: Session = Depends(get_session)):
         username=body.username,
         password_hash=models.hash_password(body.password),
         api_key_hash=models.hash_api_key(api_key),
+        api_key=api_key,
     )
     session.add(user)
     session.commit()

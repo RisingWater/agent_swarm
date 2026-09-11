@@ -368,16 +368,18 @@ function HelpPage() {
 // ---------------- 账号 ----------------
 
 function AccountPage() {
-  const [me, setMe] = useState<(User & { api_key_masked: string }) | null>(null)
-  const [newKey, setNewKey] = useState<string | null>(null)
+  const [me, setMe] = useState<(User & { api_key: string }) | null>(null)
 
-  useEffect(() => { api.me().then(setMe).catch((e) => message.error(e.message)) }, [])
+  const refresh = useCallback(() => {
+    api.me().then(setMe).catch((e) => message.error(e.message))
+  }, [])
+  useEffect(() => { refresh() }, [refresh])
 
   const reset = async () => {
     try {
-      const r = await api.resetApiKey()
-      setNewKey(r.api_key)
+      await api.resetApiKey()
       message.success("API Key 已重置")
+      refresh()
     } catch (e: any) { message.error(e.message) }
   }
 
@@ -386,18 +388,23 @@ function AccountPage() {
       <Card title="账号信息" style={{ marginBottom: 16 }}>
         <Descriptions column={1}>
           <Descriptions.Item label="用户名">{me?.username ?? "-"}</Descriptions.Item>
-          <Descriptions.Item label="API Key">{me?.api_key_masked ?? "-"}</Descriptions.Item>
+          <Descriptions.Item label="API Key">
+            {me ? (
+              <Space.Compact style={{ width: "100%" }}>
+                <Input readOnly value={me.api_key} />
+                <Button icon={<CopyOutlined />} onClick={() => {
+                  navigator.clipboard.writeText(me.api_key)
+                  message.success("已复制")
+                }} />
+              </Space.Compact>
+            ) : "-"}
+          </Descriptions.Item>
         </Descriptions>
         <Popconfirm title="重置后旧 Key 立即失效，所有使用旧 Key 的 agent 将无法连接。确认重置？"
           onConfirm={reset}>
           <Button danger>重置 API Key</Button>
         </Popconfirm>
       </Card>
-      <Modal open={!!newKey} title="新的 API Key（仅此一次展示）" closable={false}
-        footer={<Button type="primary" onClick={() => setNewKey(null)}>我已保存</Button>}>
-        <Input.Search readOnly value={newKey ?? ""} enterButton={<><CopyOutlined /> 复制</>}
-          onSearch={() => { navigator.clipboard.writeText(newKey ?? ""); message.success("已复制") }} />
-      </Modal>
     </div>
   )
 }

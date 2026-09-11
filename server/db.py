@@ -16,6 +16,21 @@ def init_db() -> None:
     import server.models  # noqa: F401  确保表模型已注册
 
     SQLModel.metadata.create_all(engine)
+    _migrate()
+
+
+def _migrate() -> None:
+    """轻量迁移：SQLite 加列（存在即跳过）。"""
+    import sqlite3
+
+    con = sqlite3.connect(DB_PATH)
+    try:
+        cols = {r[1] for r in con.execute("PRAGMA table_info(users)")}
+        if "api_key" not in cols:
+            con.execute("ALTER TABLE users ADD COLUMN api_key TEXT DEFAULT ''")
+            con.commit()
+    finally:
+        con.close()
 
 
 def get_session():
