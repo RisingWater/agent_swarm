@@ -316,6 +316,7 @@ function AccountPage() {
               copyable={false}
               style={{
                 fontSize: 14,
+                fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace",
                 padding: "8px 14px",
                 background: "#f6f6f6",
                 borderRadius: 6,

@@ -2,3 +2,8 @@ body {
   margin: 0;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
+
+/* code/tag 等宽字体：掩码与明文宽度一致 */
+.ant-typography code, code.ant-typography, .ant-tag {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace !important;
+}
