@@ -400,10 +400,12 @@ function AccountPage() {
             ) : "-"}
           </Descriptions.Item>
         </Descriptions>
-        <Popconfirm title="重置后旧 Key 立即失效，所有使用旧 Key 的 agent 将无法连接。确认重置？"
-          onConfirm={reset}>
-          <Button danger>重置 API Key</Button>
-        </Popconfirm>
+        <div style={{ marginTop: 16 }}>
+          <Popconfirm title="重置后旧 Key 立即失效，所有使用旧 Key 的 agent 将无法连接。确认重置？"
+            onConfirm={reset}>
+            <Button danger>重置 API Key</Button>
+          </Popconfirm>
+        </div>
       </Card>
     </div>
   )
