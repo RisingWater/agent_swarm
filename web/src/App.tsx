@@ -7,7 +7,7 @@ import {
   ApiOutlined, ClusterOutlined, HistoryOutlined,
   UserOutlined, LogoutOutlined, CopyOutlined,
 } from "@ant-design/icons"
-import { api, type Workspace, type HelpRequest, type User } from "./api"
+import { api, pageOrigin, type Workspace, type HelpRequest, type User } from "./api"
 
 const { Header, Sider, Content } = Layout
 const { Text, Title } = Typography
@@ -322,6 +322,52 @@ function AccountPage() {
           </Popconfirm>
         </div>
       </Card>
+      <InstallPluginCard apiKey={me?.api_key ?? ""} />
     </div>
+  )
+}
+
+function InstallPluginCard({ apiKey }: { apiKey: string }) {
+  const installCmd = `curl -fsSL ${pageOrigin}/download/install.sh | bash -s -- --server ${pageOrigin} --api-key ${apiKey}`
+  const hasKey = !!apiKey
+
+  return (
+    <Card title="安装 opencode 插件" style={{ marginBottom: 16 }}>
+      <Text type="secondary">
+        在装了 opencode 的机器上执行下面这条命令，插件会自动注册工作区、保持心跳，
+        并注入 swarm 工具供 agent 互相求助。
+      </Text>
+      <Input.TextArea
+        readOnly
+        value={hasKey ? installCmd : "请先获取 API Key（上方）"}
+        autoSize={{ minRows: 3, maxRows: 5 }}
+        style={{ marginTop: 12, fontFamily: "monospace", fontSize: 12 }}
+      />
+      <Space style={{ marginTop: 12 }}>
+        <Button
+          type="primary"
+          icon={<CopyOutlined />}
+          disabled={!hasKey}
+          onClick={() => {
+            navigator.clipboard.writeText(installCmd)
+            message.success("安装命令已复制，到目标机器执行即可")
+          }}
+        >
+          复制安装命令
+        </Button>
+        <Button
+          href={`${pageOrigin}/download/install.sh`}
+          target="_blank"
+        >
+          查看 install.sh
+        </Button>
+      </Space>
+      <div style={{ marginTop: 12 }}>
+        <Text type="secondary" style={{ fontSize: 12 }}>
+          安装脚本会：下载插件包到 ~/.config/opencode/plugins/agent-swarm → 安装依赖 →
+          写入 server/apikey 配置 → 注册到 opencode.jsonc（全局配置）。
+        </Text>
+      </div>
+    </Card>
   )
 }

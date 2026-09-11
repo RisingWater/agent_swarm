@@ -25,12 +25,22 @@ if ! .venv/bin/python -c "import fastapi, mcp, sqlmodel" 2>/dev/null; then
     .venv/bin/pip install -r requirements.txt -q
 fi
 
-# 2. 端口占用检查：已有实例在跑则提示并退出
+# 2. 打包插件到 data/（供 /download/plugin.tar.gz 分发）
+mkdir -p data
+if command -v tar >/dev/null; then
+    tar -czf data/agent-swarm-plugin.tar.gz \
+        -C plugin \
+        --exclude='node_modules' --exclude='types' --exclude='*.tsbuildinfo' \
+        package.json tsconfig.json src
+    echo "[deploy] plugin package: data/agent-swarm-plugin.tar.gz"
+fi
+
+# 3. 端口占用检查：已有实例在跑则提示并退出
 if command -v curl >/dev/null 2>&1 && curl -s -m 2 -o /dev/null "http://127.0.0.1:${PORT}/health"; then
     echo "[deploy] agent_swarm already running on :${PORT}"
     exit 0
 fi
 
-# 3. 启动（前台运行；Ctrl-C 停止。用 systemd/nohup 托管时按需调整）
+# 4. 启动（前台运行；Ctrl-C 停止。用 systemd/nohup 托管时按需调整）
 echo "[deploy] starting agent_swarm on :${PORT} (db: ${AGENT_SWARM_DB:-data/agent_swarm.db})"
 exec .venv/bin/uvicorn server.main:app --host 0.0.0.0 --port "$PORT"

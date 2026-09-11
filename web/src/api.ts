@@ -42,6 +42,9 @@ export interface Workspace {
   created_at: string
 }
 
+/** 安装命令用：当前页面 origin（vite dev 时代理到后端，生产同域） */
+export const pageOrigin = window.location.origin
+
 export interface HelpRequest {
   id: string
   requester: { id: string; name: string; path: string } | null

@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from server.db import init_db
 from server.api import auth, me, workspaces, help_requests
+from server.download import routes as download_routes
 from server.mcp_endpoint import build_mcp_asgi_app, mcp_lifespan
 
 
@@ -31,8 +32,13 @@ def create_app() -> FastAPI:
     app.include_router(workspaces.router)
     app.include_router(help_requests.router)
 
+    # 插件分发（免鉴权）
+    for r in download_routes:
+        app.router.routes.append(r)
+
     # MCP 端点（自带 apikey 中间件）；规范路径为 /mcp/
     app.mount("/mcp", build_mcp_asgi_app())
+
     @app.get("/health")
     def health():
         return {"ok": True}
