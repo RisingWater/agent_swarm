@@ -282,6 +282,40 @@ const plugin: Plugin = async (input) => {
           return `结果已提交（status=${args.ok ? "done" : "failed"}）`
         },
       }),
+
+      swarm_note: tool({
+        description: "向 agent_swarm 的当前工作区追加用户备注（/swarm-note 命令使用）。",
+        args: {
+          notes: z.string().describe("备注内容"),
+        },
+        async execute(args) {
+          if (!workspaceId) return "agent_swarm: 插件未注册（检查 apikey 配置）"
+          await swarm.updateNotes(workspaceId, args.notes, true)
+          return "备注已追加 ✓"
+        },
+      }),
+
+      swarm_desc: tool({
+        description: "更新 agent_swarm 当前工作区的用途/能力描述（/swarm-desc 命令使用）。",
+        args: {
+          purpose: z.string().describe("新的用途描述"),
+        },
+        async execute(args) {
+          if (!workspaceId) return "agent_swarm: 插件未注册（检查 apikey 配置）"
+          await swarm.updateInfo(workspaceId, args.purpose)
+          return "描述已更新 ✓"
+        },
+      }),
+
+      swarm_resummarize: tool({
+        description: "让 LLM 重新总结当前目录用途并同步到 agent_swarm（/swarm-resummarize 命令使用）。",
+        args: {},
+        async execute() {
+          if (!workspaceId) return "agent_swarm: 插件未注册（检查 apikey 配置）"
+          await summarizeAndSave()
+          return "已重新总结 ✓"
+        },
+      }),
     },
 
     dispose: async () => {

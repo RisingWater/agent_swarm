@@ -131,6 +131,47 @@ fs.writeFileSync(cfgPath, out)
 console.log(`==> 已注册插件到 ${cfgPath}`)
 NODE
 
+# 5. 注册自定义命令（markdown 形式，TUI 里 /swarm-note 等可用）
+CMD_DIR="$HOME/.config/opencode/commands"
+mkdir -p "$CMD_DIR"
+write_cmd() {
+    local f="$CMD_DIR/$1.md"
+    if [ ! -f "$f" ]; then
+        cat > "$f"
+        echo "    已注册命令 /$1"
+    fi
+}
+write_cmd swarm-note <<'EOF'
+---
+description: 向 agent_swarm 工作区追加备注
+---
+调用 swarm_note 工具，把下面的内容追加为工作区备注：
+
+$ARGUMENTS
+
+如果 swarm_note 工具不存在，直接回复：agent_swarm 插件未加载，请检查安装。
+完成后简短确认：备注已追加 ✓
+EOF
+write_cmd swarm-desc <<'EOF'
+---
+description: 更新 agent_swarm 工作区的用途/能力描述
+---
+调用 swarm_desc 工具，用下面的内容更新工作区用途描述：
+
+$ARGUMENTS
+
+如果 swarm_desc 工具不存在，直接回复：agent_swarm 插件未加载，请检查安装。
+完成后简短确认：描述已更新 ✓
+EOF
+write_cmd swarm-resummarize <<'EOF'
+---
+description: 重新总结当前工作区用途并同步到 agent_swarm
+---
+调用 swarm_resummarize 工具重新总结当前目录用途并同步到 agent_swarm 服务端。
+如果该工具不存在，直接回复：agent_swarm 插件未加载，请检查安装。
+完成后简短确认：已重新总结 ✓
+EOF
+
 echo
 echo "✅ 安装完成！"
 echo "   重启 opencode 后插件自动注册工作区。"
