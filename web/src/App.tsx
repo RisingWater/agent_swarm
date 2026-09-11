@@ -5,7 +5,7 @@ import {
 } from "antd"
 import {
   ApiOutlined, ClusterOutlined, HistoryOutlined,
-  UserOutlined, LogoutOutlined, CopyOutlined, EyeOutlined, EyeInvisibleOutlined,
+  LogoutOutlined, CopyOutlined, EyeOutlined, EyeInvisibleOutlined, UserOutlined,
 } from "@ant-design/icons"
 import { api, pageOrigin, type Workspace, type HelpRequest, type User } from "./api"
 
@@ -13,27 +13,46 @@ const { Header, Sider, Content } = Layout
 const { Text, Title } = Typography
 
 const statusTag = (s: Workspace["status"]) => {
-  if (s === "online") return <Badge status="success" text={<Text>在线</Text>} />
-  if (s === "disabled") return <Badge status="error" text={<Text type="danger">已禁用</Text>} />
-  return <Badge status="default" text={<Text type="secondary">离线</Text>} />
+  if (s === "online") return <Badge status="success" text={<Text style={{ color: "#c7c7cc" }}>online</Text>} />
+  if (s === "disabled") return <Badge status="error" text={<Text type="danger" style={{ color: "#ff453a" }}>disabled</Text>} />
+  return <Badge status="default" text={<Text type="secondary">offline</Text>} />
 }
 
 const maskKey = (k: string) => "*".repeat(k.length - 2) + k.slice(-2)
+
+function Logo() {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "18px 20px 14px" }}>
+      <span
+        style={{
+          display: "inline-flex", alignItems: "center", justifyContent: "center",
+          width: 26, height: 26, border: "1.5px solid #007aff", borderRadius: 5,
+          color: "#007aff", fontWeight: 700, fontSize: 13,
+        }}
+      >
+        &gt;_
+      </span>
+      <span style={{ fontWeight: 700, fontSize: 14, letterSpacing: "0.02em" }}>agent_swarm</span>
+    </div>
+  )
+}
 
 export default function App() {
   const [token, setToken] = useState(localStorage.getItem("swarm_token"))
   const [page, setPage] = useState("account")
 
-  if (!token) return <LoginPage onLogin={(t) => { localStorage.setItem("swarm_token", t); setToken(t) }} />
+  if (!token)
+    return <LoginPage onLogin={(t) => { localStorage.setItem("swarm_token", t); setToken(t) }} />
 
   return (
     <Layout style={{ minHeight: "100vh" }}>
-      <Sider width={180} style={{ background: "#fff", borderRight: "1px solid #f0f0f0" }}>
-        <div style={{ padding: "16px 16px 8px", fontWeight: 700, fontSize: 16 }}>🐝 agent_swarm</div>
+      <Sider width={190} style={{ borderRight: "1px solid #2c2c2e" }}>
+        <Logo />
         <Menu
           mode="inline"
-          style={{ borderInlineEnd: "none" }}
-          selectedKeys={[page]} onClick={(e) => setPage(e.key)}
+          style={{ borderInlineEnd: "none", padding: "0 8px" }}
+          selectedKeys={[page]}
+          onClick={(e) => setPage(e.key)}
           items={[
             { key: "account", icon: <ApiOutlined />, label: "接入" },
             { key: "workspaces", icon: <ClusterOutlined />, label: "工作区" },
@@ -42,18 +61,31 @@ export default function App() {
         />
       </Sider>
       <Layout>
-        <Header style={{ background: "#fff", padding: "0 24px", display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid #f0f0f0" }}>
-          <Title level={4} style={{ margin: 0 }}>
-            {{ account: "接入", workspaces: "工作区看板", help: "求助记录" }[page]}
-          </Title>
-          <Space>
-            <span><UserOutlined /> {localStorage.getItem("swarm_user")}</span>
-            <Button icon={<LogoutOutlined />} size="small" onClick={() => {
-              localStorage.removeItem("swarm_token"); localStorage.removeItem("swarm_user"); setToken(null)
-            }}>退出</Button>
+        <Header
+          style={{
+            padding: "0 28px", display: "flex", justifyContent: "space-between",
+            alignItems: "center", borderBottom: "1px solid #2c2c2e", height: 56,
+          }}
+        >
+          <Text type="secondary" style={{ fontSize: 13 }}>
+            {{ account: "~/接入", workspaces: "~/工作区", help: "~/求助记录" }[page]}
+          </Text>
+          <Space size={12}>
+            <Text type="secondary" style={{ fontSize: 13 }}>
+              <UserOutlined style={{ marginRight: 6 }} />
+              {localStorage.getItem("swarm_user")}
+            </Text>
+            <Button
+              type="text" size="small" icon={<LogoutOutlined />}
+              onClick={() => {
+                localStorage.removeItem("swarm_token")
+                localStorage.removeItem("swarm_user")
+                setToken(null)
+              }}
+            />
           </Space>
         </Header>
-        <Content style={{ padding: 24 }}>
+        <Content style={{ padding: 28, maxWidth: 1100 }}>
           {page === "account" && <AccountPage />}
           {page === "workspaces" && <WorkspacesPage />}
           {page === "help" && <HelpPage />}
@@ -81,50 +113,64 @@ function LoginPage({ onLogin }: { onLogin: (token: string) => void }) {
         onLogin(r.token)
       } else {
         const r = await api.register(username, password)
-        setApiKeyShow(r.api_key) // 不直接登录，先让用户保存 key
+        setApiKeyShow(r.api_key)
       }
     } catch (e: any) { message.error(e.message) }
     setLoading(false)
   }
 
   return (
-    <div style={{ display: "flex", justifyContent: "center", alignItems: "center", minHeight: "100vh", background: "#f0f2f5" }}>
-      <Card style={{ width: 400 }}>
-        <Title level={3} style={{ textAlign: "center" }}>🐝 agent_swarm</Title>
-        <Tabs
-          centered
-          items={[
-            { key: "login", label: "登录", children: loginForm() },
-            { key: "register", label: "注册", children: registerForm() },
-          ]}
-          activeKey={mode}
-          onChange={(k) => setMode(k as any)}
-        />
-      </Card>
+    <div style={{ display: "flex", justifyContent: "center", alignItems: "center", minHeight: "100vh" }}>
+      <div style={{ width: 400 }}>
+        <div style={{ textAlign: "center", marginBottom: 28 }}>
+          <span
+            style={{
+              display: "inline-flex", alignItems: "center", justifyContent: "center",
+              width: 52, height: 52, border: "2px solid #007aff", borderRadius: 8,
+              color: "#007aff", fontWeight: 700, fontSize: 22,
+            }}
+          >
+            &gt;_
+          </span>
+          <Title level={3} style={{ marginTop: 16, marginBottom: 4 }}>agent_swarm</Title>
+          <Text type="secondary">multi-agent coordination hub</Text>
+        </div>
+        <Card>
+          <Tabs
+            centered
+            items={[
+              { key: "login", label: "login", children: loginForm() },
+              { key: "register", label: "register", children: registerForm() },
+            ]}
+            activeKey={mode}
+            onChange={(k) => setMode(k as any)}
+          />
+        </Card>
+      </div>
       <Modal
-        open={!!apiKeyShow} title="注册成功！请保存你的 API Key" closable={false}
-        footer={<Button type="primary" onClick={() => { setApiKeyShow(null); setMode("login") }}>我已保存</Button>}
+        open={!!apiKeyShow} title="your api key" closable={false}
+        footer={<Button type="primary" onClick={() => { setApiKeyShow(null); setMode("login") }}>ok, saved</Button>}
       >
-        <Text>API Key 仅此一次展示，丢失后只能重置：</Text>
-        <Input.Search readOnly value={apiKeyShow ?? ""} enterButton={<><CopyOutlined /> 复制</>}
-          onSearch={() => { navigator.clipboard.writeText(apiKeyShow ?? ""); message.success("已复制") }}
-          style={{ marginTop: 8 }} />
+        <Text type="secondary">key 可以随时在「接入」页查看，但请妥善保管：</Text>
+        <Text code style={{ display: "block", marginTop: 8, padding: "8px 12px", fontSize: 13, wordBreak: "break-all" }}>
+          {apiKeyShow}
+        </Text>
       </Modal>
     </div>
   )
 
   function loginForm() {
     return <Space direction="vertical" style={{ width: "100%" }}>
-      <Input placeholder="用户名" value={username} onChange={(e) => setUsername(e.target.value)} />
-      <Input.Password placeholder="密码" value={password} onChange={(e) => setPassword(e.target.value)} onPressEnter={submit} />
-      <Button type="primary" block loading={loading} onClick={submit}>登录</Button>
+      <Input prefix={<Text type="secondary">$</Text>} placeholder="username" value={username} onChange={(e) => setUsername(e.target.value)} />
+      <Input.Password prefix={<Text type="secondary">$</Text>} placeholder="password" value={password} onChange={(e) => setPassword(e.target.value)} onPressEnter={submit} />
+      <Button type="primary" block loading={loading} onClick={submit}>login</Button>
     </Space>
   }
   function registerForm() {
     return <Space direction="vertical" style={{ width: "100%" }}>
-      <Input placeholder="用户名（2-32字符）" value={username} onChange={(e) => setUsername(e.target.value)} />
-      <Input.Password placeholder="密码（至少6位）" value={password} onChange={(e) => setPassword(e.target.value)} onPressEnter={submit} />
-      <Button type="primary" block loading={loading} onClick={submit}>注册并生成 API Key</Button>
+      <Input prefix={<Text type="secondary">$</Text>} placeholder="username" value={username} onChange={(e) => setUsername(e.target.value)} />
+      <Input.Password prefix={<Text type="secondary">$</Text>} placeholder="password (min 6)" value={password} onChange={(e) => setPassword(e.target.value)} onPressEnter={submit} />
+      <Button type="primary" block loading={loading} onClick={submit}>register</Button>
     </Space>
   }
 }
@@ -163,39 +209,38 @@ function WorkspacesPage() {
         pagination={false}
         columns={[
           {
-            title: "状态", dataIndex: "status", width: 100,
+            title: "status", width: 110,
             render: (_: string, w) => statusTag(w.status),
           },
-          { title: "名称", dataIndex: "name", width: 160,
-            render: (v: string, w) => <a onClick={() => setDetail(w)}>{v}</a> },
-          { title: "路径", dataIndex: "path", ellipsis: true,
-            render: (v: string) => <Tooltip title={v}><Text code style={{ fontSize: 12 }}>{v}</Text></Tooltip> },
-          { title: "用途", dataIndex: "purpose", ellipsis: true },
-          { title: "归属", width: 120,
-            render: (_: any, w) => <Tag>{w.owner?.username}</Tag> },
-          { title: "最后心跳", dataIndex: "last_heartbeat", width: 170,
-            render: (v: string | null) => v ? new Date(v + "Z").toLocaleString() : "-" },
+          { title: "name", dataIndex: "name", width: 170,
+            render: (v: string, w) => <a onClick={() => setDetail(w)} style={{ color: "#007aff" }}>{v}</a> },
+          { title: "path", dataIndex: "path", ellipsis: true,
+            render: (v: string) => <Tooltip title={v}><Text type="secondary" style={{ fontSize: 12 }}>{v}</Text></Tooltip> },
+          { title: "purpose", dataIndex: "purpose", ellipsis: true },
+          { title: "owner", dataIndex: ["owner", "username"], width: 110,
+            render: (v: string) => <Text type="secondary">{v}</Text> },
+          { title: "heartbeat", dataIndex: "last_heartbeat", width: 120,
+            render: (v: string | null) => v
+              ? <Text type="secondary" style={{ fontSize: 12 }}>{new Date(v + "Z").toLocaleTimeString()}</Text>
+              : <Text type="secondary">-</Text> },
           {
-            title: "操作", width: 170,
+            title: "", width: 120,
             render: (_: any, w) => (
-              <Space size="small">
+              <Space size={4}>
                 <Switch
                   size="small"
                   checked={w.status !== "disabled"}
                   onChange={(v) => toggle(w, v)}
                 />
                 <Popconfirm
-                  title="删除工作区？"
-                  description={w.status === "online" ? "在线工作区不能删除" : "确认删除该工作区记录？"}
+                  title="delete this workspace?"
                   disabled={w.status === "online"}
                   onConfirm={async () => {
-                    try { await api.deleteWorkspace(w.id); message.success("已删除"); refresh() }
+                    try { await api.deleteWorkspace(w.id); message.success("deleted"); refresh() }
                     catch (e: any) { message.error(e.message) }
                   }}
                 >
-                  <Tooltip title={w.status === "online" ? "在线工作区需先禁用或等其离线" : ""}>
-                    <Button danger size="small" disabled={w.status === "online"}>删除</Button>
-                  </Tooltip>
+                  <Button danger type="text" size="small" disabled={w.status === "online"}>rm</Button>
                 </Popconfirm>
               </Space>
             ),
@@ -205,15 +250,15 @@ function WorkspacesPage() {
       <Modal open={!!detail} title={detail?.name} footer={null} onCancel={() => setDetail(null)}>
         {detail && (
           <Descriptions column={1} size="small" bordered>
-            <Descriptions.Item label="状态">{statusTag(detail.status)}</Descriptions.Item>
-            <Descriptions.Item label="路径"><Text code>{detail.path}</Text></Descriptions.Item>
-            <Descriptions.Item label="用途">{detail.purpose || "-"}</Descriptions.Item>
-            <Descriptions.Item label="能力">{detail.capabilities || "-"}</Descriptions.Item>
-            <Descriptions.Item label="备注">
+            <Descriptions.Item label="status">{statusTag(detail.status)}</Descriptions.Item>
+            <Descriptions.Item label="path"><Text code>{detail.path}</Text></Descriptions.Item>
+            <Descriptions.Item label="purpose">{detail.purpose || "-"}</Descriptions.Item>
+            <Descriptions.Item label="capabilities">{detail.capabilities || "-"}</Descriptions.Item>
+            <Descriptions.Item label="notes">
               <pre style={{ margin: 0, whiteSpace: "pre-wrap", fontSize: 12 }}>{detail.notes || "-"}</pre>
             </Descriptions.Item>
-            <Descriptions.Item label="归属">{detail.owner?.username ?? "-"}</Descriptions.Item>
-            <Descriptions.Item label="最后心跳">
+            <Descriptions.Item label="owner">{detail.owner?.username ?? "-"}</Descriptions.Item>
+            <Descriptions.Item label="heartbeat">
               {detail.last_heartbeat ? new Date(detail.last_heartbeat + "Z").toLocaleString() : "-"}
             </Descriptions.Item>
           </Descriptions>
@@ -242,7 +287,7 @@ function HelpPage() {
   }, [refresh])
 
   const statusColor: Record<string, string> = {
-    pending: "orange", accepted: "blue", done: "green", failed: "red",
+    pending: "warning", accepted: "processing", done: "success", failed: "error",
   }
 
   return (
@@ -250,36 +295,36 @@ function HelpPage() {
       <Table
         rowKey="id" loading={loading} dataSource={list} size="middle" pagination={{ pageSize: 20 }}
         columns={[
-          { title: "时间", dataIndex: "created_at", width: 170,
-            render: (v: string) => new Date(v + "Z").toLocaleString() },
-          { title: "求助方", width: 160, render: (_: any, r) => r.requester?.name ?? "-" },
-          { title: "目标", width: 160, render: (_: any, r) => r.target?.name ?? "-" },
-          { title: "模式", dataIndex: "mode", width: 100,
-            render: (m: string) => <Tag>{m === "foreground" ? "前台" : "后台"}</Tag> },
-          { title: "状态", dataIndex: "status", width: 100,
-            render: (s: string) => <Tag color={statusColor[s]}>{s}</Tag> },
-          { title: "问题", dataIndex: "question", ellipsis: true,
-            render: (v: string, r) => <a onClick={() => setDetail(r)}>{v}</a> },
+          { title: "time", dataIndex: "created_at", width: 110,
+            render: (v: string) => <Text type="secondary" style={{ fontSize: 12 }}>{new Date(v + "Z").toLocaleTimeString()}</Text> },
+          { title: "from", width: 150, render: (_: any, r) => r.requester?.name ?? "-" },
+          { title: "to", width: 150, render: (_: any, r) => r.target?.name ?? "-" },
+          { title: "mode", dataIndex: "mode", width: 110,
+            render: (m: string) => <Tag style={{ fontSize: 11 }}>{m}</Tag> },
+          { title: "status", dataIndex: "status", width: 110,
+            render: (s: string) => <Badge status={statusColor[s] as any} text={<Text style={{ fontSize: 12 }}>{s}</Text>} /> },
+          { title: "question", dataIndex: "question", ellipsis: true,
+            render: (v: string, r) => <a onClick={() => setDetail(r)} style={{ color: "#007aff" }}>{v}</a> },
         ]}
       />
-      <Modal open={!!detail} title="求助详情" footer={null} onCancel={() => setDetail(null)}>
-      {detail && (
-        <Descriptions column={1} size="small" bordered>
-          <Descriptions.Item label="求助方">{detail.requester?.name} ({detail.requester?.path})</Descriptions.Item>
-          <Descriptions.Item label="目标">{detail.target?.name} ({detail.target?.path})</Descriptions.Item>
-          <Descriptions.Item label="模式">{detail.mode === "foreground" ? "前台" : "后台"}</Descriptions.Item>
-          <Descriptions.Item label="状态">{detail.status}</Descriptions.Item>
-          <Descriptions.Item label="问题">
-            <pre style={{ margin: 0, whiteSpace: "pre-wrap", fontSize: 12 }}>{detail.question}</pre>
-          </Descriptions.Item>
-          <Descriptions.Item label="结果">
-            <pre style={{ margin: 0, whiteSpace: "pre-wrap", fontSize: 12 }}>
-              {detail.status === "failed" ? detail.error : (detail.result ?? "-")}
-            </pre>
-          </Descriptions.Item>
-        </Descriptions>
-      )}
-    </Modal>
+      <Modal open={!!detail} title="help request" footer={null} onCancel={() => setDetail(null)}>
+        {detail && (
+          <Descriptions column={1} size="small" bordered>
+            <Descriptions.Item label="from">{detail.requester?.name} ({detail.requester?.path})</Descriptions.Item>
+            <Descriptions.Item label="to">{detail.target?.name} ({detail.target?.path})</Descriptions.Item>
+            <Descriptions.Item label="mode">{detail.mode}</Descriptions.Item>
+            <Descriptions.Item label="status">{detail.status}</Descriptions.Item>
+            <Descriptions.Item label="question">
+              <pre style={{ margin: 0, whiteSpace: "pre-wrap", fontSize: 12 }}>{detail.question}</pre>
+            </Descriptions.Item>
+            <Descriptions.Item label="result">
+              <pre style={{ margin: 0, whiteSpace: "pre-wrap", fontSize: 12 }}>
+                {detail.status === "failed" ? detail.error : (detail.result ?? "-")}
+              </pre>
+            </Descriptions.Item>
+          </Descriptions>
+        )}
+      </Modal>
     </>
   )
 }
@@ -308,41 +353,38 @@ function AccountPage() {
   return (
     <div style={{ maxWidth: 1080 }}>
       <Card style={{ marginBottom: 16 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <Text strong style={{ flexShrink: 0 }}>API Key</Text>
-          <div style={{ display: "flex", alignItems: "center", gap: 2, flex: 1, minWidth: 0 }}>
+        <Text type="secondary">[ api key ]</Text>
+        <div style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 8 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 4, flex: 1, minWidth: 0 }}>
             <Text
               code
               copyable={false}
               style={{
-                fontSize: 14,
-                fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace",
-                padding: "8px 14px",
-                background: "#f6f6f6",
-                borderRadius: 6,
-                whiteSpace: "nowrap",
+                fontSize: 13,
+                padding: "9px 14px",
                 flex: 1,
                 minWidth: 320,
                 maxWidth: 560,
                 overflow: "hidden",
                 textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
               }}
             >
-              {me ? (showKey ? key : maskKey(key)) : "加载中..."}
+              {me ? (showKey ? key : maskKey(key)) : "loading..."}
             </Text>
-            <Tooltip title={showKey ? "隐藏" : "显示"}>
+            <Tooltip title={showKey ? "hide" : "show"}>
               <Button type="text" size="small" icon={showKey ? <EyeInvisibleOutlined /> : <EyeOutlined />}
                 onClick={() => setShowKey(!showKey)} />
             </Tooltip>
-            <Tooltip title="复制">
+            <Tooltip title="copy">
               <Button type="text" size="small" icon={<CopyOutlined />} onClick={() => {
                 navigator.clipboard.writeText(key)
                 message.success("已复制")
               }} />
             </Tooltip>
-            <Popconfirm title="重置后旧 Key 立即失效，所有使用旧 Key 的 agent 将无法连接。确认重置？"
+            <Popconfirm title="重置后旧 Key 立即失效，所有 agent 将断开连接。确认？"
               onConfirm={reset}>
-              <Button danger size="small">重置</Button>
+              <Button danger size="small">reset</Button>
             </Popconfirm>
           </div>
         </div>
@@ -357,33 +399,34 @@ function InstallPluginCard({ apiKey }: { apiKey: string }) {
   const hasKey = !!apiKey
 
   return (
-    <Card title="接入 AI 编程工具">
-      <Text type="secondary">
-        在装有 AI 编程工具的机器上执行以下命令，即可接入 agent_swarm：
-      </Text>
-      <div style={{ display: "flex", alignItems: "center", gap: 2, marginTop: 12 }}>
-        <Text
-          code
+    <Card>
+      <Text type="secondary">[ install ]</Text>
+      <div style={{ marginTop: 8 }}>
+        <Text type="secondary" style={{ fontSize: 12 }}>
+          在装有 AI 编程工具的机器上执行：
+        </Text>
+        <div
           style={{
-            fontSize: 13,
-            padding: "9px 14px",
-            background: "#f6f6f6",
-            borderRadius: 6,
-            whiteSpace: "nowrap",
-            flex: 1,
-            minWidth: 420,
-            overflow: "hidden",
-            textOverflow: "ellipsis",
+            display: "flex", alignItems: "center", gap: 4, marginTop: 8,
+            border: "1px solid #2c2c2e", borderRadius: 5, background: "#0c0c0e", padding: "4px 4px 4px 14px",
           }}
         >
-          {hasKey ? installCmd : "请先获取 API Key"}
-        </Text>
-        <Tooltip title="复制安装命令">
-          <Button type="text" icon={<CopyOutlined />} disabled={!hasKey} onClick={() => {
-            navigator.clipboard.writeText(installCmd)
-            message.success("安装命令已复制，到目标机器执行即可")
-          }} />
-        </Tooltip>
+          <Text
+            style={{
+              flex: 1, minWidth: 0, fontSize: 13,
+              overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+            }}
+          >
+            <Text type="secondary" style={{ fontSize: 13 }}>$ </Text>
+            {hasKey ? installCmd : "# 请先获取 api key"}
+          </Text>
+          <Tooltip title="copy">
+            <Button type="text" size="small" icon={<CopyOutlined />} disabled={!hasKey} onClick={() => {
+              navigator.clipboard.writeText(installCmd)
+              message.success("安装命令已复制")
+            }} />
+          </Tooltip>
+        </div>
       </div>
     </Card>
   )

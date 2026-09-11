@@ -1,9 +1,19 @@
 body {
   margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: "IBM Plex Mono", "Berkeley Mono", ui-monospace, SFMono-Regular,
+    Menlo, Consolas, monospace;
+  background: #0c0c0e;
 }
 
-/* code/tag 等宽字体：掩码与明文宽度一致 */
-.ant-typography code, code.ant-typography, .ant-tag {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace !important;
+/* 终端美学：code 面板扁平化 */
+.ant-typography code,
+code.ant-typography {
+  font-family: "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace !important;
+  border: 1px solid #2c2c2e;
+  background: #161618;
+}
+
+/* 表格去默认背景，扁平边框 */
+.ant-table-wrapper .ant-table {
+  background: transparent;
 }
