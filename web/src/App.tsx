@@ -311,24 +311,21 @@ function AccountPage() {
       <Card style={{ marginBottom: 16 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <Text strong style={{ flexShrink: 0 }}>API Key</Text>
-          <Text
-            code
-            copyable={false}
-            style={{
-              flex: 1,
-              minWidth: 0,
-              fontSize: 13,
-              padding: "7px 12px",
-              background: "#f6f6f6",
-              borderRadius: 6,
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
-            }}
-          >
-            {me ? (showKey ? key : maskKey(key)) : "加载中..."}
-          </Text>
-          <div style={{ display: "flex", gap: 2, flexShrink: 0 }}>
+          <div style={{ display: "inline-flex", alignItems: "center", gap: 2, maxWidth: "100%" }}>
+            <Text
+              code
+              copyable={false}
+              style={{
+                fontSize: 14,
+                padding: "8px 14px",
+                background: "#f6f6f6",
+                borderRadius: 6,
+                whiteSpace: "nowrap",
+                width: "fit-content",
+              }}
+            >
+              {me ? (showKey ? key : maskKey(key)) : "加载中..."}
+            </Text>
             <Tooltip title={showKey ? "隐藏" : "显示"}>
               <Button type="text" size="small" icon={showKey ? <EyeInvisibleOutlined /> : <EyeOutlined />}
                 onClick={() => setShowKey(!showKey)} />
@@ -360,19 +357,16 @@ function InstallPluginCard({ apiKey }: { apiKey: string }) {
       <Text type="secondary">
         在装有 AI 编程工具的机器上执行以下命令，即可接入 agent_swarm：
       </Text>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 12 }}>
+      <div style={{ display: "inline-flex", alignItems: "center", gap: 2, maxWidth: "100%", marginTop: 12 }}>
         <Text
           code
           style={{
-            flex: 1,
-            minWidth: 0,
-            fontSize: 12,
-            padding: "9px 12px",
+            fontSize: 13,
+            padding: "9px 14px",
             background: "#f6f6f6",
             borderRadius: 6,
-            overflow: "hidden",
-            textOverflow: "ellipsis",
             whiteSpace: "nowrap",
+            width: "fit-content",
           }}
         >
           {hasKey ? installCmd : "请先获取 API Key"}
