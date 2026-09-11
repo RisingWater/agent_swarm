@@ -5,7 +5,7 @@ import {
 } from "antd"
 import {
   ApiOutlined, ClusterOutlined, HistoryOutlined,
-  UserOutlined, LogoutOutlined, CopyOutlined,
+  UserOutlined, LogoutOutlined, CopyOutlined, EyeOutlined, EyeInvisibleOutlined,
 } from "@ant-design/icons"
 import { api, pageOrigin, type Workspace, type HelpRequest, type User } from "./api"
 
@@ -18,29 +18,34 @@ const statusTag = (s: Workspace["status"]) => {
   return <Badge status="default" text={<Text type="secondary">离线</Text>} />
 }
 
+const maskKey = (k: string) =>
+  k.length > 12 ? `${k.slice(0, 6)}${"*".repeat(8)}${k.slice(-4)}` : "*".repeat(k.length)
+
 export default function App() {
   const [token, setToken] = useState(localStorage.getItem("swarm_token"))
-  const [page, setPage] = useState("workspaces")
+  const [page, setPage] = useState("account")
 
   if (!token) return <LoginPage onLogin={(t) => { localStorage.setItem("swarm_token", t); setToken(t) }} />
 
   return (
     <Layout style={{ minHeight: "100vh" }}>
-      <Sider theme="dark" width={200}>
-        <div style={{ color: "#fff", padding: 16, fontWeight: 700, fontSize: 16 }}>🐝 agent_swarm</div>
+      <Sider width={180} style={{ background: "#fff", borderRight: "1px solid #f0f0f0" }}>
+        <div style={{ padding: "16px 16px 8px", fontWeight: 700, fontSize: 16 }}>🐝 agent_swarm</div>
         <Menu
-          theme="dark" mode="inline" selectedKeys={[page]} onClick={(e) => setPage(e.key)}
+          mode="inline"
+          style={{ borderInlineEnd: "none" }}
+          selectedKeys={[page]} onClick={(e) => setPage(e.key)}
           items={[
+            { key: "account", icon: <ApiOutlined />, label: "接入" },
             { key: "workspaces", icon: <ClusterOutlined />, label: "工作区" },
             { key: "help", icon: <HistoryOutlined />, label: "求助记录" },
-            { key: "account", icon: <ApiOutlined />, label: "API Key" },
           ]}
         />
       </Sider>
       <Layout>
-        <Header style={{ background: "#fff", padding: "0 24px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <Header style={{ background: "#fff", padding: "0 24px", display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid #f0f0f0" }}>
           <Title level={4} style={{ margin: 0 }}>
-            {{ workspaces: "工作区看板", help: "求助记录", account: "账号设置" }[page]}
+            {{ account: "接入", workspaces: "工作区看板", help: "求助记录" }[page]}
           </Title>
           <Space>
             <span><UserOutlined /> {localStorage.getItem("swarm_user")}</span>
@@ -50,9 +55,9 @@ export default function App() {
           </Space>
         </Header>
         <Content style={{ padding: 24 }}>
+          {page === "account" && <AccountPage />}
           {page === "workspaces" && <WorkspacesPage />}
           {page === "help" && <HelpPage />}
-          {page === "account" && <AccountPage />}
         </Content>
       </Layout>
     </Layout>
@@ -280,10 +285,11 @@ function HelpPage() {
   )
 }
 
-// ---------------- 账号 ----------------
+// ---------------- 接入（API Key + 安装） ----------------
 
 function AccountPage() {
   const [me, setMe] = useState<(User & { api_key: string }) | null>(null)
+  const [showKey, setShowKey] = useState(false)
 
   const refresh = useCallback(() => {
     api.me().then(setMe).catch((e) => message.error(e.message))
@@ -298,31 +304,33 @@ function AccountPage() {
     } catch (e: any) { message.error(e.message) }
   }
 
+  const key = me?.api_key ?? ""
+
   return (
-    <div style={{ maxWidth: 600 }}>
-      <Card title="账号信息" style={{ marginBottom: 16 }}>
-        <Descriptions column={1}>
-          <Descriptions.Item label="用户名">{me?.username ?? "-"}</Descriptions.Item>
-          <Descriptions.Item label="API Key">
-            {me ? (
-              <Space.Compact style={{ width: "100%" }}>
-                <Input readOnly value={me.api_key} />
-                <Button icon={<CopyOutlined />} onClick={() => {
-                  navigator.clipboard.writeText(me.api_key)
-                  message.success("已复制")
-                }} />
-              </Space.Compact>
-            ) : "-"}
-          </Descriptions.Item>
-        </Descriptions>
-        <div style={{ marginTop: 16 }}>
+    <div style={{ maxWidth: 860 }}>
+      <Card style={{ marginBottom: 16 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+          <Text strong style={{ flexShrink: 0 }}>API Key</Text>
+          <Text code style={{ fontSize: 13, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {me ? (showKey ? key : maskKey(key)) : "加载中..."}
+          </Text>
+          <Tooltip title={showKey ? "隐藏" : "显示"}>
+            <Button type="text" size="small" icon={showKey ? <EyeInvisibleOutlined /> : <EyeOutlined />}
+              onClick={() => setShowKey(!showKey)} />
+          </Tooltip>
+          <Tooltip title="复制">
+            <Button type="text" size="small" icon={<CopyOutlined />} onClick={() => {
+              navigator.clipboard.writeText(key)
+              message.success("已复制")
+            }} />
+          </Tooltip>
           <Popconfirm title="重置后旧 Key 立即失效，所有使用旧 Key 的 agent 将无法连接。确认重置？"
             onConfirm={reset}>
-            <Button danger>重置 API Key</Button>
+            <Button danger size="small">重置</Button>
           </Popconfirm>
         </div>
       </Card>
-      <InstallPluginCard apiKey={me?.api_key ?? ""} />
+      <InstallPluginCard apiKey={key} />
     </div>
   )
 }
@@ -332,41 +340,20 @@ function InstallPluginCard({ apiKey }: { apiKey: string }) {
   const hasKey = !!apiKey
 
   return (
-    <Card title="安装 opencode 插件" style={{ marginBottom: 16 }}>
+    <Card title="接入 AI 编程工具">
       <Text type="secondary">
-        在装了 opencode 的机器上执行下面这条命令，插件会自动注册工作区、保持心跳，
-        并注入 swarm 工具供 agent 互相求助。
+        在装有 AI 编程工具的机器上执行以下命令，即可接入 agent_swarm：
       </Text>
-      <Input.TextArea
-        readOnly
-        value={hasKey ? installCmd : "请先获取 API Key（上方）"}
-        autoSize={{ minRows: 3, maxRows: 5 }}
-        style={{ marginTop: 12, fontFamily: "monospace", fontSize: 12 }}
-      />
-      <Space style={{ marginTop: 12 }}>
-        <Button
-          type="primary"
-          icon={<CopyOutlined />}
-          disabled={!hasKey}
-          onClick={() => {
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 12 }}>
+        <Text code style={{ flex: 1, minWidth: 0, fontSize: 12, padding: "8px 10px", background: "#f6f6f6", borderRadius: 6, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {hasKey ? installCmd : "请先获取 API Key"}
+        </Text>
+        <Tooltip title="复制安装命令">
+          <Button type="text" icon={<CopyOutlined />} disabled={!hasKey} onClick={() => {
             navigator.clipboard.writeText(installCmd)
             message.success("安装命令已复制，到目标机器执行即可")
-          }}
-        >
-          复制安装命令
-        </Button>
-        <Button
-          href={`${pageOrigin}/download/install.sh`}
-          target="_blank"
-        >
-          查看 install.sh
-        </Button>
-      </Space>
-      <div style={{ marginTop: 12 }}>
-        <Text type="secondary" style={{ fontSize: 12 }}>
-          安装脚本会：下载插件包到 ~/.config/opencode/plugins/agent-swarm → 安装依赖 →
-          写入 server/apikey 配置 → 注册到 opencode.jsonc（全局配置）。
-        </Text>
+          }} />
+        </Tooltip>
       </div>
     </Card>
   )
