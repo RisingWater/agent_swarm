@@ -36,6 +36,10 @@ def new_api_key() -> str:
     return "as_" + secrets.token_urlsafe(32)
 
 
+def api_key_matches(provided_hash: str, stored_hash: str) -> bool:
+    return hmac.compare_digest(provided_hash, stored_hash)
+
+
 class User(SQLModel, table=True):
     __tablename__ = "users"
 
