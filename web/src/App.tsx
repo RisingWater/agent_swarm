@@ -310,7 +310,7 @@ function AccountPage() {
       <Card style={{ marginBottom: 16 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <Text strong style={{ flexShrink: 0 }}>API Key</Text>
-          <div style={{ display: "inline-flex", alignItems: "center", gap: 2, maxWidth: "100%" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 2, flex: 1, minWidth: 0 }}>
             <Text
               code
               copyable={false}
@@ -321,7 +321,11 @@ function AccountPage() {
                 background: "#f6f6f6",
                 borderRadius: 6,
                 whiteSpace: "nowrap",
-                width: "fit-content",
+                flex: 1,
+                minWidth: 320,
+                maxWidth: 560,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
               }}
             >
               {me ? (showKey ? key : maskKey(key)) : "加载中..."}
@@ -357,7 +361,7 @@ function InstallPluginCard({ apiKey }: { apiKey: string }) {
       <Text type="secondary">
         在装有 AI 编程工具的机器上执行以下命令，即可接入 agent_swarm：
       </Text>
-      <div style={{ display: "inline-flex", alignItems: "center", gap: 2, maxWidth: "100%", marginTop: 12 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 2, marginTop: 12 }}>
         <Text
           code
           style={{
@@ -366,7 +370,10 @@ function InstallPluginCard({ apiKey }: { apiKey: string }) {
             background: "#f6f6f6",
             borderRadius: 6,
             whiteSpace: "nowrap",
-            width: "fit-content",
+            flex: 1,
+            minWidth: 420,
+            overflow: "hidden",
+            textOverflow: "ellipsis",
           }}
         >
           {hasKey ? installCmd : "请先获取 API Key"}
