@@ -1,99 +1,127 @@
-import { useEffect, useState, useCallback } from "react"
-import {
-  Layout, Menu, Button, Input, Table, Tag, Card, Modal, message, Space,
-  Typography, Tabs, Popconfirm, Switch, Tooltip, Badge, Descriptions,
-} from "antd"
-import {
-  ApiOutlined, ClusterOutlined, HistoryOutlined,
-  LogoutOutlined, CopyOutlined, EyeOutlined, EyeInvisibleOutlined, UserOutlined,
-} from "@ant-design/icons"
+/** agent_swarm 管理端 —— opencode.ai 风格，纯 React 无 UI 库 */
+import { useEffect, useState, useCallback, useRef, type ReactNode } from "react"
 import { api, pageOrigin, type Workspace, type HelpRequest, type User } from "./api"
-
-const { Header, Sider, Content } = Layout
-const { Text, Title } = Typography
-
-const statusTag = (s: Workspace["status"]) => {
-  if (s === "online") return <Badge status="success" text={<Text style={{ color: "#c7c7cc" }}>online</Text>} />
-  if (s === "disabled") return <Badge status="error" text={<Text type="danger" style={{ color: "#ff453a" }}>disabled</Text>} />
-  return <Badge status="default" text={<Text type="secondary">offline</Text>} />
-}
 
 const maskKey = (k: string) => "*".repeat(k.length - 2) + k.slice(-2)
 
-function Logo() {
+// ---------------- 基础组件 ----------------
+
+function Logo({ size = 26 }: { size?: number }) {
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "18px 20px 14px" }}>
-      <span
-        style={{
-          display: "inline-flex", alignItems: "center", justifyContent: "center",
-          width: 26, height: 26, border: "1.5px solid #007aff", borderRadius: 5,
-          color: "#007aff", fontWeight: 700, fontSize: 13,
-        }}
-      >
-        &gt;_
-      </span>
-      <span style={{ fontWeight: 700, fontSize: 14, letterSpacing: "0.02em" }}>agent_swarm</span>
+    <span className="topnav-logo" style={{ gap: 10 }}>
+      <span className="mark" style={{ width: size, height: size }}>&gt;_</span>
+      agent_swarm
+    </span>
+  )
+}
+
+function Btn(props: {
+  variant?: "primary" | "ghost" | "danger" | "icon"
+  size?: "sm"
+  disabled?: boolean
+  title?: string
+  onClick?: () => void
+  children?: ReactNode
+}) {
+  const { variant = "ghost", size, ...rest } = props
+  const cls = ["btn", `btn-${variant}`, size === "sm" ? "btn-sm" : ""].join(" ")
+  return <button className={cls} {...rest} />
+}
+
+function Toast({ msg }: { msg: string | null }) {
+  if (!msg) return null
+  return <div className="toast">{msg}</div>
+}
+
+function useToast() {
+  const [msg, setMsg] = useState<string | null>(null)
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const show = useCallback((m: string) => {
+    setMsg(m)
+    clearTimeout(timer.current)
+    timer.current = setTimeout(() => setMsg(null), 2200)
+  }, [])
+  return { msg, show }
+}
+
+function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
+  return (
+    <div className="dialog-overlay" onClick={onClose}>
+      <div className="dialog" onClick={(e) => e.stopPropagation()}>
+        <h3>{title}</h3>
+        {children}
+      </div>
     </div>
   )
 }
 
+function StatusDot({ status }: { status: string }) {
+  return (
+    <span>
+      <span className={`dot ${status}`} />
+      <span style={{ fontSize: 12 }}>{status}</span>
+    </span>
+  )
+}
+
+function Switch({ on, onClick }: { on: boolean; onClick: () => void }) {
+  return <span className={`switch ${on ? "on" : ""}`} onClick={onClick} />
+}
+
+function Confirm({ text, onOk, onClose }: { text: string; onOk: () => void; onClose: () => void }) {
+  return (
+    <div className="confirm-pop" onClick={(e) => e.stopPropagation()}>
+      {text}
+      <div className="actions">
+        <Btn size="sm" variant="ghost" onClick={onClose}>cancel</Btn>
+        <Btn size="sm" variant="danger" onClick={() => { onOk(); onClose() }}>confirm</Btn>
+      </div>
+    </div>
+  )
+}
+
+// ---------------- 应用骨架 ----------------
+
 export default function App() {
   const [token, setToken] = useState(localStorage.getItem("swarm_token"))
-  const [page, setPage] = useState("account")
+  const [page, setPage] = useState<"account" | "workspaces" | "help">("account")
+  const { msg, show: toast } = useToast()
 
   if (!token)
     return <LoginPage onLogin={(t) => { localStorage.setItem("swarm_token", t); setToken(t) }} />
 
   return (
-    <Layout style={{ minHeight: "100vh" }}>
-      <Sider width={190} style={{ borderRight: "1px solid #2c2c2e" }}>
+    <>
+      <header className="topnav">
         <Logo />
-        <Menu
-          mode="inline"
-          style={{ borderInlineEnd: "none", padding: "0 8px" }}
-          selectedKeys={[page]}
-          onClick={(e) => setPage(e.key)}
-          items={[
-            { key: "account", icon: <ApiOutlined />, label: "接入" },
-            { key: "workspaces", icon: <ClusterOutlined />, label: "工作区" },
-            { key: "help", icon: <HistoryOutlined />, label: "求助记录" },
-          ]}
-        />
-      </Sider>
-      <Layout>
-        <Header
-          style={{
-            padding: "0 28px", display: "flex", justifyContent: "space-between",
-            alignItems: "center", borderBottom: "1px solid #2c2c2e", height: 56,
-          }}
-        >
-          <Text type="secondary" style={{ fontSize: 13 }}>
-            {{ account: "~/接入", workspaces: "~/工作区", help: "~/求助记录" }[page]}
-          </Text>
-          <Space size={12}>
-            <Text type="secondary" style={{ fontSize: 13 }}>
-              <UserOutlined style={{ marginRight: 6 }} />
-              {localStorage.getItem("swarm_user")}
-            </Text>
-            <Button
-              type="text" size="small" icon={<LogoutOutlined />}
-              onClick={() => {
-                localStorage.removeItem("swarm_token")
-                localStorage.removeItem("swarm_user")
-                setToken(null)
-              }}
-            />
-          </Space>
-        </Header>
-        <Content style={{ padding: 28, maxWidth: 1100 }}>
-          {page === "account" && <AccountPage />}
-          {page === "workspaces" && <WorkspacesPage />}
-          {page === "help" && <HelpPage />}
-        </Content>
-      </Layout>
-    </Layout>
+        <nav className="topnav-links">
+          <a className={page === "account" ? "active" : ""} onClick={() => setPage("account")}>接入</a>
+          <a className={page === "workspaces" ? "active" : ""} onClick={() => setPage("workspaces")}>工作区</a>
+          <a className={page === "help" ? "active" : ""} onClick={() => setPage("help")}>求助记录</a>
+          <span className="user">{localStorage.getItem("swarm_user")}</span>
+          <button
+            onClick={() => {
+              localStorage.removeItem("swarm_token")
+              localStorage.removeItem("swarm_user")
+              setToken(null)
+            }}
+          >
+            退出
+          </button>
+        </nav>
+      </header>
+      <main className="page">
+        {page === "account" && <AccountPage toast={toast} />}
+        {page === "workspaces" && <WorkspacesPage toast={toast} />}
+        {page === "help" && <HelpPage />}
+      </main>
+      <Toast msg={msg} />
+    </>
   )
 }
+
+// 用 context 传 toast 简化：这里直接用一个模块级事件太 hacky，
+// 改为每个页面自己持有 toast。
 
 // ---------------- 登录/注册 ----------------
 
@@ -103,9 +131,11 @@ function LoginPage({ onLogin }: { onLogin: (token: string) => void }) {
   const [password, setPassword] = useState("")
   const [loading, setLoading] = useState(false)
   const [apiKeyShow, setApiKeyShow] = useState<string | null>(null)
+  const [err, setErr] = useState("")
 
   const submit = async () => {
     setLoading(true)
+    setErr("")
     try {
       if (mode === "login") {
         const r = await api.login(username, password)
@@ -115,155 +145,222 @@ function LoginPage({ onLogin }: { onLogin: (token: string) => void }) {
         const r = await api.register(username, password)
         setApiKeyShow(r.api_key)
       }
-    } catch (e: any) { message.error(e.message) }
+    } catch (e: any) {
+      setErr(e.message)
+    }
     setLoading(false)
   }
 
   return (
-    <div style={{ display: "flex", justifyContent: "center", alignItems: "center", minHeight: "100vh" }}>
-      <div style={{ width: 400 }}>
-        <div style={{ textAlign: "center", marginBottom: 28 }}>
-          <span
-            style={{
-              display: "inline-flex", alignItems: "center", justifyContent: "center",
-              width: 52, height: 52, border: "2px solid #007aff", borderRadius: 8,
-              color: "#007aff", fontWeight: 700, fontSize: 22,
-            }}
-          >
-            &gt;_
-          </span>
-          <Title level={3} style={{ marginTop: 16, marginBottom: 4 }}>agent_swarm</Title>
-          <Text type="secondary">multi-agent coordination hub</Text>
-        </div>
-        <Card>
-          <Tabs
-            centered
-            items={[
-              { key: "login", label: "login", children: loginForm() },
-              { key: "register", label: "register", children: registerForm() },
-            ]}
-            activeKey={mode}
-            onChange={(k) => setMode(k as any)}
-          />
-        </Card>
+    <div className="auth-wrap">
+      <div className="auth-hero">
+        <Logo size={44} />
+        <h1>agent_swarm</h1>
+        <p>multi-agent coordination hub</p>
       </div>
-      <Modal
-        open={!!apiKeyShow} title="your api key" closable={false}
-        footer={<Button type="primary" onClick={() => { setApiKeyShow(null); setMode("login") }}>ok, saved</Button>}
-      >
-        <Text type="secondary">key 可以随时在「接入」页查看，但请妥善保管：</Text>
-        <Text code style={{ display: "block", marginTop: 8, padding: "8px 12px", fontSize: 13, wordBreak: "break-all" }}>
-          {apiKeyShow}
-        </Text>
-      </Modal>
+      <div style={{ width: 380 }}>
+        <div className="tablist" role="tablist">
+          <button role="tab" aria-selected={mode === "login"} onClick={() => setMode("login")}>login</button>
+          <button role="tab" aria-selected={mode === "register"} onClick={() => setMode("register")}>register</button>
+        </div>
+        <div className="tabpanel">
+          <div style={{ display: "grid", gap: 12 }}>
+            <input className="field" placeholder="username" value={username} onChange={(e) => setUsername(e.target.value)} />
+            <input className="field" type="password" placeholder="password" value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && submit()} />
+            {err && <div style={{ color: "#d4494b", fontSize: 12 }}>{err}</div>}
+            <button className="btn btn-primary" style={{ justifyContent: "center" }} disabled={loading} onClick={submit}>
+              {loading ? "..." : mode}
+            </button>
+          </div>
+        </div>
+      </div>
+      {apiKeyShow && (
+        <Modal title="your api key" onClose={() => { setApiKeyShow(null); setMode("login") }}>
+          <p style={{ fontSize: 13, color: "var(--text-weak)", marginTop: 0 }}>
+            key 可以随时在「接入」页查看，但请妥善保管：
+          </p>
+          <div className="keybox" style={{ fontSize: 12, wordBreak: "break-all", whiteSpace: "normal" }}>
+            {apiKeyShow}
+          </div>
+          <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 16 }}>
+            <Btn variant="primary" onClick={() => { setApiKeyShow(null); setMode("login") }}>ok, saved</Btn>
+          </div>
+        </Modal>
+      )}
     </div>
   )
+}
 
-  function loginForm() {
-    return <Space direction="vertical" style={{ width: "100%" }}>
-      <Input prefix={<Text type="secondary">$</Text>} placeholder="username" value={username} onChange={(e) => setUsername(e.target.value)} />
-      <Input.Password prefix={<Text type="secondary">$</Text>} placeholder="password" value={password} onChange={(e) => setPassword(e.target.value)} onPressEnter={submit} />
-      <Button type="primary" block loading={loading} onClick={submit}>login</Button>
-    </Space>
+// ---------------- 接入 ----------------
+
+function AccountPage({ toast }: { toast: (m: string) => void }) {
+  const [me, setMe] = useState<(User & { api_key: string }) | null>(null)
+  const [showKey, setShowKey] = useState(false)
+
+  const refresh = useCallback(() => {
+    api.me().then(setMe).catch((e) => toast(e.message))
+  }, [toast])
+  useEffect(() => { refresh() }, [refresh])
+
+  const reset = async () => {
+    try {
+      await api.resetApiKey()
+      toast("API Key 已重置")
+      refresh()
+    } catch (e: any) { toast(e.message) }
   }
-  function registerForm() {
-    return <Space direction="vertical" style={{ width: "100%" }}>
-      <Input prefix={<Text type="secondary">$</Text>} placeholder="username" value={username} onChange={(e) => setUsername(e.target.value)} />
-      <Input.Password prefix={<Text type="secondary">$</Text>} placeholder="password (min 6)" value={password} onChange={(e) => setPassword(e.target.value)} onPressEnter={submit} />
-      <Button type="primary" block loading={loading} onClick={submit}>register</Button>
-    </Space>
-  }
+
+  const key = me?.api_key ?? ""
+  const installCmd = `curl -fsSL ${pageOrigin}/download/install.sh | bash -s -- --api-key ${key}`
+
+  return (
+    <>
+      <h1 className="page-title">接入</h1>
+      <p className="page-sub">管理 API Key，将 AI 编程工具接入 agent_swarm。</p>
+
+      <p className="section-label">[ api key ]</p>
+      <div className="keyrow">
+        <div className="keybox">
+          {me ? (showKey ? key : maskKey(key)) : "loading..."}
+        </div>
+        <Btn variant="icon" title={showKey ? "hide" : "show"} onClick={() => setShowKey(!showKey)}>
+          {showKey ? "🙈" : "👁"}
+        </Btn>
+        <Btn variant="icon" title="copy" onClick={() => {
+          navigator.clipboard.writeText(key)
+          toast("已复制")
+        }}>⧉</Btn>
+        <ConfirmWrap text="重置后旧 Key 立即失效，所有 agent 将断开连接。确认？" onOk={reset}>
+          <Btn size="sm" variant="danger">reset</Btn>
+        </ConfirmWrap>
+      </div>
+
+      <hr className="rule" />
+
+      <p className="section-label">[ install ]</p>
+      <p style={{ marginTop: 0, color: "var(--text-weak)" }}>
+        在装有 AI 编程工具的机器上执行：
+      </p>
+      <div className="cmdblock">
+        <span className="cmd-text">
+          <span className="prompt">$</span>
+          {key ? installCmd : "# 请先获取 api key"}
+        </span>
+        <Btn variant="icon" title="copy" onClick={() => {
+          navigator.clipboard.writeText(installCmd)
+          toast("安装命令已复制")
+        }}>⧉</Btn>
+      </div>
+    </>
+  )
+}
+
+// 简易 Popconfirm：点击按钮区域弹出
+function ConfirmWrap({ text, onOk, children }: { text: string; onOk: () => void; children: ReactNode }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <span style={{ position: "relative" }}>
+      <span onClick={() => setOpen(!open)}>{children}</span>
+      {open && <Confirm text={text} onOk={onOk} onClose={() => setOpen(false)} />}
+    </span>
+  )
 }
 
 // ---------------- 工作区 ----------------
 
-function WorkspacesPage() {
+function WorkspacesPage({ toast }: { toast: (m: string) => void }) {
   const [list, setList] = useState<Workspace[]>([])
-  const [loading, setLoading] = useState(false)
   const [detail, setDetail] = useState<Workspace | null>(null)
 
   const refresh = useCallback(async () => {
-    setLoading(true)
-    try { setList(await api.workspaces()) } catch (e: any) { message.error(e.message) }
-    setLoading(false)
-  }, [])
+    try { setList(await api.workspaces()) } catch (e: any) { toast(e.message) }
+  }, [toast])
   useEffect(() => {
     refresh()
     const t = setInterval(refresh, 10_000)
     return () => clearInterval(t)
   }, [refresh])
 
-  const toggle = async (w: Workspace, enabled: boolean) => {
+  const toggle = async (w: Workspace) => {
     try {
-      if (enabled) await api.enableWorkspace(w.id)
+      if (w.status === "disabled") await api.enableWorkspace(w.id)
       else await api.disableWorkspace(w.id)
-      message.success(enabled ? "已启用" : "已禁用")
+      toast(w.status === "disabled" ? "已启用" : "已禁用")
       refresh()
-    } catch (e: any) { message.error(e.message) }
+    } catch (e: any) { toast(e.message) }
+  }
+
+  const del = async (w: Workspace) => {
+    try {
+      await api.deleteWorkspace(w.id)
+      toast("deleted")
+      refresh()
+    } catch (e: any) { toast(e.message) }
   }
 
   return (
     <>
-      <Table
-        rowKey="id" loading={loading} dataSource={list} size="middle"
-        pagination={false}
-        columns={[
-          {
-            title: "status", width: 110,
-            render: (_: string, w) => statusTag(w.status),
-          },
-          { title: "name", dataIndex: "name", width: 170,
-            render: (v: string, w) => <a onClick={() => setDetail(w)} style={{ color: "#007aff" }}>{v}</a> },
-          { title: "path", dataIndex: "path", ellipsis: true,
-            render: (v: string) => <Tooltip title={v}><Text type="secondary" style={{ fontSize: 12 }}>{v}</Text></Tooltip> },
-          { title: "purpose", dataIndex: "purpose", ellipsis: true },
-          { title: "owner", dataIndex: ["owner", "username"], width: 110,
-            render: (v: string) => <Text type="secondary">{v}</Text> },
-          { title: "heartbeat", dataIndex: "last_heartbeat", width: 120,
-            render: (v: string | null) => v
-              ? <Text type="secondary" style={{ fontSize: 12 }}>{new Date(v + "Z").toLocaleTimeString()}</Text>
-              : <Text type="secondary">-</Text> },
-          {
-            title: "", width: 120,
-            render: (_: any, w) => (
-              <Space size={4}>
-                <Switch
-                  size="small"
-                  checked={w.status !== "disabled"}
-                  onChange={(v) => toggle(w, v)}
-                />
-                <Popconfirm
-                  title="delete this workspace?"
-                  disabled={w.status === "online"}
-                  onConfirm={async () => {
-                    try { await api.deleteWorkspace(w.id); message.success("deleted"); refresh() }
-                    catch (e: any) { message.error(e.message) }
-                  }}
-                >
-                  <Button danger type="text" size="small" disabled={w.status === "online"}>rm</Button>
-                </Popconfirm>
-              </Space>
-            ),
-          },
-        ]}
-      />
-      <Modal open={!!detail} title={detail?.name} footer={null} onCancel={() => setDetail(null)}>
-        {detail && (
-          <Descriptions column={1} size="small" bordered>
-            <Descriptions.Item label="status">{statusTag(detail.status)}</Descriptions.Item>
-            <Descriptions.Item label="path"><Text code>{detail.path}</Text></Descriptions.Item>
-            <Descriptions.Item label="purpose">{detail.purpose || "-"}</Descriptions.Item>
-            <Descriptions.Item label="capabilities">{detail.capabilities || "-"}</Descriptions.Item>
-            <Descriptions.Item label="notes">
-              <pre style={{ margin: 0, whiteSpace: "pre-wrap", fontSize: 12 }}>{detail.notes || "-"}</pre>
-            </Descriptions.Item>
-            <Descriptions.Item label="owner">{detail.owner?.username ?? "-"}</Descriptions.Item>
-            <Descriptions.Item label="heartbeat">
-              {detail.last_heartbeat ? new Date(detail.last_heartbeat + "Z").toLocaleString() : "-"}
-            </Descriptions.Item>
-          </Descriptions>
-        )}
-      </Modal>
+      <h1 className="page-title">工作区</h1>
+      <p className="page-sub">你的 agent 工作区及在线状态，每 10s 自动刷新。</p>
+      <table className="grid">
+        <thead>
+          <tr>
+            <th style={{ width: 100 }}>status</th>
+            <th style={{ width: 160 }}>name</th>
+            <th>path</th>
+            <th>purpose</th>
+            <th style={{ width: 100 }}>owner</th>
+            <th style={{ width: 100 }}>heartbeat</th>
+            <th style={{ width: 110 }}></th>
+          </tr>
+        </thead>
+        <tbody>
+          {list.map((w) => (
+            <tr key={w.id}>
+              <td><StatusDot status={w.status} /></td>
+              <td className="strong"><a className="link" onClick={() => setDetail(w)}>{w.name}</a></td>
+              <td title={w.path} style={{ color: "var(--text-weak)", fontSize: 12 }}>{w.path}</td>
+              <td title={w.purpose}>{w.purpose}</td>
+              <td style={{ color: "var(--text-weak)" }}>{w.owner?.username}</td>
+              <td style={{ color: "var(--text-weak)", fontSize: 12 }}>
+                {w.last_heartbeat ? new Date(w.last_heartbeat + "Z").toLocaleTimeString() : "-"}
+              </td>
+              <td>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <Switch on={w.status !== "disabled"} onClick={() => toggle(w)} />
+                  {w.status !== "online" && (
+                    <ConfirmWrap text={`delete ${w.name}?`} onOk={() => del(w)}>
+                      <Btn size="sm" variant="danger">rm</Btn>
+                    </ConfirmWrap>
+                  )}
+                </div>
+              </td>
+            </tr>
+          ))}
+          {!list.length && (
+            <tr><td colSpan={7} style={{ color: "var(--text-weak)", textAlign: "center", padding: 32 }}>
+              [*] no workspaces yet — 在目标机器执行接入页的安装命令
+            </td></tr>
+          )}
+        </tbody>
+      </table>
+
+      {detail && (
+        <Modal title={detail.name} onClose={() => setDetail(null)}>
+          <dl className="dl">
+            <dt>status</dt><dd><StatusDot status={detail.status} /></dd>
+            <dt>path</dt><dd>{detail.path}</dd>
+            <dt>purpose</dt><dd>{detail.purpose || "-"}</dd>
+            <dt>capabilities</dt><dd>{detail.capabilities || "-"}</dd>
+            <dt>notes</dt><dd>{detail.notes || "-"}</dd>
+            <dt>owner</dt><dd>{detail.owner?.username ?? "-"}</dd>
+            <dt>heartbeat</dt>
+            <dd>{detail.last_heartbeat ? new Date(detail.last_heartbeat + "Z").toLocaleString() : "-"}</dd>
+          </dl>
+        </Modal>
+      )}
     </>
   )
 }
@@ -272,162 +369,61 @@ function WorkspacesPage() {
 
 function HelpPage() {
   const [list, setList] = useState<HelpRequest[]>([])
-  const [loading, setLoading] = useState(false)
   const [detail, setDetail] = useState<HelpRequest | null>(null)
 
-  const refresh = useCallback(async () => {
-    setLoading(true)
-    try { setList(await api.helpRequests()) } catch (e: any) { message.error(e.message) }
-    setLoading(false)
-  }, [])
   useEffect(() => {
-    refresh()
-    const t = setInterval(refresh, 10_000)
+    const load = () => api.helpRequests().then(setList).catch(() => {})
+    load()
+    const t = setInterval(load, 10_000)
     return () => clearInterval(t)
-  }, [refresh])
-
-  const statusColor: Record<string, string> = {
-    pending: "warning", accepted: "processing", done: "success", failed: "error",
-  }
+  }, [])
 
   return (
     <>
-      <Table
-        rowKey="id" loading={loading} dataSource={list} size="middle" pagination={{ pageSize: 20 }}
-        columns={[
-          { title: "time", dataIndex: "created_at", width: 110,
-            render: (v: string) => <Text type="secondary" style={{ fontSize: 12 }}>{new Date(v + "Z").toLocaleTimeString()}</Text> },
-          { title: "from", width: 150, render: (_: any, r) => r.requester?.name ?? "-" },
-          { title: "to", width: 150, render: (_: any, r) => r.target?.name ?? "-" },
-          { title: "mode", dataIndex: "mode", width: 110,
-            render: (m: string) => <Tag style={{ fontSize: 11 }}>{m}</Tag> },
-          { title: "status", dataIndex: "status", width: 110,
-            render: (s: string) => <Badge status={statusColor[s] as any} text={<Text style={{ fontSize: 12 }}>{s}</Text>} /> },
-          { title: "question", dataIndex: "question", ellipsis: true,
-            render: (v: string, r) => <a onClick={() => setDetail(r)} style={{ color: "#007aff" }}>{v}</a> },
-        ]}
-      />
-      <Modal open={!!detail} title="help request" footer={null} onCancel={() => setDetail(null)}>
-        {detail && (
-          <Descriptions column={1} size="small" bordered>
-            <Descriptions.Item label="from">{detail.requester?.name} ({detail.requester?.path})</Descriptions.Item>
-            <Descriptions.Item label="to">{detail.target?.name} ({detail.target?.path})</Descriptions.Item>
-            <Descriptions.Item label="mode">{detail.mode}</Descriptions.Item>
-            <Descriptions.Item label="status">{detail.status}</Descriptions.Item>
-            <Descriptions.Item label="question">
-              <pre style={{ margin: 0, whiteSpace: "pre-wrap", fontSize: 12 }}>{detail.question}</pre>
-            </Descriptions.Item>
-            <Descriptions.Item label="result">
-              <pre style={{ margin: 0, whiteSpace: "pre-wrap", fontSize: 12 }}>
-                {detail.status === "failed" ? detail.error : (detail.result ?? "-")}
-              </pre>
-            </Descriptions.Item>
-          </Descriptions>
-        )}
-      </Modal>
+      <h1 className="page-title">求助记录</h1>
+      <p className="page-sub">agent 之间的互助请求历史。</p>
+      <table className="grid">
+        <thead>
+          <tr>
+            <th style={{ width: 100 }}>time</th>
+            <th style={{ width: 140 }}>from</th>
+            <th style={{ width: 140 }}>to</th>
+            <th style={{ width: 110 }}>mode</th>
+            <th style={{ width: 110 }}>status</th>
+            <th>question</th>
+          </tr>
+        </thead>
+        <tbody>
+          {list.map((r) => (
+            <tr key={r.id}>
+              <td style={{ color: "var(--text-weak)", fontSize: 12 }}>{new Date(r.created_at + "Z").toLocaleTimeString()}</td>
+              <td>{r.requester?.name ?? "-"}</td>
+              <td>{r.target?.name ?? "-"}</td>
+              <td style={{ color: "var(--text-weak)" }}>{r.mode}</td>
+              <td><span className={`status-pill ${r.status}`}>{r.status}</span></td>
+              <td><a className="link" onClick={() => setDetail(r)}>{r.question}</a></td>
+            </tr>
+          ))}
+          {!list.length && (
+            <tr><td colSpan={6} style={{ color: "var(--text-weak)", textAlign: "center", padding: 32 }}>
+              [*] no help requests
+            </td></tr>
+          )}
+        </tbody>
+      </table>
+
+      {detail && (
+        <Modal title="help request" onClose={() => setDetail(null)}>
+          <dl className="dl">
+            <dt>from</dt><dd>{detail.requester?.name} ({detail.requester?.path})</dd>
+            <dt>to</dt><dd>{detail.target?.name} ({detail.target?.path})</dd>
+            <dt>mode</dt><dd>{detail.mode}</dd>
+            <dt>status</dt><dd>{detail.status}</dd>
+            <dt>question</dt><dd>{detail.question}</dd>
+            <dt>result</dt><dd>{detail.status === "failed" ? detail.error : (detail.result ?? "-")}</dd>
+          </dl>
+        </Modal>
+      )}
     </>
-  )
-}
-
-// ---------------- 接入（API Key + 安装） ----------------
-
-function AccountPage() {
-  const [me, setMe] = useState<(User & { api_key: string }) | null>(null)
-  const [showKey, setShowKey] = useState(false)
-
-  const refresh = useCallback(() => {
-    api.me().then(setMe).catch((e) => message.error(e.message))
-  }, [])
-  useEffect(() => { refresh() }, [refresh])
-
-  const reset = async () => {
-    try {
-      await api.resetApiKey()
-      message.success("API Key 已重置")
-      refresh()
-    } catch (e: any) { message.error(e.message) }
-  }
-
-  const key = me?.api_key ?? ""
-
-  return (
-    <div style={{ maxWidth: 1080 }}>
-      <Card style={{ marginBottom: 16 }}>
-        <Text type="secondary">[ api key ]</Text>
-        <div style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 8 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 4, flex: 1, minWidth: 0 }}>
-            <Text
-              code
-              copyable={false}
-              style={{
-                fontSize: 13,
-                padding: "9px 14px",
-                flex: 1,
-                minWidth: 320,
-                maxWidth: 560,
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
-              }}
-            >
-              {me ? (showKey ? key : maskKey(key)) : "loading..."}
-            </Text>
-            <Tooltip title={showKey ? "hide" : "show"}>
-              <Button type="text" size="small" icon={showKey ? <EyeInvisibleOutlined /> : <EyeOutlined />}
-                onClick={() => setShowKey(!showKey)} />
-            </Tooltip>
-            <Tooltip title="copy">
-              <Button type="text" size="small" icon={<CopyOutlined />} onClick={() => {
-                navigator.clipboard.writeText(key)
-                message.success("已复制")
-              }} />
-            </Tooltip>
-            <Popconfirm title="重置后旧 Key 立即失效，所有 agent 将断开连接。确认？"
-              onConfirm={reset}>
-              <Button danger size="small">reset</Button>
-            </Popconfirm>
-          </div>
-        </div>
-      </Card>
-      <InstallPluginCard apiKey={key} />
-    </div>
-  )
-}
-
-function InstallPluginCard({ apiKey }: { apiKey: string }) {
-  const installCmd = `curl -fsSL ${pageOrigin}/download/install.sh | bash -s -- --api-key ${apiKey}`
-  const hasKey = !!apiKey
-
-  return (
-    <Card>
-      <Text type="secondary">[ install ]</Text>
-      <div style={{ marginTop: 8 }}>
-        <Text type="secondary" style={{ fontSize: 12 }}>
-          在装有 AI 编程工具的机器上执行：
-        </Text>
-        <div
-          style={{
-            display: "flex", alignItems: "center", gap: 4, marginTop: 8,
-            border: "1px solid #2c2c2e", borderRadius: 5, background: "#0c0c0e", padding: "4px 4px 4px 14px",
-          }}
-        >
-          <Text
-            style={{
-              flex: 1, minWidth: 0, fontSize: 13,
-              overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-            }}
-          >
-            <Text type="secondary" style={{ fontSize: 13 }}>$ </Text>
-            {hasKey ? installCmd : "# 请先获取 api key"}
-          </Text>
-          <Tooltip title="copy">
-            <Button type="text" size="small" icon={<CopyOutlined />} disabled={!hasKey} onClick={() => {
-              navigator.clipboard.writeText(installCmd)
-              message.success("安装命令已复制")
-            }} />
-          </Tooltip>
-        </div>
-      </div>
-    </Card>
   )
 }
