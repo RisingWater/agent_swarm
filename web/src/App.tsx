@@ -571,6 +571,14 @@ function HomePage({ toast, loggedIn, onGoAccount, onOpenLogin }: { toast: (m: st
             <a className="link" onClick={onOpenLogin}>登录</a>账号即可安装。
           </p>
         )}
+        <div className="supported-agents">
+          <span className="supported-label">已支持的 agent 工具：</span>
+          <span className="agent-chip supported">opencode</span>
+          <span className="agent-chip planned">claude code</span>
+          <span className="agent-chip planned">deepseek harness</span>
+          <span className="agent-chip planned">pi</span>
+          <span className="agent-chip planned">其他 MCP 客户端…</span>
+        </div>
       </section>
 
       {/* 3. 演示视频（懒加载：点击封面才开始加载播放） */}
@@ -590,9 +598,9 @@ function HomePage({ toast, loggedIn, onGoAccount, onOpenLogin }: { toast: (m: st
           <div className="home-card">
             <div className="home-card-head">
               <FeatureIcon kind="mcp" />
-              <h3>任何 MCP 客户端可用</h3>
+              <h3>开放架构，逐步支持更多 agent</h3>
             </div>
-            <p>所有 agent 操作都是标准 MCP 工具，opencode、claude、deepseek 等任何支持 MCP 的工具都能接入虫群。</p>
+            <p>所有 agent 操作都是标准 MCP 工具。目前已支持 opencode，claude code、deepseek harness、pi 等支持 MCP 的 agent 客户端会逐步接入。</p>
           </div>
           <div className="home-card">
             <div className="home-card-head">

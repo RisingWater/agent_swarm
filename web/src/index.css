@@ -881,6 +881,39 @@ a.link:hover {
   margin: 0;
 }
 
+/* 已支持的 agent 工具标注 */
+.supported-agents {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.supported-label {
+  color: var(--text-weak);
+  font-size: 13px;
+}
+
+.agent-chip {
+  font-family: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+  font-size: 12.5px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+}
+
+.agent-chip.supported {
+  color: var(--text-strong);
+  border-color: var(--text-strong);
+  background: var(--bg-weak);
+}
+
+.agent-chip.planned {
+  color: var(--text-weak);
+  border-style: dashed;
+}
+
 .home-video {
   padding: 40px 0;
 }
