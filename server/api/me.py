@@ -34,3 +34,25 @@ def reset_apikey(
     session.add(user)
     session.commit()
     return ResetOut(api_key=new_key)
+
+
+class ChangePasswordBody(BaseModel):
+    old_password: str
+    new_password: str
+
+
+@router.post("/password")
+def change_password(
+    body: ChangePasswordBody,
+    user: models.User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+):
+    if not models.verify_password(body.old_password, user.password_hash):
+        raise HTTPException(401, "原密码不正确")
+    new_password = body.new_password.strip()
+    if len(new_password) < 6:
+        raise HTTPException(422, "新密码至少 6 位")
+    user.password_hash = models.hash_password(new_password)
+    session.add(user)
+    session.commit()
+    return {"ok": True}

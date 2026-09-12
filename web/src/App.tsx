@@ -179,11 +179,13 @@ function Confirm({ text, onOk, onClose }: { text: string; onOk: () => void; onCl
 
 export default function App() {
   const [token, setToken] = useState(localStorage.getItem("swarm_token"))
-  const [page, setPage] = useState<"account" | "workspaces" | "calls">("account")
+  const [page, setPage] = useState<"account" | "workspaces" | "calls" | "password">("account")
   const { msg, show: toast } = useToast()
 
   if (!token)
     return <LoginPage onLogin={(t) => { localStorage.setItem("swarm_token", t); setToken(t) }} />
+
+  const username = localStorage.getItem("swarm_user")
 
   return (
     <>
@@ -193,7 +195,18 @@ export default function App() {
           <a className={page === "account" ? "active" : ""} onClick={() => setPage("account")}>接入</a>
           <a className={page === "workspaces" ? "active" : ""} onClick={() => setPage("workspaces")}>工作区</a>
           <a className={page === "calls" ? "active" : ""} onClick={() => setPage("calls")}>调用记录</a>
-          <span className="user">{localStorage.getItem("swarm_user")}</span>
+          <a
+            className={`user${page === "password" ? " active" : ""}`}
+            title="修改密码"
+            onClick={() => setPage("password")}
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <circle cx="12" cy="8" r="4" />
+              <path d="M4 21c0-4 3.6-6.5 8-6.5s8 2.5 8 6.5" />
+            </svg>
+            {username}
+          </a>
           <button
             onClick={() => {
               localStorage.removeItem("swarm_token")
@@ -209,6 +222,7 @@ export default function App() {
         {page === "account" && <AccountPage toast={toast} />}
         {page === "workspaces" && <WorkspacesPage toast={toast} />}
         {page === "calls" && <CallsPage toast={toast} />}
+        {page === "password" && <PasswordPage toast={toast} />}
       </main>
       <Toast msg={msg} />
     </>
@@ -251,28 +265,28 @@ function LoginPage({ onLogin }: { onLogin: (token: string) => void }) {
       <div className="auth-hero">
         <Logo size={44} />
         <h1>agent_swarm</h1>
-        <p>multi-agent coordination hub</p>
+        <p>多 agent 协作中枢</p>
       </div>
       <div style={{ width: 380 }}>
         <div className="tablist" role="tablist">
-          <button role="tab" aria-selected={mode === "login"} onClick={() => setMode("login")}>login</button>
-          <button role="tab" aria-selected={mode === "register"} onClick={() => setMode("register")}>register</button>
+          <button role="tab" aria-selected={mode === "login"} onClick={() => setMode("login")}>登录</button>
+          <button role="tab" aria-selected={mode === "register"} onClick={() => setMode("register")}>注册</button>
         </div>
         <div className="tabpanel">
           <div style={{ display: "grid", gap: 12 }}>
-            <input className="field" placeholder="username" value={username} onChange={(e) => setUsername(e.target.value)} />
-            <input className="field" type="password" placeholder="password" value={password}
+            <input className="field" placeholder="用户名（2-32 位）" value={username} onChange={(e) => setUsername(e.target.value)} />
+            <input className="field" type="password" placeholder="密码（至少 6 位）" value={password}
               onChange={(e) => setPassword(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && submit()} />
             {err && <div style={{ color: "#d4494b", fontSize: 12 }}>{err}</div>}
             <button className="btn btn-primary" style={{ justifyContent: "center" }} disabled={loading} onClick={submit}>
-              {loading ? "..." : mode}
+              {loading ? "请稍候…" : mode === "login" ? "登录" : "注册"}
             </button>
           </div>
         </div>
       </div>
       {apiKeyShow && (
-        <Modal title="your api key" onClose={() => { setApiKeyShow(null); setMode("login") }}>
+        <Modal title="你的 API Key" onClose={() => { setApiKeyShow(null); setMode("login") }}>
           <p style={{ fontSize: 13, color: "var(--text-weak)", marginTop: 0 }}>
             key 可以随时在「接入」页查看，但请妥善保管：
           </p>
@@ -280,7 +294,7 @@ function LoginPage({ onLogin }: { onLogin: (token: string) => void }) {
             {apiKeyShow}
           </div>
           <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 16 }}>
-            <Btn variant="primary" onClick={() => { setApiKeyShow(null); setMode("login") }}>ok, saved</Btn>
+            <Btn variant="primary" onClick={() => { setApiKeyShow(null); setMode("login") }}>我已保存</Btn>
           </div>
         </Modal>
       )}
@@ -639,6 +653,71 @@ function CallsPage({ toast }: { toast: (m: string) => void }) {
           </dl>
         </Modal>
       )}
+    </>
+  )
+}
+
+// ---------------- 修改密码 ----------------
+
+function PasswordPage({ toast }: { toast: (m: string) => void }) {
+  const [username] = useState(localStorage.getItem("swarm_user") ?? "")
+  const [oldPwd, setOldPwd] = useState("")
+  const [newPwd, setNewPwd] = useState("")
+  const [newPwd2, setNewPwd2] = useState("")
+  const [loading, setLoading] = useState(false)
+  const [show, setShow] = useState(false)
+
+  const submit = async () => {
+    if (!oldPwd || !newPwd) return toast("请填写完整")
+    if (newPwd !== newPwd2) return toast("两次输入的新密码不一致")
+    if (newPwd.length < 6) return toast("新密码至少 6 位")
+    setLoading(true)
+    try {
+      await api.changePassword(oldPwd, newPwd)
+      setOldPwd("")
+      setNewPwd("")
+      setNewPwd2("")
+      toast("密码修改成功")
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "修改失败")
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const eye = (
+    <button className="pwd-eye" title={show ? "隐藏" : "显示"} onClick={() => setShow(!show)}>
+      <EyeIcon off={show} />
+    </button>
+  )
+
+  return (
+    <>
+      <h1 className="page-title">修改密码</h1>
+      <p className="page-sub">账号 <span style={{ color: "var(--text-strong)" }}>{username}</span> 的登录密码。修改后需用新密码重新登录。</p>
+      <div style={{ width: 400, display: "grid", gap: 12 }}>
+        <label className="pwd-label">原密码</label>
+        <div className="pwd-row">
+          <input className="field" type={show ? "text" : "password"} placeholder="当前密码" value={oldPwd}
+            onChange={(e) => setOldPwd(e.target.value)} />
+          {eye}
+        </div>
+        <label className="pwd-label">新密码（至少 6 位）</label>
+        <div className="pwd-row">
+          <input className="field" type={show ? "text" : "password"} placeholder="新密码" value={newPwd}
+            onChange={(e) => setNewPwd(e.target.value)} />
+          {eye}
+        </div>
+        <div className="pwd-row">
+          <input className="field" type={show ? "text" : "password"} placeholder="再输入一次新密码" value={newPwd2}
+            onChange={(e) => setNewPwd2(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && submit()} />
+          {eye}
+        </div>
+        <button className="btn btn-primary" style={{ justifyContent: "center", marginTop: 4 }} disabled={loading} onClick={submit}>
+          {loading ? "..." : "确认修改"}
+        </button>
+      </div>
     </>
   )
 }

@@ -82,6 +82,12 @@ export const api = {
 
   me: () => request("/api/me") as Promise<User & { api_key: string }>,
 
+  changePassword: (oldPassword: string, newPassword: string) =>
+    request("/api/me/password", {
+      method: "POST",
+      body: JSON.stringify({ old_password: oldPassword, new_password: newPassword }),
+    }) as Promise<{ ok: boolean }>,
+
   resetApiKey: () => request("/api/me/apikey/reset", { method: "POST" }) as Promise<{ api_key: string }>,
 
   workspaces: () => request("/api/workspaces") as Promise<Workspace[]>,

@@ -101,6 +101,41 @@ body {
 
 .topnav-links .user {
   color: var(--text-weak);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+/* ---------- 修改密码表单 ---------- */
+
+.pwd-label {
+  font-size: 13px;
+  color: var(--text-weak);
+}
+
+.pwd-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.pwd-row .field {
+  padding-right: 40px;
+}
+
+.pwd-eye {
+  position: absolute;
+  right: 8px;
+  background: none;
+  border: none;
+  color: var(--text-weak);
+  cursor: pointer;
+  padding: 4px;
+  display: inline-flex;
+}
+
+.pwd-eye:hover {
+  color: var(--text-strong);
 }
 
 /* ---------- 按钮 ---------- */
@@ -183,7 +218,7 @@ body {
 .field {
   width: 100%;
   font-family: var(--font);
-  font-size: 16px;
+  font-size: 14px;
   color: var(--text-strong);
   background: var(--bg);
   border: 1px solid var(--border);
@@ -520,7 +555,7 @@ a.link:hover {
 }
 
 .auth-hero h1 {
-  font-size: 46px;
+  font-size: 38px;
   font-weight: 700;
   color: var(--text-strong);
   margin: 16px 0 8px;
@@ -545,7 +580,7 @@ a.link:hover {
 
 .tablist button {
   font-family: var(--font);
-  font-size: 16px;
+  font-size: 13px;
   background: transparent;
   border: none;
   border-bottom: 2px solid transparent;

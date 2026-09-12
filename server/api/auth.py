@@ -28,14 +28,14 @@ def user_out(u: models.User) -> dict:
 def register(body: RegisterBody, session: Session = Depends(get_session)):
     body.username = body.username.strip()
     if not (2 <= len(body.username) <= 32):
-        raise HTTPException(422, "username must be 2-32 chars")
+        raise HTTPException(422, "用户名长度需为 2-32 个字符")
     if len(body.password) < 6:
-        raise HTTPException(422, "password must be at least 6 chars")
+        raise HTTPException(422, "密码至少 6 位")
     exists = session.exec(
         select(models.User).where(models.User.username == body.username)
     ).first()
     if exists:
-        raise HTTPException(409, "username already taken")
+        raise HTTPException(409, "用户名已被占用")
 
     api_key = models.new_api_key()
     user = models.User(
@@ -56,5 +56,5 @@ def login(body: LoginBody, session: Session = Depends(get_session)):
         select(models.User).where(models.User.username == body.username)
     ).first()
     if not user or not models.verify_password(body.password, user.password_hash):
-        raise HTTPException(401, "invalid username or password")
+        raise HTTPException(401, "用户名或密码错误")
     return {"token": create_token(user.id, user.username), "user": user_out(user)}
