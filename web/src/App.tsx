@@ -538,7 +538,47 @@ function HomePage({ toast, loggedIn, onGoAccount, onOpenLogin }: { toast: (m: st
         </p>
       </section>
 
-      {/* 2. 什么是 agent_swarm？ */}
+      {/* 2. 马上安装 */}
+      <section className="home-install">
+        <h2>马上安装</h2>
+        <div className="tablist tablist-inline">
+          <button role="tab" aria-selected={plat === "sh"} onClick={() => setPlat("sh")}>
+            macOS / linux
+          </button>
+          <button role="tab" aria-selected={plat === "ps1"} onClick={() => setPlat("ps1")}>
+            windows
+          </button>
+        </div>
+        <div className="cmdblock cmdblock-joined">
+          <span className="cmd-text">
+            <span className="prompt">{plat === "sh" ? "$" : "PS>"}</span>
+            {loggedIn && !key ? "# 正在获取 api key…" : installCmd}
+          </span>
+          {loggedIn && (
+            <Btn variant="icon" title="copy" onClick={() => {
+              navigator.clipboard.writeText(installCmd)
+              toast("安装命令已复制")
+            }}>⧉</Btn>
+          )}
+        </div>
+        {loggedIn ? (
+          <p className="home-hint" style={{ marginTop: 10 }}>
+            命令中的 API Key 可在 <a className="link" onClick={onGoAccount}>账号</a> 页查看或重置。
+          </p>
+        ) : (
+          <p className="home-hint" style={{ marginTop: 10 }}>
+            <a className="link" onClick={onOpenLogin}>注册</a>或者
+            <a className="link" onClick={onOpenLogin}>登录</a>账号即可安装。
+          </p>
+        )}
+      </section>
+
+      {/* 3. 演示视频（懒加载：点击封面才开始加载播放） */}
+      <section className="home-video">
+        <VideoPlayer src="/agent_swarm.mp4" />
+      </section>
+
+      {/* 4. 什么是 agent_swarm？ */}
       <section className="home-about">
         <h2>什么是 agent_swarm？</h2>
         <p>
@@ -578,42 +618,7 @@ function HomePage({ toast, loggedIn, onGoAccount, onOpenLogin }: { toast: (m: st
         </div>
       </section>
 
-      {/* 3. 马上安装 */}
-      <section className="home-install">
-        <h2>马上安装</h2>
-        <div className="tablist tablist-inline">
-          <button role="tab" aria-selected={plat === "sh"} onClick={() => setPlat("sh")}>
-            macOS / linux
-          </button>
-          <button role="tab" aria-selected={plat === "ps1"} onClick={() => setPlat("ps1")}>
-            windows
-          </button>
-        </div>
-        <div className="cmdblock cmdblock-joined">
-          <span className="cmd-text">
-            <span className="prompt">{plat === "sh" ? "$" : "PS>"}</span>
-            {loggedIn && !key ? "# 正在获取 api key…" : installCmd}
-          </span>
-          {loggedIn && (
-            <Btn variant="icon" title="copy" onClick={() => {
-              navigator.clipboard.writeText(installCmd)
-              toast("安装命令已复制")
-            }}>⧉</Btn>
-          )}
-        </div>
-        {loggedIn ? (
-          <p className="home-hint" style={{ marginTop: 10 }}>
-            命令中的 API Key 可在 <a className="link" onClick={onGoAccount}>账号</a> 页查看或重置。
-          </p>
-        ) : (
-          <p className="home-hint" style={{ marginTop: 10 }}>
-            <a className="link" onClick={onOpenLogin}>注册</a>或者
-            <a className="link" onClick={onOpenLogin}>登录</a>账号即可安装。
-          </p>
-        )}
-      </section>
-
-      {/* 4. 它可以做什么？ */}
+      {/* 5. 它可以做什么？ */}
       <section className="home-about">
         <h2>它可以做什么？</h2>
         <ul className="home-list">
@@ -624,10 +629,35 @@ function HomePage({ toast, loggedIn, onGoAccount, onOpenLogin }: { toast: (m: st
         </ul>
       </section>
 
-      {/* 5. 阅读文档 */}
+      {/* 6. 阅读文档 */}
       <section className="home-docs-cta">
         <a className="btn btn-primary docs-btn" href="#/docs">阅读文档 →</a>
       </section>
+    </div>
+  )
+}
+
+/** 演示视频播放器：默认显示封面帧，点击后才真正加载视频（39MB 不拖慢首屏） */
+function VideoPlayer({ src }: { src: string }) {
+  const [playing, setPlaying] = useState(false)
+  return (
+    <div className="video-placeholder">
+      {playing ? (
+        <video src={src} controls autoPlay playsInline style={{ width: "100%", height: "100%", display: "block" }} />
+      ) : (
+        <button
+          className="video-cover"
+          onClick={() => setPlaying(true)}
+          title="播放演示视频"
+        >
+          <span className="video-play-btn">
+            <svg width="30" height="30" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+              <path d="M8 5.5v13l11-6.5-11-6.5Z" />
+            </svg>
+          </span>
+          <span className="video-cover-text">观看 30 秒演示</span>
+        </button>
+      )}
     </div>
   )
 }
