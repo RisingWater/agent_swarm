@@ -571,14 +571,7 @@ function HomePage({ toast, loggedIn, onGoAccount, onOpenLogin }: { toast: (m: st
             <a className="link" onClick={onOpenLogin}>登录</a>账号即可安装。
           </p>
         )}
-        <div className="supported-agents">
-          <span className="supported-label">已支持的 agent 工具：</span>
-          <span className="agent-chip supported">opencode</span>
-          <span className="agent-chip planned">claude code</span>
-          <span className="agent-chip planned">deepseek harness</span>
-          <span className="agent-chip planned">pi</span>
-          <span className="agent-chip planned">其他 MCP 客户端…</span>
-        </div>
+        <SupportedAgents />
       </section>
 
       {/* 3. 演示视频（懒加载：点击封面才开始加载播放） */}
@@ -692,6 +685,90 @@ function VideoPlayer({ src }: { src: string }) {
       >
         {muted ? "🔇 已静音，点击开启声音" : "🔊 声音开启，点击静音"}
       </button>
+    </div>
+  )
+}
+
+/** agent 工具图标（黑白单色，统一 24x24 viewBox 线条风格） */
+function AgentToolIcon({ tool }: { tool: "opencode" | "claude" | "deepseek" | "pi" | "more" }) {
+  const common = {
+    width: 20,
+    height: 20,
+    viewBox: "0 0 24 24",
+    fill: "none" as const,
+    stroke: "currentColor",
+    strokeWidth: 1.7,
+    strokeLinecap: "round" as const,
+    strokeLinejoin: "round" as const,
+    "aria-hidden": true,
+  }
+  switch (tool) {
+    case "opencode":
+      // 终端提示符方块（opencode 官方气质：>_）
+      return (
+        <svg {...common}>
+          <rect x="3" y="4" width="18" height="16" rx="2.5" />
+          <path d="m7.5 9 3 3-3 3" />
+          <path d="M12.5 15H17" />
+        </svg>
+      )
+    case "claude":
+      // Anthropic Claude 的星芒 logo 抽象
+      return (
+        <svg {...common}>
+          <path d="M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6 5.6 18.4" />
+          <circle cx="12" cy="12" r="3.2" />
+        </svg>
+      )
+    case "deepseek":
+      // 鲸鱼/海豚跃起抽象（Deepseek 招牌意象）
+      return (
+        <svg {...common}>
+          <path d="M3 16c3.5 0 5-2.5 8.5-2.5 3 0 4.5 1.7 7.5 1.7" />
+          <path d="M11.5 13.5C12.5 9 16 5.5 21 5c-.5 4.5-3 8.5-7 9.5" />
+          <circle cx="17.2" cy="7.2" r="0.6" fill="currentColor" stroke="none" />
+          <path d="M4.5 19h15" />
+        </svg>
+      )
+    case "pi":
+      // π 字符
+      return (
+        <svg {...common}>
+          <path d="M4.5 8h15" />
+          <path d="M7 8c.5 5 1.5 8-1.5 11" />
+          <path d="M17 8v8.5c0 1.5 1 2.5 2.5 2.5" />
+        </svg>
+      )
+    case "more":
+      // 三点省略
+      return (
+        <svg {...common}>
+          <circle cx="5" cy="12" r="1" fill="currentColor" stroke="none" />
+          <circle cx="12" cy="12" r="1" fill="currentColor" stroke="none" />
+          <circle cx="19" cy="12" r="1" fill="currentColor" stroke="none" />
+        </svg>
+      )
+  }
+}
+
+/** 首页"已支持的 agent 工具"图标组 */
+function SupportedAgents() {
+  const tools: { tool: "opencode" | "claude" | "deepseek" | "pi" | "more"; name: string; supported: boolean }[] = [
+    { tool: "opencode", name: "opencode", supported: true },
+    { tool: "claude", name: "claude code", supported: false },
+    { tool: "deepseek", name: "deepseek harness", supported: false },
+    { tool: "pi", name: "pi", supported: false },
+    { tool: "more", name: "更多 MCP 客户端", supported: false },
+  ]
+  return (
+    <div className="supported-agents">
+      <span className="supported-label">已支持</span>
+      {tools.map((t) => (
+        <span key={t.tool} className={`agent-tile${t.supported ? " supported" : ""}`} title={t.supported ? `${t.name} · 已支持` : `${t.name} · 即将支持`}>
+          <AgentToolIcon tool={t.tool} />
+          <span className="agent-tile-name">{t.name}</span>
+        </span>
+      ))}
     </div>
   )
 }
