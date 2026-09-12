@@ -45,16 +45,16 @@ export interface Workspace {
 /** 安装命令用：当前页面 origin（vite dev 时代理到后端，生产同域） */
 export const pageOrigin = window.location.origin
 
-export interface HelpRequest {
+export interface WorkspaceCall {
   id: string
-  requester: { id: string; name: string; path: string } | null
+  caller: { id: string; name: string; path: string } | null
   target: { id: string; name: string; path: string } | null
-  question: string
-  mode: string
+  instruction: string
   status: string
   result: string | null
   error: string | null
   created_at: string
+  done_at: string | null
 }
 
 export const api = {
@@ -89,5 +89,5 @@ export const api = {
   enableWorkspace: (id: string) => request(`/api/workspaces/${id}/enable`, { method: "POST" }),
   deleteWorkspace: (id: string) => request(`/api/workspaces/${id}`, { method: "DELETE" }),
 
-  helpRequests: () => request("/api/help-requests") as Promise<HelpRequest[]>,
+  calls: () => request("/api/calls") as Promise<WorkspaceCall[]>,
 }

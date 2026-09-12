@@ -1,6 +1,6 @@
 /** agent_swarm 管理端 —— opencode.ai 风格，纯 React 无 UI 库 */
 import { useEffect, useState, useCallback, useRef, type ReactNode } from "react"
-import { api, pageOrigin, type Workspace, type HelpRequest, type User } from "./api"
+import { api, pageOrigin, type Workspace, type WorkspaceCall, type User } from "./api"
 
 const maskKey = (k: string) => "*".repeat(k.length - 2) + k.slice(-2)
 
@@ -121,7 +121,7 @@ function Confirm({ text, onOk, onClose }: { text: string; onOk: () => void; onCl
 
 export default function App() {
   const [token, setToken] = useState(localStorage.getItem("swarm_token"))
-  const [page, setPage] = useState<"account" | "workspaces" | "help">("account")
+  const [page, setPage] = useState<"account" | "workspaces" | "calls">("account")
   const { msg, show: toast } = useToast()
 
   if (!token)
@@ -134,7 +134,7 @@ export default function App() {
         <nav className="topnav-links">
           <a className={page === "account" ? "active" : ""} onClick={() => setPage("account")}>接入</a>
           <a className={page === "workspaces" ? "active" : ""} onClick={() => setPage("workspaces")}>工作区</a>
-          <a className={page === "help" ? "active" : ""} onClick={() => setPage("help")}>求助记录</a>
+          <a className={page === "calls" ? "active" : ""} onClick={() => setPage("calls")}>调用记录</a>
           <span className="user">{localStorage.getItem("swarm_user")}</span>
           <button
             onClick={() => {
@@ -150,7 +150,7 @@ export default function App() {
       <main className="page">
         {page === "account" && <AccountPage toast={toast} />}
         {page === "workspaces" && <WorkspacesPage toast={toast} />}
-        {page === "help" && <HelpPage />}
+        {page === "calls" && <CallsPage />}
       </main>
       <Toast msg={msg} />
     </>
@@ -450,14 +450,14 @@ function WorkspacesPage({ toast }: { toast: (m: string) => void }) {
   )
 }
 
-// ---------------- 求助记录 ----------------
+// ---------------- 调用记录 ----------------
 
-function HelpPage() {
-  const [list, setList] = useState<HelpRequest[]>([])
-  const [detail, setDetail] = useState<HelpRequest | null>(null)
+function CallsPage() {
+  const [list, setList] = useState<WorkspaceCall[]>([])
+  const [detail, setDetail] = useState<WorkspaceCall | null>(null)
 
   useEffect(() => {
-    const load = () => api.helpRequests().then(setList).catch(() => {})
+    const load = () => api.calls().then(setList).catch(() => {})
     load()
     const t = setInterval(load, 10_000)
     return () => clearInterval(t)
@@ -465,46 +465,43 @@ function HelpPage() {
 
   return (
     <>
-      <h1 className="page-title">求助记录</h1>
-      <p className="page-sub">agent 之间的互助请求历史。</p>
+      <h1 className="page-title">调用记录</h1>
+      <p className="page-sub">agent 之间的 workspace_call 调用历史。</p>
       <table className="grid">
         <thead>
           <tr>
             <th style={{ width: 100 }}>time</th>
             <th style={{ width: 140 }}>from</th>
             <th style={{ width: 140 }}>to</th>
-            <th style={{ width: 110 }}>mode</th>
             <th style={{ width: 110 }}>status</th>
-            <th>question</th>
+            <th>instruction</th>
           </tr>
         </thead>
         <tbody>
           {list.map((r) => (
             <tr key={r.id}>
               <td style={{ color: "var(--text-weak)", fontSize: 12 }}>{new Date(r.created_at + "Z").toLocaleTimeString()}</td>
-              <td>{r.requester?.name ?? "-"}</td>
+              <td>{r.caller?.name ?? "-"}</td>
               <td>{r.target?.name ?? "-"}</td>
-              <td style={{ color: "var(--text-weak)" }}>{r.mode}</td>
-              <td><span className={`status-pill ${r.status}`}>{r.status}</span></td>
-              <td><a className="link" onClick={() => setDetail(r)}>{r.question}</a></td>
+              <td><span className={`status-pill ${r.status === "running" ? "accepted" : r.status}`}>{r.status}</span></td>
+              <td><a className="link" onClick={() => setDetail(r)}>{r.instruction}</a></td>
             </tr>
           ))}
           {!list.length && (
-            <tr><td colSpan={6} style={{ color: "var(--text-weak)", textAlign: "center", padding: 32 }}>
-              [*] 暂无求助记录
+            <tr><td colSpan={5} style={{ color: "var(--text-weak)", textAlign: "center", padding: 32 }}>
+              [*] 暂无调用记录
             </td></tr>
           )}
         </tbody>
       </table>
 
       {detail && (
-        <Modal title="help request" onClose={() => setDetail(null)}>
+        <Modal title="workspace call" onClose={() => setDetail(null)}>
           <dl className="dl">
-            <dt>from</dt><dd>{detail.requester?.name} ({detail.requester?.path})</dd>
+            <dt>from</dt><dd>{detail.caller?.name} ({detail.caller?.path})</dd>
             <dt>to</dt><dd>{detail.target?.name} ({detail.target?.path})</dd>
-            <dt>mode</dt><dd>{detail.mode}</dd>
             <dt>status</dt><dd>{detail.status}</dd>
-            <dt>question</dt><dd>{detail.question}</dd>
+            <dt>instruction</dt><dd>{detail.instruction}</dd>
             <dt>result</dt><dd>{detail.status === "failed" ? detail.error : (detail.result ?? "-")}</dd>
           </dl>
         </Modal>

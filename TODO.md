@@ -5,15 +5,36 @@
 
 ## 项目一句话
 
-多 agent 协作平台：FastAPI 单服务（管理 API + MCP 端点 + 插件分发）+ opencode 插件 + opencode.ai 风格纯 React 前端。用户注册后拿 apikey；面向 agent 的操作全部走服务端 MCP 工具（任何 MCP 客户端可用），opencode 插件只负责心跳保活。
+多 agent 协作平台：FastAPI 单服务（管理 API + MCP 端点 + 插件分发）+ opencode 插件 + opencode.ai 风格纯 React 前端。用户注册后拿 apikey；面向 agent 的操作全部走服务端 MCP 工具（任何 MCP 客户端可用），opencode 插件负责心跳保活与任务接收执行。
 
-## 🔥 架构转向（2026-09-12，用户决定）
+## 架构决定（2026-09-12，用户拍板，仍然有效）
 
-- **MCP 工具是唯一面向 agent 的接口**：workspace_add/remove/enable/disable、register_workspace、workspace_whoami、heartbeat、list_workspaces 等全部在 server/mcp_endpoint.py。claude/deepseek harness 直连 /mcp 即可，可移植性优先。
-- **opencode 插件已瘦身**：只做启动时 workspace_whoami 找回工作区 + 30s 心跳（被禁用时不抢回 online）。不再注入任何工具、不再领任务执行、不再 LLM 总结（summarize.ts 已删）。
+- **MCP 工具是唯一面向 agent 的接口**：workspace_add/remove/enable/disable、list_workspaces 等全部在 server/mcp_endpoint.py。claude/deepseek harness 直连 /mcp 即可，可移植性优先。之前的 register_workspace / workspace_whoami 已删（workspace_add 一个工具覆盖，ID 落在 .agent-swarm.md）。
+- **工作区 ID 持久化在项目根 .agent-swarm.md 的 WORKSPACE_ID: 行**：workspace_add 返回 ID → agent 写文件；插件启动直接读文件拿 ID 心跳，每轮重读（换 ID 免重启）。
+- **opencode 插件已瘦身**：只做读 ID + 30s 心跳（日志写 plugin.log，不进 TUI）。任务执行能力将随 workspace_call 阶段回归插件。
 - **opencode 接入方式**：install 脚本向 opencode.jsonc 写两样东西——`mcp.agent-swarm`（remote，Bearer apikey，工具直接可用）+ `plugin` file:// 项（心跳保活）。
-- **/swarm 命令**：install 脚本写 ~/.config/opencode/commands/swarm.md，子命令 register/add/remove/enable/disable，全部路由到 MCP 工具。
-- **求助互调（request_help/poll/submit + 插件双模式执行）暂时保留在服务端但前端流程未接**；用户明确"先做好工作区管理，互相调用后面再说"。
+- **命令**：install 脚本从插件包 commands/ 目录拷贝 5 个独立命令 /swarm-add /swarm-register /swarm-remove /swarm-enable /swarm-disable（opencode 文档推荐独立命令而非子命令解析）。
+- 旧的 request_help/poll/submit 同步异步双模式设计**先放一边**，workspace_call 阶段重新设计（用户 2026-09-12 明确）。
+
+**前置工作区管理已收尾**（MCP-first 架构，见下）。workspace_call 已实现（2026-09-12）：
+
+- **服务端**：新表 `workspace_calls`（pending/running/done/failed，旧 help_requests 表已 DROP 删除）；4 个 MCP 工具 `workspace_call`（允许调用自身工作区，方便单机测试）/ `workspace_call_status`（调用方轮询，超时兜底 AGENT_SWARM_CALL_TIMEOUT 默认 1h）/ `workspace_call_ack` / `workspace_call_result`（插件专用）；**heartbeat 响应捎带 pending 任务**（`calls` 字段），无需独立轮询通道；REST `/api/calls`（web 调用记录页数据源）
+- **插件**：心跳拿到 calls → 并发上限 2（满载跳过，下轮心跳重新领取）→ ack → **前台注入优先**：目标 = event hook 跟踪的当前会话（冷启动没事件时 `session.list` 挑最近活跃会话 + `tui.showToast` 弹通知）；前台被占（fgBusy）或目标会话 busy（`session.status`）则排队等（上限 10 分钟，超时/无任何会话才退回 `client.session.create` 后台会话，标题 `Swarm-call-<id8>`）→ `promptAsync` 注入 → event hook 收 `session.idle` + 2s 轮询兜底 → 末尾停在 tool 调用则发 synthetic nudge（≤2 次）→ 提取最后 assistant 文本回传
+- **权限策略**：任务会话触发 permission.asked 时由**目标工作区用户在 TUI 响应**（方案 1，用户拍板）；中继回调用方列为二期
+- 旧的 request_help/poll/submit 同步异步双模式设计**已整体删除**（用户 2026-09-12 明确）
+
+### ⚠️ 下一步（接手第一件事）
+
+1. **重启本机 opencode**（当前会话还载着旧版插件，收不到任务），pending 任务 `Wmdzw2A98dEcaVQ7pq4Hzx`（问 1+1）应被自动领取执行
+2. 验证脚本 `C:\Users\wangxu\AppData\Local\Temp\opencode\e2e_call2.ps1`（workspace_call → 轮询 status 至 done）
+3. 观察点：plugin.log 的 ack/executing/done 日志、TUI 会话列表出现 `Swarm-call-*`、`workspace_call_status` 变 done
+4. 旧 `scripts/test_plugin_smoke.ts` 引用已删的 client API，需要重写为纯 MCP 调用
+
+### opencode-feishu 调研结论（2026-09-12，修正版）
+
+- promptAsync 的会话是普通顶层 session，**TUI 会话列表可见、可切换围观实时执行**；插件不自动切换 TUI 视图（用户说"能看到消息"就是这个）
+- 完成判定 = 轮询 `session.messages()`（baseline 对比）+ SSE `session.idle`；工具调用卡住用 synthetic prompt nudge 救
+- 权限/问答交互闭环参考其 commit bb01ae5（卡片点击 → reply 回写 → 卡片替换防重）
 
 ## 已完成（全部已提交，git log 可查）
 
@@ -21,7 +42,7 @@
 - ✅ 数据模型 users / workspaces / help_requests + **teams/team_members 表保留但功能已移除**（用户要求去掉，以后可恢复）
 - ✅ 管理 REST API（JWT 24h）：注册/登录、apikey 随时可见（明文列存 db + 自动迁移老用户补发新 key）、工作区启停/删除（仅离线）、求助历史
 - ✅ MCP 端点 `/mcp/`（Streamable HTTP，stateless）：**所有请求经 ApiKeyMiddleware 校验**（sha256 + 常量时间比较）
-- ✅ 14 个 MCP 工具：workspace_add/remove/enable/disable/whoami、register_workspace、heartbeat、update_notes、update_info、list_workspaces、request_help、get_help_result、poll_help_requests、submit_help_result
+- ✅ 12 个 MCP 工具：workspace_add/remove/enable/disable、heartbeat、update_notes、update_info、list_workspaces + 求助类 request_help、get_help_result、poll_help_requests、submit_help_result（求助类将随 workspace_call 阶段重构）
 - ✅ 帮助请求异步闭环：pending → accepted → done/failed（服务端侧完成，客户端派发搁置）
 - ✅ 插件分发（免鉴权）：`GET /download/plugin.tar.gz`（start.sh 打包）、`GET /download/install.sh`（**服务端从请求 Host 动态注入 server 地址**，也支持 AGENT_SWARM_PUBLIC_URL 环境变量/.env 覆盖）
 - ✅ deploy/start.sh / start.ps1（自动建 venv、装依赖、打包插件、幂等启动）

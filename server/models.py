@@ -86,16 +86,15 @@ class Workspace(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=utcnow)
 
 
-class HelpRequest(SQLModel, table=True):
-    __tablename__ = "help_requests"
+class WorkspaceCall(SQLModel, table=True):
+    __tablename__ = "workspace_calls"
 
     id: str = Field(primary_key=True)
-    requester_ws_id: str = Field(foreign_key="workspaces.id", index=True)
+    caller_ws_id: str = Field(foreign_key="workspaces.id", index=True)
     target_ws_id: str = Field(foreign_key="workspaces.id", index=True)
-    question: str = Field(sa_column=Column(Text))
-    mode: str = Field(default="background")  # foreground / background
-    session_id: Optional[str] = None  # background 模式下指定目标会话
-    status: str = Field(default="pending", index=True)  # pending/accepted/done/failed
+    instruction: str = Field(sa_column=Column(Text))
+    status: str = Field(default="pending", index=True)  # pending/running/done/failed
+    session_id: Optional[str] = None  # 目标端执行该任务的 opencode 会话
     result: Optional[str] = Field(default=None, sa_column=Column(Text))
     error: Optional[str] = Field(default=None, sa_column=Column(Text))
     created_at: datetime = Field(default_factory=utcnow)

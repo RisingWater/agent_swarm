@@ -25,6 +25,8 @@ def _migrate() -> None:
 
     con = sqlite3.connect(DB_PATH)
     try:
+        # 旧 help_requests 机制已废弃（workspace_call 取代），直接清掉
+        con.execute("DROP TABLE IF EXISTS help_requests")
         cols = {r[1] for r in con.execute("PRAGMA table_info(users)")}
         if "api_key" not in cols:
             con.execute("ALTER TABLE users ADD COLUMN api_key TEXT DEFAULT ''")

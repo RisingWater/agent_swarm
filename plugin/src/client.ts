@@ -86,9 +86,30 @@ export class SwarmClient {
     }
   }
 
-  // ---------------- 心跳保活 ----------------
+  // ---------------- 心跳保活 + 任务领取 ----------------
 
-  heartbeat(workspaceId: string, sessionId?: string) {
+  heartbeat(workspaceId: string, sessionId?: string): Promise<{
+    ok: boolean
+    status: string
+    calls?: SwarmCall[]
+  }> {
     return this.callTool("heartbeat", { workspace_id: workspaceId, session_id: sessionId ?? "" })
   }
+
+  // ---------------- workspace_call 任务回传 ----------------
+
+  ackCall(callId: string, sessionId: string) {
+    return this.callTool("workspace_call_ack", { call_id: callId, session_id: sessionId })
+  }
+
+  submitCallResult(callId: string, ok: boolean, result: string) {
+    return this.callTool("workspace_call_result", { call_id: callId, ok, result })
+  }
+}
+
+/** heartbeat 响应捎带的待执行调用任务 */
+export interface SwarmCall {
+  call_id: string
+  instruction: string
+  caller?: { workspace_id: string; name: string; path: string } | null
 }

@@ -100,14 +100,6 @@ def delete_workspace(
     ws = _get_ws_with_perm(workspace_id, user, session)
     if ws_is_online(ws):
         raise HTTPException(409, "workspace is online, disable or wait for it to go offline first")
-    # 级联清理求助记录
-    for hr in session.exec(
-        select(models.HelpRequest).where(
-            (models.HelpRequest.requester_ws_id == ws.id)
-            | (models.HelpRequest.target_ws_id == ws.id)
-        )
-    ).all():
-        session.delete(hr)
     session.delete(ws)
     session.commit()
     return {"ok": True}

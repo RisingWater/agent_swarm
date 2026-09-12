@@ -3,7 +3,6 @@
 工具执行时通过 contextvar 传递当前鉴权用户，避免 FastAPI 依赖注入与
 MCP SDK 工具函数签名的耦合。
 """
-import contextlib
 import contextvars
 import os
 from datetime import datetime, timezone
@@ -168,13 +167,6 @@ def workspace_remove(workspace_id: str) -> dict:
         ws = _own_workspace(session, user, workspace_id)
         if ws_is_online(ws):
             raise ValueError("workspace is online, disable it and wait for heartbeat to expire first")
-        for hr in session.exec(
-            select(models.HelpRequest).where(
-                (models.HelpRequest.requester_ws_id == ws.id)
-                | (models.HelpRequest.target_ws_id == ws.id)
-            )
-        ).all():
-            session.delete(hr)
         session.delete(ws)
         session.commit()
         return {"ok": True, "removed": ws.id}
@@ -242,7 +234,29 @@ def heartbeat(workspace_id: str, session_id: str = "") -> dict:
             ws.session_id = session_id
         session.add(ws)
         session.commit()
-        return {"ok": True, "status": "online"}
+        # 捎带派发：领取指向本工作区的待处理调用任务
+        calls = []
+        for call in session.exec(
+            select(models.WorkspaceCall).where(
+                models.WorkspaceCall.target_ws_id == ws.id,
+                models.WorkspaceCall.status == "pending",
+            )
+        ).all():
+            src = session.get(models.Workspace, call.caller_ws_id)
+            calls.append(
+                {
+                    "call_id": call.id,
+                    "instruction": call.instruction,
+                    "caller": {
+                        "workspace_id": src.id,
+                        "name": src.name,
+                        "path": src.path,
+                    }
+                    if src
+                    else None,
+                }
+            )
+        return {"ok": True, "status": "online", "calls": calls}
     finally:
         session.close()
 
@@ -341,59 +355,54 @@ def list_workspaces(include_offline: bool = False) -> dict:
         session.close()
 
 
-# ---------------------------------------------------------------- help
+# ---------------------------------------------------------------- workspace_call
+
+
+CALL_TIMEOUT_SECONDS = int(os.environ.get("AGENT_SWARM_CALL_TIMEOUT", "3600"))
 
 
 @mcp.tool()
-def request_help(
-    requester_workspace_id: str,
-    target_workspace_id: str,
-    question: str,
-    mode: str = "background",
-    session_id: str = "",
-) -> dict:
-    """向另一个在线工作区的 agent 发起求助（异步，立即返回 request_id）。
+def workspace_call(target_workspace_id: str, instruction: str) -> dict:
+    """调用另一个在线工作区的 agent 执行任务（异步，立即返回 call_id）。
 
-    用 get_help_result 轮询结果。
+    先用 list_workspaces 找到目标工作区，再用本工具发起调用，
+    之后用 workspace_call_status 轮询结果。
 
     Args:
-        requester_workspace_id: 发起求助的自己的工作区 ID
         target_workspace_id: 目标工作区 ID（从 list_workspaces 获取）
-        question: 问题描述，尽量带上下文（如相关文件路径、报错信息）
-        mode: 执行模式，"background"（默认，对方新会话后台执行）或
-              "foreground"（注入对方当前会话执行，对方用户可见）
-        session_id: 仅 background 模式：指定目标 agent 的已有会话 ID（可选）
+        instruction: 要目标 agent 执行的任务指令，尽量具体（涉及文件写绝对路径）
+
+    注意：允许调用自身工作区（自测试用），生产中请调用其他工作区。
     """
     user = get_user()
     session = next(get_session())
     try:
-        src = _own_workspace(session, user, requester_workspace_id)
+        src = session.exec(
+            select(models.Workspace).where(models.Workspace.user_id == user.id)
+        ).all()
+        # 调用方必须也有一个自己的工作区（发起调用的主体）
+        caller = next((w for w in src if w.id != target_workspace_id), None)
+        if caller is None:
+            raise ValueError("you need your own workspace to make calls (workspace_add first)")
         tgt = session.get(models.Workspace, target_workspace_id)
-        if tgt is None:
-            raise ValueError(f"target workspace {target_workspace_id} not found")
+        if tgt is None or tgt.user_id != user.id:
+            raise ValueError(f"target workspace {target_workspace_id} not found or not visible to you")
         if not ws_is_online(tgt) or tgt.status == "disabled":
             raise ValueError("target workspace is not online")
-        # 可见性：只能向自己的工作区求助（团队功能暂未启用）
-        if tgt.user_id != user.id:
-            raise ValueError("target workspace is not visible to you")
-        if mode not in ("foreground", "background"):
-            raise ValueError("mode must be 'foreground' or 'background'")
 
         import shortuuid
 
-        hr = models.HelpRequest(
+        call = models.WorkspaceCall(
             id=shortuuid.uuid(),
-            requester_ws_id=src.id,
+            caller_ws_id=caller.id,
             target_ws_id=tgt.id,
-            question=question,
-            mode=mode,
-            session_id=session_id or None,
+            instruction=instruction,
         )
-        session.add(hr)
+        session.add(call)
         session.commit()
         return {
-            "request_id": hr.id,
-            "status": hr.status,
+            "call_id": call.id,
+            "status": call.status,
             "target": {"id": tgt.id, "name": tgt.name},
         }
     finally:
@@ -401,107 +410,99 @@ def request_help(
 
 
 @mcp.tool()
-def get_help_result(request_id: str) -> dict:
-    """查询求助请求的执行结果（轮询用）。
+def workspace_call_status(call_id: str) -> dict:
+    """查询 workspace_call 的状态与结果（轮询用）。
 
     Args:
-        request_id: request_help 返回的请求 ID
+        call_id: workspace_call 返回的调用 ID
     """
     user = get_user()
     session = next(get_session())
     try:
-        hr = session.get(models.HelpRequest, request_id)
-        if hr is None:
-            raise ValueError(f"help request {request_id} not found")
-        src = session.get(models.Workspace, hr.requester_ws_id)
-        if src is None or src.user_id != user.id:
-            raise ValueError("not your help request")
+        call = session.get(models.WorkspaceCall, call_id)
+        if call is None:
+            raise ValueError(f"workspace call {call_id} not found")
+        caller = session.get(models.Workspace, call.caller_ws_id)
+        if caller is None or caller.user_id != user.id:
+            raise ValueError("not your call")
+        # 超时兜底：running 超时标记 failed
+        if call.status == "running" and call.accepted_at:
+            accepted = call.accepted_at if call.accepted_at.tzinfo else call.accepted_at.replace(tzinfo=timezone.utc)
+            if (datetime.now(timezone.utc) - accepted).total_seconds() > CALL_TIMEOUT_SECONDS:
+                call.status = "failed"
+                call.error = f"timeout after {CALL_TIMEOUT_SECONDS}s"
+                call.done_at = utcnow()
+                session.add(call)
+                session.commit()
         return {
-            "request_id": hr.id,
-            "status": hr.status,
-            "result": hr.result,
-            "error": hr.error,
+            "call_id": call.id,
+            "status": call.status,
+            "result": call.result,
+            "error": call.error,
         }
     finally:
         session.close()
 
 
 @mcp.tool()
-def poll_help_requests(workspace_id: str) -> dict:
-    """领取指向指定工作区的待处理求助任务（插件后台轮询调用）。
+def workspace_call_ack(call_id: str, session_id: str = "") -> dict:
+    """确认领取调用任务（插件内部用，agent 不要调用）。
 
     Args:
-        workspace_id: 自己的工作区 ID（register_workspace 返回的）
+        call_id: 调用 ID（heartbeat 响应的 calls 里获得）
+        session_id: 执行该任务的 opencode 会话 ID
     """
     user = get_user()
     session = next(get_session())
     try:
-        ws = _own_workspace(session, user, workspace_id)
-        if ws.status == "disabled":
-            return []
-        rows = session.exec(
-            select(models.HelpRequest).where(
-                models.HelpRequest.target_ws_id == ws.id,
-                models.HelpRequest.status == "pending",
-            )
-        ).all()
-        out: list = []
-        for hr in rows:
-            hr.status = "accepted"
-            hr.accepted_at = utcnow()
-            session.add(hr)
-            src = session.get(models.Workspace, hr.requester_ws_id)
-            out.append(
-                {
-                    "request_id": hr.id,
-                    "mode": hr.mode,
-                    "session_id": hr.session_id,
-                    "question": hr.question,
-                    "requester": {
-                        "workspace_id": src.id,
-                        "name": src.name,
-                        "path": src.path,
-                        "purpose": src.purpose,
-                    }
-                    if src
-                    else None,
-                }
-            )
+        call = session.get(models.WorkspaceCall, call_id)
+        if call is None:
+            raise ValueError(f"workspace call {call_id} not found")
+        tgt = session.get(models.Workspace, call.target_ws_id)
+        if tgt is None or tgt.user_id != user.id:
+            raise ValueError("not your task to ack")
+        if call.status != "pending":
+            return {"ok": True, "status": call.status, "message": "already taken"}
+        call.status = "running"
+        call.accepted_at = utcnow()
+        if session_id:
+            call.session_id = session_id
+        session.add(call)
         session.commit()
-        return {"requests": out}
+        return {"ok": True, "status": "running"}
     finally:
         session.close()
 
 
 @mcp.tool()
-def submit_help_result(request_id: str, ok: bool, result: str = "") -> dict:
-    """提交求助任务的执行结果（目标端 agent 或插件兜底调用）。
+def workspace_call_result(call_id: str, ok: bool, result: str = "") -> dict:
+    """提交调用任务的执行结果（插件内部用，agent 不要调用）。
 
     Args:
-        request_id: 求助请求 ID
-        ok: 是否成功
-        result: 结果内容（成功时的回复/修改说明；失败时的原因）
+        call_id: 调用 ID
+        ok: 是否成功完成
+        result: 结果内容（成功时的答复；失败时的原因）
     """
     user = get_user()
     session = next(get_session())
     try:
-        hr = session.get(models.HelpRequest, request_id)
-        if hr is None:
-            raise ValueError(f"help request {request_id} not found")
-        tgt = session.get(models.Workspace, hr.target_ws_id)
+        call = session.get(models.WorkspaceCall, call_id)
+        if call is None:
+            raise ValueError(f"workspace call {call_id} not found")
+        tgt = session.get(models.Workspace, call.target_ws_id)
         if tgt is None or tgt.user_id != user.id:
             raise ValueError("not your task to submit")
-        if hr.status == "done":
-            return {"ok": True, "status": "done", "message": "already submitted"}
-        hr.status = "done" if ok else "failed"
+        if call.status in ("done", "failed"):
+            return {"ok": True, "status": call.status, "message": "already submitted"}
+        call.status = "done" if ok else "failed"
         if ok:
-            hr.result = result
+            call.result = result
         else:
-            hr.error = result
-        hr.done_at = utcnow()
-        session.add(hr)
+            call.error = result
+        call.done_at = utcnow()
+        session.add(call)
         session.commit()
-        return {"ok": True, "status": hr.status}
+        return {"ok": True, "status": call.status}
     finally:
         session.close()
 
