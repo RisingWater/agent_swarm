@@ -20,7 +20,6 @@ export function loadConfig(): SwarmConfig | null {
       fileCfg.serverUrl ?? process.env.AGENT_SWARM_SERVER ?? "http://127.0.0.1:8700",
     apiKey: fileCfg.apiKey ?? process.env.AGENT_SWARM_API_KEY ?? "",
     heartbeatIntervalMs: fileCfg.heartbeatIntervalMs ?? 30_000,
-    pollIntervalMs: fileCfg.pollIntervalMs ?? 10_000,
   }
   if (!cfg.apiKey) return null
   return cfg

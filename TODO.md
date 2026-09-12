@@ -1,11 +1,19 @@
 # agent_swarm 开发进度 TODO
 
-> 更新时间: 2026-09-11 晚 · 交接给下一个 agent
+> 更新时间: 2026-09-12 · 交接给下一个 agent
 > 项目路径: ~/workdir/agent_swarm · 服务已跑在 :8700 (deploy/start.sh) · 前端 dev :8701
 
 ## 项目一句话
 
-多 agent 协作平台：FastAPI 单服务（管理 API + MCP 端点 + 插件分发）+ opencode 插件 + opencode.ai 风格纯 React 前端。用户注册后拿 apikey，插件把工作区注册到服务端，agent 之间可互相求助（前台/后台双模式执行）。
+多 agent 协作平台：FastAPI 单服务（管理 API + MCP 端点 + 插件分发）+ opencode 插件 + opencode.ai 风格纯 React 前端。用户注册后拿 apikey；面向 agent 的操作全部走服务端 MCP 工具（任何 MCP 客户端可用），opencode 插件只负责心跳保活。
+
+## 🔥 架构转向（2026-09-12，用户决定）
+
+- **MCP 工具是唯一面向 agent 的接口**：workspace_add/remove/enable/disable、register_workspace、workspace_whoami、heartbeat、list_workspaces 等全部在 server/mcp_endpoint.py。claude/deepseek harness 直连 /mcp 即可，可移植性优先。
+- **opencode 插件已瘦身**：只做启动时 workspace_whoami 找回工作区 + 30s 心跳（被禁用时不抢回 online）。不再注入任何工具、不再领任务执行、不再 LLM 总结（summarize.ts 已删）。
+- **opencode 接入方式**：install 脚本向 opencode.jsonc 写两样东西——`mcp.agent-swarm`（remote，Bearer apikey，工具直接可用）+ `plugin` file:// 项（心跳保活）。
+- **/swarm 命令**：install 脚本写 ~/.config/opencode/commands/swarm.md，子命令 register/add/remove/enable/disable，全部路由到 MCP 工具。
+- **求助互调（request_help/poll/submit + 插件双模式执行）暂时保留在服务端但前端流程未接**；用户明确"先做好工作区管理，互相调用后面再说"。
 
 ## 已完成（全部已提交，git log 可查）
 
@@ -13,18 +21,14 @@
 - ✅ 数据模型 users / workspaces / help_requests + **teams/team_members 表保留但功能已移除**（用户要求去掉，以后可恢复）
 - ✅ 管理 REST API（JWT 24h）：注册/登录、apikey 随时可见（明文列存 db + 自动迁移老用户补发新 key）、工作区启停/删除（仅离线）、求助历史
 - ✅ MCP 端点 `/mcp/`（Streamable HTTP，stateless）：**所有请求经 ApiKeyMiddleware 校验**（sha256 + 常量时间比较）
-- ✅ 9 个 MCP 工具：register_workspace（返回 need_summary 标志）、heartbeat、update_notes、update_info、list_workspaces、request_help、get_help_result、poll_help_requests、submit_help_result
-- ✅ 帮助请求异步闭环：pending → accepted → done/failed，结果双保险回传
+- ✅ 14 个 MCP 工具：workspace_add/remove/enable/disable/whoami、register_workspace、heartbeat、update_notes、update_info、list_workspaces、request_help、get_help_result、poll_help_requests、submit_help_result
+- ✅ 帮助请求异步闭环：pending → accepted → done/failed（服务端侧完成，客户端派发搁置）
 - ✅ 插件分发（免鉴权）：`GET /download/plugin.tar.gz`（start.sh 打包）、`GET /download/install.sh`（**服务端从请求 Host 动态注入 server 地址**，也支持 AGENT_SWARM_PUBLIC_URL 环境变量/.env 覆盖）
-- ✅ deploy/start.sh（自动建 venv、装依赖、打包插件、幂等启动）、deploy/stop.sh
+- ✅ deploy/start.sh / start.ps1（自动建 venv、装依赖、打包插件、幂等启动）
 
 ### opencode 插件 (plugin/src/)
-- ✅ client.ts：MCP JSON-RPC 客户端（initialize → tools/call，带 apikey）
-- ✅ 注册工作区 + 30s 心跳（带 session_id）
-- ✅ **LLM 惰性总结目录**：仅当服务端返回 need_summary=true 才调 LLM（走 opencode /session 接口），失败回退启发式
-- ✅ 双模式任务执行：foreground = toast + appendPrompt + submitPrompt 注入当前 TUI；background（默认）= session.create + promptAsync（可指定 session_id）
-- ✅ 8 个注入工具：swarm_list_workspaces / request_help / get_help_result / submit_help / note / desc / resummarize 等
-- ✅ install.sh：下载 tar.gz → 装到 ~/.config/opencode/plugins/agent-swarm → 复用 opencode 依赖 → 写 config.json → 注册进 opencode.jsonc（幂等，重复安装跳过注册；逗号处理已修，含注释行场景）
+- ✅ **已瘦身**（2026-09-12）：index.ts 只剩 whoami 找回 + 心跳循环 + session 跟踪 + dispose；client.ts 只剩 callTool/whoami/heartbeat；summarize.ts 已删除
+- ✅ typecheck 通过；install.ps1 已写 mcp.agent-swarm 到 opencode.jsonc 并实测 tools/list 返回 14 个工具
 
 ### 前端 (web/)
 - ✅ **已去掉 antd**（用户要求学 opencode.ai 主页），纯 React 手写
@@ -32,15 +36,12 @@
 - ✅ 接入页默认打开：apikey（打码+眼睛+复制+reset 同行）、一键安装命令（自动带 origin 和 key）
 - ✅ vite.config.ts 已代理 /api、/download、/mcp、/health 到 8700
 
-### 命令（最新提交 cdb0370）
-- ✅ 发现 /swarm-note 等命令需要 **~/.config/opencode/commands/*.md 文件**（不是插件注册的！插件 command.execute.before 只能拦截已有命令）
-- ✅ install.sh 已加步骤 5 自动写三个命令 md 文件
-- ✅ 插件加了 swarm_note / swarm_desc / swarm_resummarize 三个工具供命令模板调用
-- ✅ 已验证 opencode server API /command 返回 swarm-note、swarm-desc、swarm-resummarize
+### 命令
+- ✅ /swarm.md 子命令路由（register/add/remove/enable/disable），install 脚本自动写并清理旧版 swarm-register.md 等
 
-## 🔴 当前卡点（接手后第一优先级）
+## ~~🔴 当前卡点：插件不加载~~（已解决 2026-09-12）
 
-**插件似乎没有被 opencode 加载（工具未注入）**，证据链：
+**结论：插件其实一直在正常加载**。当年"工具未注入"是误判——旧版插件的工具只有在调用时才暴露，且日志里那两条 ERROR 经 GBK 解码后是 `agent_swarm: 已重新总结目录用途 ✓`（旧版用 throw 传结果的显示方式），不是加载失败。现在工具全部改走 mcp.agent-swarm（opencode.jsonc），与插件加载与否解耦，本会话已实测 MCP 工具可用。以下排查记录仅存档：
 
 1. `opencode run "请调用 swarm_resummarize 工具"` → LLM 回复"当前工具集中没有该工具"
 2. `/experimental/tool/ids?directory=...` 返回 14 个工具，**无任何 swarm 工具**
@@ -74,10 +75,10 @@ opencode serve --port 8799 &  # 然后查 /experimental/tool/ids?directory=<abs 
 
 ## 🟡 次要 TODO
 
+- [ ] **求助互调暂缓**：request_help/get_help_result/poll/submit 仍在服务端，但插件双模式执行已删；恢复时把派发逻辑做成服务端任务队列或独立 worker，别再塞回插件
 - [ ] 工作区看板/求助记录页在新 UI 下还没实际用浏览器点过（只验证了构建），接手后过一遍
 - [ ] 团队功能：models.py 保留表，前端/API 已删；用户"想好后再加"
-- [ ] 前台任务的"结果兜底回传"只实现了 inflight 轮询清理，**session idle 事件监听兜底没做**（plugin/src/index.ts 里 event hook 只记录了 sessionID）
-- [ ] e2e 测试脚本在 /tmp/opencode/（test_api.py、test_mcp_e2e.py、test_plugin_smoke.ts），正式的应挪进 scripts/ 并纳入 run_e2e.sh
+- [ ] e2e 测试脚本在 /tmp/opencode/（test_api.py、test_mcp_e2e.py、test_plugin_smoke.ts），正式的应挪进 scripts/ 并纳入 run_e2e.sh（注意 test_plugin_smoke.ts 用的旧版插件工具已删，需要重写为纯 MCP 调用）
 - [ ] npm install 依赖安装较慢（~40s），考虑像 opencode-feishu 一样把 @opencode-ai/* 设为 peerDependencies
 - [ ] README.md 还没写
 

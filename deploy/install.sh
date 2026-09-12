@@ -88,7 +88,43 @@ cat > "$INSTALL_DIR/config.json" <<EOF
 EOF
 chmod 600 "$INSTALL_DIR/config.json"
 
-# 4. 注册到 opencode 配置（file:// 指向入口；全局 = ~/.config/opencode/opencode.jsonc）
+# 4. 注册：a) mcp.agent-swarm 配置（工具直连 MCP）b) 插件（心跳保活）
+MCP_BLOCK=$(cat <<EOF
+    "agent-swarm": {
+      "type": "remote",
+      "url": "$SERVER/mcp/",
+      "enabled": true,
+      "headers": {
+        "Authorization": "Bearer $API_KEY"
+      }
+    }
+EOF
+)
+node - "$OC_CONFIG" "$SERVER/mcp/" "$MCP_BLOCK" <<'NODE'
+const fs = require("fs")
+const [cfgPath, mcpUrl, mcpBlock] = process.argv.slice(2)
+let text = fs.existsSync(cfgPath) ? fs.readFileSync(cfgPath, "utf-8") : "{\n}\n"
+if (text.includes(mcpUrl)) {
+    console.log("==> mcp.agent-swarm 已配置，跳过")
+    process.exit(0)
+}
+// 在 mcp 对象中插入 agent-swarm；没有 mcp 字段则插到最外层 { 后
+const m = text.match(/("mcp"\s*:\s*\{)([\s\S]*?)(\n  \})/)
+let out
+if (m) {
+    const inner = m[2]
+    const stripped = inner.replace(/\/\/[^\n]*/g, "").replace(/\/\*[\s\S]*?\*\//g, "").trim()
+    const needComma = stripped && !stripped.endsWith(",")
+    const newInner = (needComma ? inner.replace(/[ \t\r]+$/, "") + "," : inner) + "\n" + mcpBlock
+    out = text.replace(m[0], m[1] + newInner + m[3])
+} else {
+    out = text.replace(/^\s*\{/, "{\n  \"mcp\": {\n" + mcpBlock + "\n  },\n")
+}
+fs.writeFileSync(cfgPath, out)
+console.log(`==> 已写入 mcp.agent-swarm 到 ${cfgPath}`)
+NODE
+
+# 插件（file:// 指向入口）负责心跳保活
 PLUGIN_REF="file://$INSTALL_DIR/src/index.ts"
 if [ "$GLOBAL" = true ] || [ ! -f "$PWD/opencode.json" ] && [ ! -f "$PWD/opencode.jsonc" ]; then
     OC_CONFIG="$HOME/.config/opencode/opencode.jsonc"
@@ -131,48 +167,25 @@ fs.writeFileSync(cfgPath, out)
 console.log(`==> 已注册插件到 ${cfgPath}`)
 NODE
 
-# 5. 注册自定义命令（markdown 形式，TUI 里 /swarm-note 等可用）
+# 5. 注册自定义命令（markdown 源文件在 plugin/commands/，拷贝即安装）
 CMD_DIR="$HOME/.config/opencode/commands"
 mkdir -p "$CMD_DIR"
-write_cmd() {
-    local f="$CMD_DIR/$1.md"
-    if [ ! -f "$f" ]; then
-        cat > "$f"
-        echo "    已注册命令 /$1"
+
+# 旧版命令文件清理（已被 /swarm-* 取代）
+for old in swarm-note swarm-desc swarm-resummarize swarm_register swarm; do
+    if [ -f "$CMD_DIR/$old.md" ]; then
+        rm -f "$CMD_DIR/$old.md"
+        echo "    已移除旧命令 /$old"
     fi
-}
-write_cmd swarm-note <<'EOF'
----
-description: 向 agent_swarm 工作区追加备注
----
-调用 swarm_note 工具，把下面的内容追加为工作区备注：
+done
 
-$ARGUMENTS
-
-如果 swarm_note 工具不存在，直接回复：agent_swarm 插件未加载，请检查安装。
-完成后简短确认：备注已追加 ✓
-EOF
-write_cmd swarm-desc <<'EOF'
----
-description: 更新 agent_swarm 工作区的用途/能力描述
----
-调用 swarm_desc 工具，用下面的内容更新工作区用途描述：
-
-$ARGUMENTS
-
-如果 swarm_desc 工具不存在，直接回复：agent_swarm 插件未加载，请检查安装。
-完成后简短确认：描述已更新 ✓
-EOF
-write_cmd swarm-resummarize <<'EOF'
----
-description: 重新总结当前工作区用途并同步到 agent_swarm
----
-调用 swarm_resummarize 工具重新总结当前目录用途并同步到 agent_swarm 服务端。
-如果该工具不存在，直接回复：agent_swarm 插件未加载，请检查安装。
-完成后简短确认：已重新总结 ✓
-EOF
+for f in "$INSTALL_DIR"/commands/swarm-*.md; do
+    [ -f "$f" ] || continue
+    cp -f "$f" "$CMD_DIR/"
+    echo "    已注册命令 /$(basename "$f" .md)"
+done
 
 echo
 echo "✅ 安装完成！"
-echo "   重启 opencode 后插件自动注册工作区。"
-echo "   自定义命令: /swarm-note <备注>  /swarm-desc <描述>  /swarm-resummarize"
+echo "   重启 opencode 后：MCP 工具（workspace_* 等）直接可用；插件自动心跳保活。"
+echo "   自定义命令: /swarm-add /swarm-register /swarm-remove /swarm-enable /swarm-disable"

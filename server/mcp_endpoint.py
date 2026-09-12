@@ -86,20 +86,21 @@ mcp = FastMCP(
 
 
 @mcp.tool()
-def register_workspace(
+def workspace_add(
     path: str,
     purpose: str = "",
     capabilities: str = "",
     name: str = "",
 ) -> dict:
-    """注册（或更新）当前 opencode 工作区。
+    """添加（或更新）当前工作区到 agent_swarm。
 
-    purpose 为空时不覆盖已有总结；返回 need_summary=true 表示该工作区
-    还没有用途总结，客户端应调 LLM 生成后用 update_info 回写。
+    已存在同路径工作区时更新其描述。返回 workspace_id，客户端应把它写入
+    项目根目录 .agent-swarm.md 的 WORKSPACE_ID: 行（插件心跳依赖该文件）。
+    返回 need_summary=true 表示还没有用途总结，应生成后用 update_info 回写。
 
     Args:
         path: 工作目录绝对路径
-        purpose: 目录用途的 AI 总结（留空 = 不修改，触发 need_summary 提示）
+        purpose: 目录用途的 AI 总结（留空 = 不修改）
         capabilities: 这个工作区能干什么（留空 = 不修改）
         name: 工作区名称，默认取目录名（可选）
     """
@@ -148,6 +149,75 @@ def register_workspace(
             "name": ws.name,
             "status": ws.status,
         }
+    finally:
+        session.close()
+
+
+@mcp.tool()
+def workspace_remove(workspace_id: str) -> dict:
+    """从 agent_swarm 移除自己的工作区（级联删除相关求助记录）。
+
+    工作区在线时拒绝移除；请先 disable 并等心跳过期。
+
+    Args:
+        workspace_id: 工作区 ID
+    """
+    user = get_user()
+    session = next(get_session())
+    try:
+        ws = _own_workspace(session, user, workspace_id)
+        if ws_is_online(ws):
+            raise ValueError("workspace is online, disable it and wait for heartbeat to expire first")
+        for hr in session.exec(
+            select(models.HelpRequest).where(
+                (models.HelpRequest.requester_ws_id == ws.id)
+                | (models.HelpRequest.target_ws_id == ws.id)
+            )
+        ).all():
+            session.delete(hr)
+        session.delete(ws)
+        session.commit()
+        return {"ok": True, "removed": ws.id}
+    finally:
+        session.close()
+
+
+@mcp.tool()
+def workspace_enable(workspace_id: str) -> dict:
+    """启用自己的工作区（状态回到 offline，等心跳恢复 online）。
+
+    Args:
+        workspace_id: 工作区 ID
+    """
+    user = get_user()
+    session = next(get_session())
+    try:
+        ws = _own_workspace(session, user, workspace_id)
+        ws.status = "offline"
+        ws.updated_at = utcnow()
+        session.add(ws)
+        session.commit()
+        return {"ok": True, "status": "offline"}
+    finally:
+        session.close()
+
+
+@mcp.tool()
+def workspace_disable(workspace_id: str) -> dict:
+    """禁用自己的工作区：不再可见、不参与求助派发。
+
+    Args:
+        workspace_id: 工作区 ID
+    """
+    user = get_user()
+    session = next(get_session())
+    try:
+        ws = _own_workspace(session, user, workspace_id)
+        ws.status = "disabled"
+        ws.updated_at = utcnow()
+        session.add(ws)
+        session.commit()
+        return {"ok": True, "status": "disabled"}
     finally:
         session.close()
 

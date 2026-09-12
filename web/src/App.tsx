@@ -55,6 +55,43 @@ function Modal({ title, onClose, children }: { title: string; onClose: () => voi
   )
 }
 
+function EyeIcon({ off, size = 18 }: { off?: boolean; size?: number }) {
+  // 描边风格睁眼/闭眼（闭眼 = 睁眼 + 斜杠），随当前文字色
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M2 12s3.5-6.5 10-6.5S22 12 22 12s-3.5 6.5-10 6.5S2 12 2 12Z" />
+      <circle cx="12" cy="12" r="2.8" />
+      {!off && <path d="M4 4l16 16" />}
+    </svg>
+  )
+}
+
+function TrashIcon({ size = 16 }: { size?: number }) {
+  // 描边风格垃圾桶，随当前文字色
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M3 6h18" />
+      <path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2" />
+      <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+      <path d="M10 11v6" />
+      <path d="M14 11v6" />
+    </svg>
+  )
+}
+
+function ChevronIcon({ up, size = 14 }: { up?: boolean; size?: number }) {
+  // 展开按钮的箭头：默认向下（点击展开），展开后向上
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden
+      style={{ transform: up ? "rotate(180deg)" : undefined, transition: "transform 0.15s ease" }}>
+      <path d="M6 9l6 6 6-6" />
+    </svg>
+  )
+}
+
 function StatusDot({ status }: { status: string }) {
   return (
     <span>
@@ -198,6 +235,9 @@ function LoginPage({ onLogin }: { onLogin: (token: string) => void }) {
 function AccountPage({ toast }: { toast: (m: string) => void }) {
   const [me, setMe] = useState<(User & { api_key: string }) | null>(null)
   const [showKey, setShowKey] = useState(false)
+  const [plat, setPlat] = useState<"sh" | "ps1">(
+    /Win/i.test(navigator.platform) ? "ps1" : "sh",
+  )
 
   const refresh = useCallback(() => {
     api.me().then(setMe).catch((e) => toast(e.message))
@@ -213,7 +253,10 @@ function AccountPage({ toast }: { toast: (m: string) => void }) {
   }
 
   const key = me?.api_key ?? ""
-  const installCmd = `curl -fsSL ${pageOrigin}/download/install.sh | bash -s -- --api-key ${key}`
+  const installCmd =
+    plat === "sh"
+      ? `curl -fsSL ${pageOrigin}/download/install.sh | bash -s -- --api-key ${key}`
+      : `& ([scriptblock]::Create((irm ${pageOrigin}/download/install.ps1))) -ApiKey ${key}`
 
   return (
     <>
@@ -226,7 +269,7 @@ function AccountPage({ toast }: { toast: (m: string) => void }) {
           {me ? (showKey ? key : maskKey(key)) : "loading..."}
         </div>
         <Btn variant="icon" title={showKey ? "hide" : "show"} onClick={() => setShowKey(!showKey)}>
-          {showKey ? "🙈" : "👁"}
+          <EyeIcon off={!showKey} />
         </Btn>
         <Btn variant="icon" title="copy" onClick={() => {
           navigator.clipboard.writeText(key)
@@ -243,10 +286,18 @@ function AccountPage({ toast }: { toast: (m: string) => void }) {
       <p style={{ marginTop: 0, color: "var(--text-weak)" }}>
         在装有 AI 编程工具的机器上执行：
       </p>
-      <div className="cmdblock">
+      <div className="tablist tablist-inline">
+        <button role="tab" aria-selected={plat === "sh"} onClick={() => setPlat("sh")}>
+          macOS / linux
+        </button>
+        <button role="tab" aria-selected={plat === "ps1"} onClick={() => setPlat("ps1")}>
+          windows
+        </button>
+      </div>
+      <div className="cmdblock cmdblock-joined">
         <span className="cmd-text">
-          <span className="prompt">$</span>
-          {key ? installCmd : "# 请先获取 api key"}
+          <span className="prompt">{plat === "sh" ? "$" : "PS>"}</span>
+          {key ? installCmd : plat === "sh" ? "# 请先获取 api key" : "# 请先获取 api key"}
         </span>
         <Btn variant="icon" title="copy" onClick={() => {
           navigator.clipboard.writeText(installCmd)
@@ -273,6 +324,8 @@ function ConfirmWrap({ text, onOk, children }: { text: string; onOk: () => void;
 function WorkspacesPage({ toast }: { toast: (m: string) => void }) {
   const [list, setList] = useState<Workspace[]>([])
   const [detail, setDetail] = useState<Workspace | null>(null)
+  const [delTarget, setDelTarget] = useState<Workspace | null>(null)
+  const [expanded, setExpanded] = useState<Set<string>>(new Set())
 
   const refresh = useCallback(async () => {
     try { setList(await api.workspaces()) } catch (e: any) { toast(e.message) }
@@ -300,6 +353,15 @@ function WorkspacesPage({ toast }: { toast: (m: string) => void }) {
     } catch (e: any) { toast(e.message) }
   }
 
+  const toggleExpand = (id: string) => {
+    setExpanded((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
   return (
     <>
       <h1 className="page-title">工作区</h1>
@@ -307,56 +369,79 @@ function WorkspacesPage({ toast }: { toast: (m: string) => void }) {
       <table className="grid">
         <thead>
           <tr>
-            <th style={{ width: 100 }}>status</th>
-            <th style={{ width: 160 }}>name</th>
-            <th>path</th>
-            <th>purpose</th>
-            <th style={{ width: 100 }}>owner</th>
-            <th style={{ width: 100 }}>heartbeat</th>
+            <th style={{ width: 60 }}></th>
+            <th>ID</th>
+            <th>名称</th>
+            <th>状态</th>
+            <th>路径</th>
+            <th>用途</th>
             <th style={{ width: 110 }}></th>
           </tr>
         </thead>
         <tbody>
           {list.map((w) => (
             <tr key={w.id}>
-              <td><StatusDot status={w.status} /></td>
+              <td><Switch on={w.status !== "disabled"} onClick={() => toggle(w)} /></td>
+              <td style={{ color: "var(--text-weak)", fontSize: 12, fontFamily: "var(--font-mono)" }}>{w.id}</td>
               <td className="strong"><a className="link" onClick={() => setDetail(w)}>{w.name}</a></td>
+              <td title={w.last_heartbeat ? `最后心跳: ${new Date(w.last_heartbeat + "Z").toLocaleString()}` : undefined}>
+                <StatusDot status={w.status} />
+                {w.status === "offline" && w.last_heartbeat && (
+                  <span style={{ color: "var(--text-weak)", fontSize: 12, marginLeft: 6 }}>
+                    {new Date(w.last_heartbeat + "Z").toLocaleString()}
+                  </span>
+                )}
+              </td>
               <td title={w.path} style={{ color: "var(--text-weak)", fontSize: 12 }}>{w.path}</td>
-              <td title={w.purpose}>{w.purpose}</td>
-              <td style={{ color: "var(--text-weak)" }}>{w.owner?.username}</td>
-              <td style={{ color: "var(--text-weak)", fontSize: 12 }}>
-                {w.last_heartbeat ? new Date(w.last_heartbeat + "Z").toLocaleTimeString() : "-"}
+              <td className="purpose-td">
+                <div className={`purpose-cell ${expanded.has(w.id) ? "open" : ""}`}>
+                  <span className="purpose-text">{w.purpose}</span>
+                  <span
+                    className="expander"
+                    title={expanded.has(w.id) ? "收起" : "展开"}
+                    onClick={() => toggleExpand(w.id)}
+                  >
+                    <ChevronIcon up={expanded.has(w.id)} />
+                  </span>
+                </div>
               </td>
               <td>
-                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <Switch on={w.status !== "disabled"} onClick={() => toggle(w)} />
-                  {w.status !== "online" && (
-                    <ConfirmWrap text={`delete ${w.name}?`} onOk={() => del(w)}>
-                      <Btn size="sm" variant="danger">rm</Btn>
-                    </ConfirmWrap>
-                  )}
-                </div>
+                {w.status !== "online" && (
+                  <Btn variant="icon" title="删除" onClick={() => setDelTarget(w)}>
+                    <TrashIcon />
+                  </Btn>
+                )}
               </td>
             </tr>
           ))}
           {!list.length && (
-            <tr><td colSpan={7} style={{ color: "var(--text-weak)", textAlign: "center", padding: 32 }}>
-              [*] no workspaces yet — 在目标机器执行接入页的安装命令
+            <tr><td colSpan={5} style={{ color: "var(--text-weak)", textAlign: "center", padding: 32 }}>
+              [*] 暂无工作区 — 在目标机器执行接入页的安装命令
             </td></tr>
           )}
         </tbody>
       </table>
 
+      {delTarget && (
+        <Modal title={`删除 ${delTarget.name}？`} onClose={() => setDelTarget(null)}>
+          <p style={{ margin: 0, color: "var(--text-weak)", fontSize: 14 }}>删除后工作区将从列表移除，不可恢复。</p>
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
+            <Btn size="sm" variant="ghost" onClick={() => setDelTarget(null)}>取消</Btn>
+            <Btn size="sm" variant="danger" onClick={() => { del(delTarget); setDelTarget(null) }}>确认删除</Btn>
+          </div>
+        </Modal>
+      )}
+
       {detail && (
         <Modal title={detail.name} onClose={() => setDetail(null)}>
           <dl className="dl">
-            <dt>status</dt><dd><StatusDot status={detail.status} /></dd>
-            <dt>path</dt><dd>{detail.path}</dd>
-            <dt>purpose</dt><dd>{detail.purpose || "-"}</dd>
-            <dt>capabilities</dt><dd>{detail.capabilities || "-"}</dd>
-            <dt>notes</dt><dd>{detail.notes || "-"}</dd>
-            <dt>owner</dt><dd>{detail.owner?.username ?? "-"}</dd>
-            <dt>heartbeat</dt>
+            <dt>状态</dt><dd><StatusDot status={detail.status} /></dd>
+            <dt>路径</dt><dd>{detail.path}</dd>
+            <dt>用途</dt><dd>{detail.purpose || "-"}</dd>
+            <dt>能力</dt><dd>{detail.capabilities || "-"}</dd>
+            <dt>备注</dt><dd>{detail.notes || "-"}</dd>
+            <dt>所有者</dt><dd>{detail.owner?.username ?? "-"}</dd>
+            <dt>最后心跳</dt>
             <dd>{detail.last_heartbeat ? new Date(detail.last_heartbeat + "Z").toLocaleString() : "-"}</dd>
           </dl>
         </Modal>
@@ -406,7 +491,7 @@ function HelpPage() {
           ))}
           {!list.length && (
             <tr><td colSpan={6} style={{ color: "var(--text-weak)", textAlign: "center", padding: 32 }}>
-              [*] no help requests
+              [*] 暂无求助记录
             </td></tr>
           )}
         </tbody>

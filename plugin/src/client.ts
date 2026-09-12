@@ -1,35 +1,9 @@
-/** agent_swarm 服务端 API 客户端（MCP JSON-RPC over HTTP + 管理 REST） */
+/** agent_swarm 服务端 API 客户端（MCP JSON-RPC over HTTP），仅插件心跳用 */
 
 export interface SwarmConfig {
   serverUrl: string
   apiKey: string
   heartbeatIntervalMs?: number
-  pollIntervalMs?: number
-}
-
-export interface HelpTask {
-  request_id: string
-  mode: "foreground" | "background"
-  session_id?: string | null
-  question: string
-  requester?: {
-    workspace_id: string
-    name: string
-    path: string
-    purpose: string
-  } | null
-}
-
-export interface WorkspaceInfo {
-  workspace_id: string
-  name: string
-  path: string
-  purpose: string
-  capabilities: string | null
-  notes: string | null
-  status: string
-  owner: string
-  is_self: boolean
 }
 
 export class SwarmClient {
@@ -62,7 +36,7 @@ export class SwarmClient {
         params: {
           protocolVersion: "2024-11-05",
           capabilities: {},
-          clientInfo: { name: "opencode-agent-swarm", version: "0.1.0" },
+          clientInfo: { name: "opencode-agent-swarm", version: "0.2.0" },
         },
       }),
     })
@@ -94,7 +68,6 @@ export class SwarmClient {
     const result = body.result
     if (result?.isError) throw new Error(`agent_swarm: ${result?.content?.[0]?.text ?? "tool error"}`)
 
-    // 优先 structuredContent：服务端 dict 包装 {"workspaces": [...]} / {"requests": [...]} 等
     const sc = result?.structuredContent
     if (sc && typeof sc === "object") return sc as T
     const content = result?.content ?? []
@@ -106,7 +79,6 @@ export class SwarmClient {
         return content[0].text as T
       }
     }
-    // 多 content block（兼容服务端未包裹的 list 返回）
     try {
       return JSON.parse(`[${content.map((c: any) => c.text).join(",")}]`) as T
     } catch {
@@ -114,73 +86,9 @@ export class SwarmClient {
     }
   }
 
-  // ---------------- 工具封装 ----------------
-
-  registerWorkspace(p: {
-    path: string
-    purpose?: string
-    capabilities?: string
-  }): Promise<{
-    workspace_id: string
-    created: boolean
-    need_summary: boolean
-    purpose?: string
-    capabilities?: string
-    name: string
-    status: string
-  }> {
-    return this.callTool("register_workspace", {
-      path: p.path,
-      purpose: p.purpose ?? "",
-      capabilities: p.capabilities ?? "",
-    })
-  }
+  // ---------------- 心跳保活 ----------------
 
   heartbeat(workspaceId: string, sessionId?: string) {
     return this.callTool("heartbeat", { workspace_id: workspaceId, session_id: sessionId ?? "" })
-  }
-
-  updateNotes(workspaceId: string, notes: string, append = true) {
-    return this.callTool("update_notes", { workspace_id: workspaceId, notes, append })
-  }
-
-  updateInfo(workspaceId: string, purpose?: string, capabilities?: string) {
-    return this.callTool("update_info", {
-      workspace_id: workspaceId,
-      purpose: purpose ?? "",
-      capabilities: capabilities ?? "",
-    })
-  }
-
-  listWorkspaces(): Promise<{ workspaces: WorkspaceInfo[] }> {
-    return this.callTool("list_workspaces", {})
-  }
-
-  requestHelp(p: {
-    requesterWorkspaceId: string
-    targetWorkspaceId: string
-    question: string
-    mode?: "foreground" | "background"
-    sessionId?: string
-  }): Promise<{ request_id: string; status: string }> {
-    return this.callTool("request_help", {
-      requester_workspace_id: p.requesterWorkspaceId,
-      target_workspace_id: p.targetWorkspaceId,
-      question: p.question,
-      mode: p.mode ?? "background",
-      session_id: p.sessionId ?? "",
-    })
-  }
-
-  getHelpResult(requestId: string): Promise<{ status: string; result?: string; error?: string }> {
-    return this.callTool("get_help_result", { request_id: requestId })
-  }
-
-  pollHelpRequests(workspaceId: string): Promise<{ requests: HelpTask[] }> {
-    return this.callTool("poll_help_requests", { workspace_id: workspaceId })
-  }
-
-  submitHelpResult(requestId: string, ok: boolean, result: string) {
-    return this.callTool("submit_help_result", { request_id: requestId, ok, result })
   }
 }

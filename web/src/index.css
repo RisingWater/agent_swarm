@@ -1,4 +1,4 @@
-/** opencode.ai 风格的全局样式：浅色 + 全站等宽 + 扁平 1px 边框 */
+﻿/** opencode.ai 风格的全局样式：浅色 + 全站等宽 + 扁平 1px 边框 */
 
 :root {
   --bg: hsl(0, 20%, 99%);
@@ -25,7 +25,7 @@ body {
   background: var(--bg);
   color: var(--text);
   font-family: var(--font);
-  font-size: 13px;
+  font-size: 16px;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
 }
@@ -51,7 +51,7 @@ body {
   gap: 10px;
   color: var(--text-strong);
   font-weight: 700;
-  font-size: 14px;
+  font-size: 15px;
   text-decoration: none;
 }
 
@@ -63,7 +63,7 @@ body {
   height: 26px;
   border: 1.5px solid var(--bg-strong);
   border-radius: var(--radius);
-  font-size: 12px;
+  font-size: 14px;
 }
 
 .topnav-links {
@@ -75,7 +75,7 @@ body {
 .topnav-links a,
 .topnav-links button {
   font-family: var(--font);
-  font-size: 13px;
+  font-size: 16px;
   color: var(--text-weak);
   text-decoration: none;
   background: none;
@@ -110,7 +110,7 @@ body {
   align-items: center;
   gap: 6px;
   font-family: var(--font);
-  font-size: 13px;
+  font-size: 16px;
   font-weight: 500;
   padding: 7px 14px;
   border-radius: var(--radius);
@@ -152,7 +152,7 @@ body {
 
 .btn-sm {
   padding: 4px 10px;
-  font-size: 12px;
+  font-size: 14px;
 }
 
 .btn-icon {
@@ -177,7 +177,7 @@ body {
 .field {
   width: 100%;
   font-family: var(--font);
-  font-size: 13px;
+  font-size: 16px;
   color: var(--text-strong);
   background: var(--bg);
   border: 1px solid var(--border);
@@ -198,13 +198,13 @@ body {
 /* ---------- 页面布局 ---------- */
 
 .page {
-  max-width: 880px;
+  max-width: 1320px;
   margin: 0 auto;
   padding: 48px 24px 80px;
 }
 
 .page-title {
-  font-size: 30px;
+  font-size: 38px;
   font-weight: 700;
   color: var(--text-strong);
   margin: 0 0 6px;
@@ -217,7 +217,7 @@ body {
 
 .section-label {
   color: var(--text-weak);
-  font-size: 12px;
+  font-size: 14px;
   letter-spacing: 0.06em;
   margin: 0 0 12px;
 }
@@ -246,7 +246,7 @@ hr.rule {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 10px 14px;
-  font-size: 13px;
+  font-size: 16px;
   color: var(--text-strong);
   white-space: nowrap;
   overflow: hidden;
@@ -261,17 +261,17 @@ hr.rule {
   border: 1px solid var(--border);
   border-radius: var(--radius-block);
   padding: 4px 4px 4px 16px;
-  font-size: 13px;
+  font-size: 16px;
 }
 
 .cmdblock .cmd-text {
   flex: 1;
   min-width: 0;
   color: var(--text-strong);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: pre-wrap;               /* 多行换行显示完整命令 */
+  word-break: break-all;
   padding: 8px 0;
+  line-height: 1.6;
 }
 
 .cmdblock .prompt {
@@ -284,13 +284,13 @@ hr.rule {
 table.grid {
   width: 100%;
   border-collapse: collapse;
-  font-size: 13px;
+  font-size: 16px;
 }
 
 table.grid th {
   text-align: left;
   font-weight: 400;
-  font-size: 12px;
+  font-size: 14px;
   color: var(--text-weak);
   padding: 10px 12px;
   border-bottom: 1px solid var(--border);
@@ -327,6 +327,54 @@ a.link:hover {
   background: var(--color-weak, var(--bg-weak));
 }
 
+/* ---------- 用途列展开 ---------- */
+
+/* 展开时解除该单元格的单行截断，让内容向下撑开成多行 */
+.purpose-td.open {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+}
+
+.purpose-cell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.purpose-cell .purpose-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.purpose-cell.open .purpose-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow: visible;
+}
+
+.expander {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  color: var(--text-weak);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.expander:hover {
+  background: var(--bg-weak);
+  color: var(--text-strong);
+}
+
 /* ---------- 状态 ---------- */
 
 .dot {
@@ -344,7 +392,7 @@ a.link:hover {
 
 .status-pill {
   display: inline-block;
-  font-size: 12px;
+  font-size: 14px;
   padding: 2px 8px;
   border-radius: 3px;
   border: 1px solid var(--border);
@@ -380,7 +428,7 @@ a.link:hover {
 
 .dialog h3 {
   margin: 0 0 16px;
-  font-size: 16px;
+  font-size: 18px;
   color: var(--text-strong);
 }
 
@@ -395,7 +443,7 @@ a.link:hover {
   color: var(--bg);
   padding: 10px 20px;
   border-radius: var(--radius);
-  font-size: 13px;
+  font-size: 16px;
   z-index: 200;
   animation: toast-in 0.2s ease;
 }
@@ -421,7 +469,7 @@ a.link:hover {
 }
 
 .auth-hero h1 {
-  font-size: 38px;
+  font-size: 46px;
   font-weight: 700;
   color: var(--text-strong);
   margin: 16px 0 8px;
@@ -446,7 +494,7 @@ a.link:hover {
 
 .tablist button {
   font-family: var(--font);
-  font-size: 13px;
+  font-size: 16px;
   background: transparent;
   border: none;
   border-bottom: 2px solid transparent;
@@ -467,40 +515,57 @@ a.link:hover {
   padding: 20px;
 }
 
-/* ---------- 开关 ---------- */
+/* 接入页安装命令的平台切换：tab 行通栏，与下方命令块同宽 */
+.tablist-inline {
+  display: flex;
+  gap: 24px;
+  padding: 0 16px;
+  border-radius: var(--radius-block) var(--radius-block) 0 0;
+}
+
+.tablist-inline button {
+  padding: 10px 0;
+}
+
+.cmdblock-joined {
+  border-top-left-radius: 0;
+}
+
+/* ---------- 开关（GitHub Primer ToggleSwitch 风格） ---------- */
 
 .switch {
   position: relative;
-  width: 32px;
-  height: 18px;
-  border-radius: 9px;
-  border: 1px solid var(--border);
+  display: inline-block;
+  width: 40px;
+  height: 20px;
+  border-radius: 999px;
   background: var(--bg-weak);
+  border: 1px solid var(--border);
   cursor: pointer;
-  transition: background 0.15s ease;
   vertical-align: middle;
+  transition: background 0.2s ease, border-color 0.2s ease;
 }
 
 .switch::after {
   content: "";
   position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 12px;
-  height: 12px;
+  top: 1px;
+  left: 1px;
+  width: 16px;
+  height: 16px;
   border-radius: 50%;
   background: var(--text-weak);
-  transition: transform 0.15s ease, background 0.15s ease;
+  transition: transform 0.2s ease, background 0.2s ease;
 }
 
 .switch.on {
-  background: var(--bg-strong);
-  border-color: var(--bg-strong);
+  background: #0969da;
+  border-color: #0969da;
 }
 
 .switch.on::after {
-  transform: translateX(14px);
-  background: var(--bg);
+  transform: translateX(20px);
+  background: #fff;
 }
 
 /* ---------- 详情描述 ---------- */
@@ -509,7 +574,7 @@ a.link:hover {
   display: grid;
   grid-template-columns: 130px 1fr;
   gap: 10px 16px;
-  font-size: 13px;
+  font-size: 16px;
 }
 
 .dl dt {
@@ -532,7 +597,7 @@ a.link:hover {
   border-radius: var(--radius);
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
   padding: 12px 14px;
-  font-size: 12px;
+  font-size: 14px;
   color: var(--text);
   width: 240px;
   z-index: 50;

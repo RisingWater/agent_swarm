@@ -31,7 +31,7 @@ if command -v tar >/dev/null; then
     tar -czf data/agent-swarm-plugin.tar.gz \
         -C plugin \
         --exclude='node_modules' --exclude='types' --exclude='*.tsbuildinfo' \
-        package.json tsconfig.json src
+        package.json tsconfig.json src commands
     echo "[deploy] plugin package: data/agent-swarm-plugin.tar.gz"
 fi
 
