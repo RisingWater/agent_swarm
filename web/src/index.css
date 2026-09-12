@@ -108,6 +108,10 @@ body {
 
 /* ---------- 修改密码表单 ---------- */
 
+.auth-dialog {
+  width: 380px;
+}
+
 .pwd-label {
   font-size: 13px;
   color: var(--text-weak);
@@ -554,11 +558,19 @@ a.link:hover {
   margin-bottom: 40px;
 }
 
-.auth-hero h1 {
+/* 图标与标题同行 */
+.auth-hero-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+}
+
+.auth-hero-row h1 {
   font-size: 38px;
   font-weight: 700;
   color: var(--text-strong);
-  margin: 16px 0 8px;
+  margin: 0;
 }
 
 .auth-hero p {
@@ -613,6 +625,44 @@ a.link:hover {
   padding: 10px 0;
 }
 
+/* 账号/文档等页面：左侧二级菜单 + 右侧内容 */
+.subpage {
+  display: flex;
+  gap: 48px;
+  align-items: flex-start;
+}
+
+.subpage-toc {
+  flex: 0 0 180px;
+  position: sticky;
+  top: 90px;
+  display: flex;
+  flex-direction: column;
+}
+
+.subpage-item {
+  color: var(--text-weak);
+  font-size: 15px;
+  padding: 7px 12px;
+  border-left: 2px solid var(--border);
+  cursor: pointer;
+}
+
+.subpage-item:hover {
+  color: var(--text-strong);
+}
+
+.subpage-item.active {
+  color: var(--text-strong);
+  border-left-color: var(--text-strong);
+  font-weight: 600;
+}
+
+.subpage-body {
+  flex: 1;
+  min-width: 0;
+}
+
 .cmdblock-joined {
   border-top-left-radius: 0;
 }
@@ -645,8 +695,8 @@ a.link:hover {
 }
 
 .switch.on {
-  background: #0969da;
-  border-color: #0969da;
+  background: var(--text-strong);
+  border-color: var(--text-strong);
 }
 
 .switch.on::after {
@@ -780,4 +830,160 @@ a.link:hover {
   justify-content: flex-end;
   gap: 8px;
   margin-top: 10px;
+}
+
+/* ---------- 首页 ---------- */
+
+.home {
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+.home-hero {
+  text-align: center;
+  padding: 32px 0 40px;
+}
+
+.home-hero-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+}
+
+.home-hero-row h1 {
+  font-size: 52px;
+  font-weight: 700;
+  color: var(--text-strong);
+  margin: 0;
+  letter-spacing: -0.01em;
+}
+
+.home-tagline {
+  font-size: 18px;
+  color: var(--text-weak);
+  margin: 18px 0 0;
+}
+
+.home-install {
+  padding: 24px 0 8px;
+}
+
+.home-hint {
+  color: var(--text-weak);
+  font-size: 14px;
+  margin: 0;
+}
+
+.home-video {
+  padding: 40px 0;
+}
+
+/* 16:9 视频占位黑框 */
+.video-placeholder {
+  aspect-ratio: 16 / 9;
+  width: 100%;
+  background: #0c0c0e;
+  border-radius: var(--radius-block);
+}
+
+.home-about {
+  padding: 24px 0;
+}
+
+.home-about h2 {
+  font-size: 24px;
+  color: var(--text-strong);
+  margin: 32px 0 12px;
+}
+
+.home-about > p {
+  color: var(--text);
+  line-height: 1.7;
+  margin: 0 0 20px;
+}
+
+.home-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
+  margin: 20px 0;
+}
+
+.home-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-block);
+  padding: 18px 20px;
+  background: var(--bg-weak);
+}
+
+/* 图标与标题同行 */
+.home-card-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 6px;
+  color: var(--text-strong);
+}
+
+.home-card-head svg {
+  flex: 0 0 auto;
+  color: var(--text-strong);
+}
+
+.home-card h3 {
+  font-size: 16px;
+  margin: 0;
+}
+
+.home-card p {
+  margin: 0;
+  font-size: 14px;
+  color: var(--text-weak);
+  line-height: 1.65;
+}
+
+.home-list {
+  margin: 0;
+  padding-left: 22px;
+  color: var(--text);
+  line-height: 2;
+}
+
+.home-docs-cta {
+  text-align: center;
+  padding: 32px 0 48px;
+}
+
+.docs-btn {
+  font-size: 16px;
+  padding: 10px 28px;
+}
+
+/* ---------- 文档页 ---------- */
+
+.docs-section {
+  padding: 20px 0 32px;
+  border-bottom: 1px solid var(--border);
+}
+
+.docs-section:last-child {
+  border-bottom: none;
+}
+
+.docs-section h2 {
+  font-size: 22px;
+  color: var(--text-strong);
+  margin: 0 0 10px;
+}
+
+.docs-placeholder,
+.docs-toc-empty {
+  color: var(--text-weak);
+  font-size: 14px;
+}
+
+.docs-toc-empty {
+  margin-top: 16px;
+  padding-left: 12px;
 }

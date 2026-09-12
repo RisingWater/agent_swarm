@@ -53,12 +53,30 @@ function fmtTime(iso: string | null | undefined, mode: "time" | "datetime" = "ti
 
 // ---------------- 基础组件 ----------------
 
+/** 虫群标志：六个个体围绕 AI 核心汇聚 */
+function SwarmMark({ size = 26 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 48 48" aria-hidden>
+      <g fill="currentColor">
+        <ellipse cx="24" cy="12" rx="4.2" ry="5.5" />
+        <ellipse cx="34.4" cy="18" rx="4.2" ry="5.5" transform="rotate(120 34.4 18)" />
+        <ellipse cx="34.4" cy="30" rx="4.2" ry="5.5" transform="rotate(60 34.4 30)" />
+        <ellipse cx="24" cy="36" rx="4.2" ry="5.5" />
+        <ellipse cx="13.6" cy="30" rx="4.2" ry="5.5" transform="rotate(-60 13.6 30)" />
+        <ellipse cx="13.6" cy="18" rx="4.2" ry="5.5" transform="rotate(-120 13.6 18)" />
+      </g>
+      <circle cx="24" cy="24" r="3.2" fill="none" stroke="currentColor" strokeWidth="2" />
+      <circle cx="24" cy="24" r="1" fill="currentColor" />
+    </svg>
+  )
+}
+
 function Logo({ size = 26 }: { size?: number }) {
   return (
-    <span className="topnav-logo" style={{ gap: 10 }}>
-      <span className="mark" style={{ width: size, height: size }}>&gt;_</span>
+    <>
+      <SwarmMark size={size} />
       agent_swarm
-    </span>
+    </>
   )
 }
 
@@ -177,54 +195,105 @@ function Confirm({ text, onOk, onClose }: { text: string; onOk: () => void; onCl
 
 // ---------------- 应用骨架 ----------------
 
+export type Page = "home" | "docs" | "workspaces" | "calls" | "account" | "login"
+
 export default function App() {
   const [token, setToken] = useState(localStorage.getItem("swarm_token"))
-  const [page, setPage] = useState<"account" | "workspaces" | "calls" | "password">("account")
+  const [page, setPage] = useState<Page>("home")
   const { msg, show: toast } = useToast()
 
-  if (!token)
-    return <LoginPage onLogin={(t) => { localStorage.setItem("swarm_token", t); setToken(t) }} />
-
+  const loggedIn = !!token
   const username = localStorage.getItem("swarm_user")
+
+  // 未登录：可见页面只有 首页/文档，受保护页面跳回首页
+  const effectivePage: Page =
+    !loggedIn && (page === "workspaces" || page === "calls" || page === "account")
+      ? "home"
+      : page
+
+  // 切换页面时回到顶部
+  const goto = (p: Page) => {
+    setPage(p)
+    window.scrollTo({ top: 0 })
+  }
 
   return (
     <>
       <header className="topnav">
-        <Logo />
+        <a className="topnav-logo" href="#" onClick={(e) => { e.preventDefault(); goto("home") }} title="首页">
+          <Logo />
+        </a>
         <nav className="topnav-links">
-          <a className={page === "account" ? "active" : ""} onClick={() => setPage("account")}>接入</a>
-          <a className={page === "workspaces" ? "active" : ""} onClick={() => setPage("workspaces")}>工作区</a>
-          <a className={page === "calls" ? "active" : ""} onClick={() => setPage("calls")}>调用记录</a>
+          <a className={effectivePage === "home" ? "active" : ""} onClick={() => goto("home")}>首页</a>
+          <a className={effectivePage === "docs" ? "active" : ""} onClick={() => goto("docs")}>文档</a>
+          {loggedIn && (
+            <>
+              <a className={effectivePage === "workspaces" ? "active" : ""} onClick={() => goto("workspaces")}>工作区</a>
+              <a className={effectivePage === "calls" ? "active" : ""} onClick={() => goto("calls")}>调用记录</a>
+            </>
+          )}
+          {loggedIn ? (
+            <a
+              className={`user${effectivePage === "account" ? " active" : ""}`}
+              title="账号：API Key / 修改密码"
+              onClick={() => goto("account")}
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <circle cx="12" cy="8" r="4" />
+                <path d="M4 21c0-4 3.6-6.5 8-6.5s8 2.5 8 6.5" />
+              </svg>
+              {username}
+            </a>
+          ) : (
+            <a className="user" title="登录或注册" onClick={() => setPage("login")}>登录 / 注册</a>
+          )}
           <a
-            className={`user${page === "password" ? " active" : ""}`}
-            title="修改密码"
-            onClick={() => setPage("password")}
+            className="github-link"
+            href="https://github.com/RisingWater/agent_swarm"
+            target="_blank"
+            rel="noreferrer"
+            title="GitHub 仓库"
           >
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-              strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-              <circle cx="12" cy="8" r="4" />
-              <path d="M4 21c0-4 3.6-6.5 8-6.5s8 2.5 8 6.5" />
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden>
+              <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z" />
             </svg>
-            {username}
           </a>
-          <button
-            onClick={() => {
-              localStorage.removeItem("swarm_token")
-              localStorage.removeItem("swarm_user")
-              setToken(null)
-            }}
-          >
-            退出
-          </button>
+          {loggedIn && (
+            <button
+              onClick={() => {
+                localStorage.removeItem("swarm_token")
+                localStorage.removeItem("swarm_user")
+                setToken(null)
+                setPage("home")
+              }}
+            >
+              退出
+            </button>
+          )}
         </nav>
       </header>
-      <main className="page">
-        {page === "account" && <AccountPage toast={toast} />}
-        {page === "workspaces" && <WorkspacesPage toast={toast} />}
-        {page === "calls" && <CallsPage toast={toast} />}
-        {page === "password" && <PasswordPage toast={toast} />}
+      <main className={effectivePage === "home" || effectivePage === "docs" ? "page page-full" : "page"}>
+        {effectivePage === "home" && (
+          <HomePage
+            toast={toast}
+            loggedIn={loggedIn}
+            onGoAccount={() => goto("account")}
+            onOpenLogin={() => setPage("login")}
+          />
+        )}
+        {effectivePage === "docs" && <DocsPage />}
+        {effectivePage === "workspaces" && <WorkspacesPage toast={toast} />}
+        {effectivePage === "calls" && <CallsPage toast={toast} />}
+        {effectivePage === "account" && <AccountPage toast={toast} />}
       </main>
       <Toast msg={msg} />
+      {page === "login" && (
+        <LoginPage
+          onLogin={(t) => { localStorage.setItem("swarm_token", t); setToken(t); setPage("home") }}
+          onClose={() => setPage("home")}
+        />
+      )}
     </>
   )
 }
@@ -232,9 +301,9 @@ export default function App() {
 // 用 context 传 toast 简化：这里直接用一个模块级事件太 hacky，
 // 改为每个页面自己持有 toast。
 
-// ---------------- 登录/注册 ----------------
+// ---------------- 登录/注册（弹窗形式，覆盖在当前页上） ----------------
 
-function LoginPage({ onLogin }: { onLogin: (token: string) => void }) {
+function LoginPage({ onLogin, onClose }: { onLogin: (token: string) => void; onClose: () => void }) {
   const [mode, setMode] = useState<"login" | "register">("login")
   const [username, setUsername] = useState("")
   const [password, setPassword] = useState("")
@@ -261,14 +330,13 @@ function LoginPage({ onLogin }: { onLogin: (token: string) => void }) {
   }
 
   return (
-    <div className="auth-wrap">
-      <div className="auth-hero">
-        <Logo size={44} />
-        <h1>agent_swarm</h1>
-        <p>多 agent 协作中枢</p>
-      </div>
-      <div style={{ width: 380 }}>
-        <div className="tablist" role="tablist">
+    <div className="dialog-overlay" onClick={onClose}>
+      <div className="dialog auth-dialog" onClick={(e) => e.stopPropagation()}>
+        <div className="auth-hero-row" style={{ marginBottom: 14 }}>
+          <SwarmMark size={40} />
+          <h1 style={{ fontSize: 26, margin: 0 }}>agent_swarm</h1>
+        </div>
+        <div className="tablist tablist-inline" style={{ marginBottom: 0 }}>
           <button role="tab" aria-selected={mode === "login"} onClick={() => setMode("login")}>登录</button>
           <button role="tab" aria-selected={mode === "register"} onClick={() => setMode("register")}>注册</button>
         </div>
@@ -286,15 +354,15 @@ function LoginPage({ onLogin }: { onLogin: (token: string) => void }) {
         </div>
       </div>
       {apiKeyShow && (
-        <Modal title="你的 API Key" onClose={() => { setApiKeyShow(null); setMode("login") }}>
+        <Modal title="你的 API Key" onClose={() => { setApiKeyShow(null); onLogin("registered") }}>
           <p style={{ fontSize: 13, color: "var(--text-weak)", marginTop: 0 }}>
-            key 可以随时在「接入」页查看，但请妥善保管：
+            key 可以随时在「账号 → API Key」查看，但请妥善保管：
           </p>
           <div className="keybox" style={{ fontSize: 12, wordBreak: "break-all", whiteSpace: "normal" }}>
             {apiKeyShow}
           </div>
           <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 16 }}>
-            <Btn variant="primary" onClick={() => { setApiKeyShow(null); setMode("login") }}>我已保存</Btn>
+            <Btn variant="primary" onClick={() => { setApiKeyShow(null); onLogin("registered") }}>我已保存</Btn>
           </div>
         </Modal>
       )}
@@ -302,14 +370,31 @@ function LoginPage({ onLogin }: { onLogin: (token: string) => void }) {
   )
 }
 
-// ---------------- 接入 ----------------
+// ---------------- 账号（左侧二级菜单：API Key / 修改密码） ----------------
 
 function AccountPage({ toast }: { toast: (m: string) => void }) {
+  const [tab, setTab] = useState<"apikey" | "password">("apikey")
+  return (
+    <div className="subpage">
+      <aside className="subpage-toc">
+        <p className="section-label">[ 账号 ]</p>
+        <a className={`subpage-item${tab === "apikey" ? " active" : ""}`} onClick={() => setTab("apikey")}>
+          API Key
+        </a>
+        <a className={`subpage-item${tab === "password" ? " active" : ""}`} onClick={() => setTab("password")}>
+          修改密码
+        </a>
+      </aside>
+      <div className="subpage-body">
+        {tab === "apikey" ? <ApiKeyPanel toast={toast} /> : <PasswordForm toast={toast} />}
+      </div>
+    </div>
+  )
+}
+
+function ApiKeyPanel({ toast }: { toast: (m: string) => void }) {
   const [me, setMe] = useState<(User & { api_key: string }) | null>(null)
   const [showKey, setShowKey] = useState(false)
-  const [plat, setPlat] = useState<"sh" | "ps1">(
-    /Win/i.test(navigator.platform) ? "ps1" : "sh",
-  )
 
   const refresh = useCallback(() => {
     api.me().then(setMe).catch((e) => toast(e.message))
@@ -325,16 +410,9 @@ function AccountPage({ toast }: { toast: (m: string) => void }) {
   }
 
   const key = me?.api_key ?? ""
-  const installCmd =
-    plat === "sh"
-      ? `curl -fsSL ${pageOrigin}/download/install.sh | bash -s -- --api-key ${key}`
-      : `& ([scriptblock]::Create((irm ${pageOrigin}/download/install.ps1))) -ApiKey ${key}`
 
   return (
     <>
-      <h1 className="page-title">接入</h1>
-      <p className="page-sub">管理 API Key，将 AI 编程工具接入 agent_swarm。</p>
-
       <p className="section-label">[ api key ]</p>
       <div className="keyrow">
         <div className="keybox">
@@ -351,32 +429,68 @@ function AccountPage({ toast }: { toast: (m: string) => void }) {
           <Btn size="sm" variant="danger">reset</Btn>
         </ConfirmWrap>
       </div>
-
-      <hr className="rule" />
-
-      <p className="section-label">[ install ]</p>
-      <p style={{ marginTop: 0, color: "var(--text-weak)" }}>
-        在装有 AI 编程工具的机器上执行：
+      <p style={{ marginTop: 12, color: "var(--text-weak)", fontSize: 13 }}>
+        安装接入命令在「接入」页生成，会自动带上当前 Key。
       </p>
-      <div className="tablist tablist-inline">
-        <button role="tab" aria-selected={plat === "sh"} onClick={() => setPlat("sh")}>
-          macOS / linux
-        </button>
-        <button role="tab" aria-selected={plat === "ps1"} onClick={() => setPlat("ps1")}>
-          windows
-        </button>
-      </div>
-      <div className="cmdblock cmdblock-joined">
-        <span className="cmd-text">
-          <span className="prompt">{plat === "sh" ? "$" : "PS>"}</span>
-          {key ? installCmd : plat === "sh" ? "# 请先获取 api key" : "# 请先获取 api key"}
-        </span>
-        <Btn variant="icon" title="copy" onClick={() => {
-          navigator.clipboard.writeText(installCmd)
-          toast("安装命令已复制")
-        }}>⧉</Btn>
-      </div>
     </>
+  )
+}
+
+function PasswordForm({ toast }: { toast: (m: string) => void }) {
+  const [username] = useState(localStorage.getItem("swarm_user") ?? "")
+  const [oldPwd, setOldPwd] = useState("")
+  const [newPwd, setNewPwd] = useState("")
+  const [newPwd2, setNewPwd2] = useState("")
+  const [loading, setLoading] = useState(false)
+  const [show, setShow] = useState(false)
+
+  const submit = async () => {
+    if (!oldPwd || !newPwd) return toast("请填写完整")
+    if (newPwd !== newPwd2) return toast("两次输入的新密码不一致")
+    if (newPwd.length < 6) return toast("新密码至少 6 位")
+    setLoading(true)
+    try {
+      await api.changePassword(oldPwd, newPwd)
+      setOldPwd("")
+      setNewPwd("")
+      setNewPwd2("")
+      toast("密码修改成功")
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "修改失败")
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const eye = (
+    <button className="pwd-eye" title={show ? "隐藏" : "显示"} onClick={() => setShow(!show)}>
+      <EyeIcon off={show} />
+    </button>
+  )
+
+  return (
+    <div style={{ width: 400, display: "grid", gap: 12, paddingTop: 20 }}>
+      <label className="pwd-label">账号 <span style={{ color: "var(--text-strong)" }}>{username}</span> · 修改后需用新密码重新登录</label>
+      <div className="pwd-row">
+        <input className="field" type={show ? "text" : "password"} placeholder="当前密码" value={oldPwd}
+          onChange={(e) => setOldPwd(e.target.value)} />
+        {eye}
+      </div>
+      <div className="pwd-row">
+        <input className="field" type={show ? "text" : "password"} placeholder="新密码（至少 6 位）" value={newPwd}
+          onChange={(e) => setNewPwd(e.target.value)} />
+        {eye}
+      </div>
+      <div className="pwd-row">
+        <input className="field" type={show ? "text" : "password"} placeholder="再输入一次新密码" value={newPwd2}
+          onChange={(e) => setNewPwd2(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && submit()} />
+        {eye}
+      </div>
+      <button className="btn btn-primary" style={{ justifyContent: "center", marginTop: 4 }} disabled={loading} onClick={submit}>
+        {loading ? "..." : "确认修改"}
+      </button>
+    </div>
   )
 }
 
@@ -388,6 +502,224 @@ function ConfirmWrap({ text, onOk, children }: { text: string; onOk: () => void;
       <span onClick={() => setOpen(!open)}>{children}</span>
       {open && <Confirm text={text} onOk={onOk} onClose={() => setOpen(false)} />}
     </span>
+  )
+}
+
+// ---------------- 首页 ----------------
+
+function HomePage({ toast, loggedIn, onGoAccount, onOpenLogin }: { toast: (m: string) => void; loggedIn: boolean; onGoAccount: () => void; onOpenLogin: () => void }) {
+  const [me, setMe] = useState<(User & { api_key: string }) | null>(null)
+  const [plat, setPlat] = useState<"sh" | "ps1">(
+    /Win/i.test(navigator.platform) ? "ps1" : "sh",
+  )
+
+  useEffect(() => {
+    if (loggedIn) api.me().then(setMe).catch(() => {})
+  }, [loggedIn])
+
+  const key = me?.api_key ?? ""
+  const placeholder = "你的apikey"
+  const cmdKey = loggedIn ? key : placeholder
+  const installCmd =
+    plat === "sh"
+      ? `curl -fsSL ${pageOrigin}/download/install.sh | bash -s -- --api-key ${cmdKey}`
+      : `& ([scriptblock]::Create((irm ${pageOrigin}/download/install.ps1))) -ApiKey ${cmdKey}`
+
+  return (
+    <div className="home">
+      {/* 1. Hero：图标+文字 logo 一行 + 一句话介绍 */}
+      <section className="home-hero">
+        <div className="home-hero-row">
+          <SwarmMark size={56} />
+          <h1>agent_swarm</h1>
+        </div>
+        <p className="home-tagline">
+          多 agent 协作中枢 —— 把你的 AI 编程工具组成一个虫群，让它们互相调用、协同完成任务。
+        </p>
+      </section>
+
+      {/* 2. 安装 */}
+      <section className="home-install">
+        <div className="tablist tablist-inline">
+          <button role="tab" aria-selected={plat === "sh"} onClick={() => setPlat("sh")}>
+            macOS / linux
+          </button>
+          <button role="tab" aria-selected={plat === "ps1"} onClick={() => setPlat("ps1")}>
+            windows
+          </button>
+        </div>
+        <div className="cmdblock cmdblock-joined">
+          <span className="cmd-text">
+            <span className="prompt">{plat === "sh" ? "$" : "PS>"}</span>
+            {loggedIn && !key ? "# 正在获取 api key…" : installCmd}
+          </span>
+          {loggedIn && (
+            <Btn variant="icon" title="copy" onClick={() => {
+              navigator.clipboard.writeText(installCmd)
+              toast("安装命令已复制")
+            }}>⧉</Btn>
+          )}
+        </div>
+        {loggedIn ? (
+          <p className="home-hint" style={{ marginTop: 10 }}>
+            命令中的 API Key 可在 <a className="link" onClick={onGoAccount}>账号</a> 页查看或重置。
+          </p>
+        ) : (
+          <p className="home-hint" style={{ marginTop: 10 }}>
+            <a className="link" onClick={onOpenLogin}>注册</a>或者
+            <a className="link" onClick={onOpenLogin}>登录</a>账号即可安装。
+          </p>
+        )}
+      </section>
+
+      {/* 3. 介绍视频（16:9 黑框占位） */}
+      <section className="home-video">
+        <div className="video-placeholder" />
+      </section>
+
+      {/* 4. 详细介绍 */}
+      <section className="home-about">
+        <h2>什么是 agent_swarm？</h2>
+        <p>
+          agent_swarm 是一个自托管的多 agent 协作平台。每个 AI 编程工具（如 opencode）作为一个
+          <b> agent 工作区</b>注册到中枢，虫群中的任何 agent 都可以把任务派发给其他 agent 执行——
+          就像一群工蜂协作：你写代码，它跑测试，另一个整理文档。
+        </p>
+        <div className="home-grid">
+          <div className="home-card">
+            <div className="home-card-head">
+              <FeatureIcon kind="mcp" />
+              <h3>任何 MCP 客户端可用</h3>
+            </div>
+            <p>所有 agent 操作都是标准 MCP 工具，opencode、claude、deepseek 等任何支持 MCP 的工具都能接入虫群。</p>
+          </div>
+          <div className="home-card">
+            <div className="home-card-head">
+              <FeatureIcon kind="swarm" />
+              <h3>跨 agent 任务派发</h3>
+            </div>
+            <p>一条指令把任务交给另一个工作区的 agent：它会注入对方会话、实时可见、结果自动回传。</p>
+          </div>
+          <div className="home-card">
+            <div className="home-card-head">
+              <FeatureIcon kind="pulse" />
+              <h3>在线状态与心跳</h3>
+            </div>
+            <p>插件每 30 秒心跳保活，工作区看板实时展示每个 agent 的在线/离线状态。</p>
+          </div>
+          <div className="home-card">
+            <div className="home-card-head">
+              <FeatureIcon kind="shield" />
+              <h3>自托管 & 轻量</h3>
+            </div>
+            <p>单个 FastAPI 服务 + SQLite，一条命令启动，数据完全留在你自己的机器上。</p>
+          </div>
+        </div>
+        <h2>它可以做什么？</h2>
+        <ul className="home-list">
+          <li>让前端 agent 把后端 bug 派发给后端工作区的 agent 修复</li>
+          <li>让一个 agent 去另一个仓库执行测试、汇总结果</li>
+          <li>集中管理所有 AI 工作区的用途说明、备注与在线状态</li>
+          <li>回溯每一次跨 agent 调用的指令与结果（调用记录）</li>
+        </ul>
+      </section>
+
+      {/* 5. 阅读文档 */}
+      <section className="home-docs-cta">
+        <a className="btn btn-primary docs-btn" href="#/docs">阅读文档 →</a>
+      </section>
+    </div>
+  )
+}
+
+/** 特性卡黑白线性图标（与 SwarmMark 同风格：currentColor 描边） */
+function FeatureIcon({ kind }: { kind: "mcp" | "swarm" | "pulse" | "shield" }) {
+  const common = {
+    width: 22,
+    height: 22,
+    viewBox: "0 0 24 24",
+    fill: "none" as const,
+    stroke: "currentColor",
+    strokeWidth: 1.8,
+    strokeLinecap: "round" as const,
+    strokeLinejoin: "round" as const,
+    "aria-hidden": true,
+  }
+  if (kind === "mcp")
+    return (
+      <svg {...common}>
+        {/* 插头 = 标准协议接入 */}
+        <path d="M9 7V3M15 7V3" />
+        <path d="M7 7h10v4a5 5 0 0 1-10 0V7Z" />
+        <path d="M12 16v5" />
+      </svg>
+    )
+  if (kind === "swarm")
+    return (
+      <svg {...common}>
+        {/* 三只个体汇聚 */}
+        <circle cx="12" cy="5.5" r="2.5" />
+        <circle cx="5.5" cy="17" r="2.5" />
+        <circle cx="18.5" cy="17" r="2.5" />
+        <path d="M10.5 8 7 14.5M13.5 8l3.5 6.5M8 17h8" />
+      </svg>
+    )
+  if (kind === "pulse")
+    return (
+      <svg {...common}>
+        {/* 心跳脉冲 */}
+        <path d="M3 12h4l2-5 4 10 2-5h6" />
+      </svg>
+    )
+  return (
+    <svg {...common}>
+      {/* 盾牌 = 自托管安全 */}
+      <path d="M12 3 5 6v5c0 4.5 3 8.2 7 9.5 4-1.3 7-5 7-9.5V6l-7-3Z" />
+      <path d="m9.5 12 2 2 3.5-4" />
+    </svg>
+  )
+}
+
+// ---------------- 文档（左侧目录 + 右侧内容，滚动定位） ----------------
+
+const DOC_SECTIONS = [
+  { id: "intro", title: "介绍" },
+  { id: "quickstart", title: "快速开始" },
+  { id: "concepts", title: "核心概念" },
+  { id: "mcp", title: "MCP 工具" },
+  { id: "faq", title: "FAQ" },
+]
+
+function DocsPage() {
+  const [active, setActive] = useState(DOC_SECTIONS[0].id)
+
+  // 点击目录：滚动到对应区块
+  const jump = (id: string) => {
+    document.getElementById(`doc-${id}`)?.scrollIntoView({ behavior: "smooth", block: "start" })
+    setActive(id)
+  }
+
+  return (
+    <div className="subpage">
+      <aside className="subpage-toc">
+        <p className="section-label">[ 文档 ]</p>
+        {DOC_SECTIONS.map((s) => (
+          <a key={s.id} className={`subpage-item${active === s.id ? " active" : ""}`}
+            onClick={() => jump(s.id)}>
+            {s.title}
+          </a>
+        ))}
+        <p className="docs-toc-empty">文档内容建设中…</p>
+      </aside>
+      <article className="subpage-body">
+        {DOC_SECTIONS.map((s) => (
+          <section key={s.id} id={`doc-${s.id}`} className="docs-section">
+            <h2>{s.title}</h2>
+            <p className="docs-placeholder">（内容建设中，敬请期待）</p>
+          </section>
+        ))}
+      </article>
+    </div>
   )
 }
 
@@ -657,67 +989,5 @@ function CallsPage({ toast }: { toast: (m: string) => void }) {
   )
 }
 
-// ---------------- 修改密码 ----------------
+// PasswordPage 已并入账号页的 PasswordForm（API Key / 修改密码 双 tab）
 
-function PasswordPage({ toast }: { toast: (m: string) => void }) {
-  const [username] = useState(localStorage.getItem("swarm_user") ?? "")
-  const [oldPwd, setOldPwd] = useState("")
-  const [newPwd, setNewPwd] = useState("")
-  const [newPwd2, setNewPwd2] = useState("")
-  const [loading, setLoading] = useState(false)
-  const [show, setShow] = useState(false)
-
-  const submit = async () => {
-    if (!oldPwd || !newPwd) return toast("请填写完整")
-    if (newPwd !== newPwd2) return toast("两次输入的新密码不一致")
-    if (newPwd.length < 6) return toast("新密码至少 6 位")
-    setLoading(true)
-    try {
-      await api.changePassword(oldPwd, newPwd)
-      setOldPwd("")
-      setNewPwd("")
-      setNewPwd2("")
-      toast("密码修改成功")
-    } catch (e) {
-      toast(e instanceof Error ? e.message : "修改失败")
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const eye = (
-    <button className="pwd-eye" title={show ? "隐藏" : "显示"} onClick={() => setShow(!show)}>
-      <EyeIcon off={show} />
-    </button>
-  )
-
-  return (
-    <>
-      <h1 className="page-title">修改密码</h1>
-      <p className="page-sub">账号 <span style={{ color: "var(--text-strong)" }}>{username}</span> 的登录密码。修改后需用新密码重新登录。</p>
-      <div style={{ width: 400, display: "grid", gap: 12 }}>
-        <label className="pwd-label">原密码</label>
-        <div className="pwd-row">
-          <input className="field" type={show ? "text" : "password"} placeholder="当前密码" value={oldPwd}
-            onChange={(e) => setOldPwd(e.target.value)} />
-          {eye}
-        </div>
-        <label className="pwd-label">新密码（至少 6 位）</label>
-        <div className="pwd-row">
-          <input className="field" type={show ? "text" : "password"} placeholder="新密码" value={newPwd}
-            onChange={(e) => setNewPwd(e.target.value)} />
-          {eye}
-        </div>
-        <div className="pwd-row">
-          <input className="field" type={show ? "text" : "password"} placeholder="再输入一次新密码" value={newPwd2}
-            onChange={(e) => setNewPwd2(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && submit()} />
-          {eye}
-        </div>
-        <button className="btn btn-primary" style={{ justifyContent: "center", marginTop: 4 }} disabled={loading} onClick={submit}>
-          {loading ? "..." : "确认修改"}
-        </button>
-      </div>
-    </>
-  )
-}
