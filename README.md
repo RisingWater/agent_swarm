@@ -1,0 +1,138 @@
+# agent_swarm
+
+多 agent 协作中枢（虫群）：把你的 AI 编程工具（opencode 等）组成一个虫群，让它们互相调用、协同完成任务。
+
+- **面向 agent 的操作全部是标准 MCP 工具**——opencode、claude、deepseek 等任何支持 MCP 的客户端都能接入
+- **跨 agent 任务派发**：一条指令把任务交给另一个工作区的 agent，注入对方会话实时执行，结果自动回传
+- **自托管 & 轻量**：单个 FastAPI 服务 + SQLite，一条命令启动，数据完全在自己机器上
+
+## 架构
+
+```
+┌───────────────────────────── agent_swarm 服务端 (FastAPI, :8700) ─────────────────────────────┐
+│  /            管理前端（web/dist 静态托管）                                                    │
+│  /api/*       REST API（JWT 鉴权）：注册登录、账号、工作区、调用记录                            │
+│  /mcp/        MCP 端点（Streamable HTTP + API Key 鉴权）：12 个面向 agent 的工具               │
+│  /download/*  插件分发（免鉴权）：plugin.tar.gz / install.sh / install.ps1                     │
+│  /health      健康检查                                                                        │
+└───────────────────────────────────────────────────────────────────────────────────────────────┘
+        ▲ 心跳(30s) + 领取任务                          ▲ MCP 工具调用（Bearer apikey）
+        │                                              │
+┌───────┴────────┐                              ┌──────┴─────────┐
+│ opencode 插件   │                              │ 任意 MCP 客户端 │
+│ (agent 机器上)  │                              │ (agent 内直接用)│
+└────────────────┘                              └────────────────┘
+```
+
+- **服务端** `server/`：FastAPI 单体。SQLite（`data/agent_swarm.db`）存用户/工作区/调用记录
+- **插件** `plugin/`：跑在每个 agent 工作区的 opencode 里。负责心跳保活 + 接收跨 agent 任务（前台注入优先：任务直接进当前 TUI 会话，实时可见；繁忙时排队，空闲全无时退回后台会话）
+- **前端** `web/`：React + Vite 管理端（工作区看板、调用记录、账号管理、文档）
+
+## 快速开始
+
+### 1. 启动服务端
+
+```bash
+# Linux / macOS
+./deploy/start.sh                # 默认 :8700，自动建 venv、装依赖、打包插件
+
+# Windows
+.\deploy\start.ps1
+```
+
+### 2. 注册账号
+
+打开 `http://localhost:8700` → 注册 → 获得 API Key（随时可在「账号」页查看/重置）。
+
+### 3. 接入 agent 工作区
+
+在装有 AI 编程工具（opencode）的目标机器上，执行首页生成的安装命令：
+
+```bash
+# Linux / macOS
+curl -fsSL http://<server>:8700/download/install.sh | bash -s -- --api-key <你的key>
+
+# Windows (PowerShell)
+& ([scriptblock]::Create((irm http://<server>:8700/download/install.ps1))) -ApiKey <你的key>
+```
+
+安装脚本会：写入 `~/.config/opencode/agent-swarm.json`（服务地址 + apikey）→ 注册 MCP 端点到 `opencode.jsonc` → 部署心跳插件 → 拷贝 `/swarm-*` 命令。**重启 opencode 后生效**。
+
+### 4. 使用
+
+在 agent 对话里直接用 MCP 工具（`workspace_add`、`list_workspaces`、`workspace_call`…），或用 `/swarm-add` 等命令。之后：
+
+```text
+你: 调用 nas_brain 工作区，查看它最新一次 git 提交
+agent: (调用 workspace_call) → 对方 TUI 实时出现任务 → 执行 → 结果自动回传
+```
+
+## MCP 工具一览（`/mcp/`，Bearer apikey 鉴权）
+
+| 工具 | 说明 |
+|---|---|
+| `workspace_add` | 注册当前目录为工作区，返回 ID（写入项目根 `.agent-swarm.md`） |
+| `workspace_remove` / `workspace_enable` / `workspace_disable` | 工作区管理（仅离线可删） |
+| `heartbeat` | 心跳保活（插件每 30s 调用；响应捎带待执行任务） |
+| `update_info` / `update_notes` | 更新工作区用途/能力描述、备注 |
+| `list_workspaces` | 列出可见工作区（默认仅在线） |
+| `workspace_call` | 跨 agent 任务派发（异步，返回 call_id） |
+| `workspace_call_status` | 轮询调用结果 |
+| `workspace_call_ack` / `workspace_call_result` | 任务领取确认/结果回传（插件专用） |
+
+## Docker 部署
+
+```bash
+# 一键（推荐，在项目根目录）
+docker compose -f docker/compose.yaml up -d
+
+# 或手动构建
+docker build -t agent-swarm -f docker/Dockerfile .
+docker run -d --name agent-swarm -p 8700:8700 \
+  -v agent-swarm-data:/app/data \
+  -e AGENT_SWARM_JWT_SECRET=请改成随机长字符串 \
+  agent-swarm
+```
+
+单端口 `:8700` 同时服务管理前端、API、MCP 与插件分发。数据（SQLite + 插件包）持久化在 `agent-swarm-data` 卷。
+
+## 配置
+
+| 环境变量 | 说明 | 默认 |
+|---|---|---|
+| `AGENT_SWARM_PORT` | 服务端口 | `8700` |
+| `AGENT_SWARM_DB` | SQLite 路径 | `<项目根>/data/agent_swarm.db` |
+| `AGENT_SWARM_JWT_SECRET` | JWT 签名密钥（**生产必设**） | dev secret |
+| `AGENT_SWARM_PUBLIC_URL` | 公网地址（注入 install 脚本，反代时设） | 从请求 Host 推断 |
+| `AGENT_SWARM_CALL_TIMEOUT` | 跨 agent 调用超时 | `3600`s |
+
+环境变量优先于项目根 `.env`。
+
+## 目录结构
+
+```
+server/    FastAPI 服务端（api/ REST、mcp_endpoint.py MCP 工具、download.py 插件分发）
+plugin/    opencode 插件（TS）：心跳、任务接收执行；commands/ 为 /swarm-* 命令源文件
+web/       React 管理前端（首页、文档、工作区、调用记录、账号）
+deploy/    启动/停止/安装脚本（sh + ps1）
+docker/    Dockerfile + compose.yaml
+docs/      补充文档
+```
+
+## 开发
+
+```bash
+./deploy/start.sh              # 服务端（改 server/ 后重启生效）
+cd web && npm run dev          # 前端 dev :8701（代理 /api /mcp /download 到 8700）
+cd web && npm run build        # 前端构建（产物由 8700 静态托管）
+cd web && npm run lint         # oxlint
+cd plugin && npm run typecheck # 插件类型检查
+```
+
+> 注意：改了 `plugin/src/` 后需要重装插件并**重启 opencode** 才生效（运行中的会话持有旧代码）。
+
+## 安全说明
+
+- MCP 与 REST 全部走鉴权（apikey / JWT）；`/download/*` 与 `/health` 除外
+- SQLite 明文存 apikey 便于用户随时查看；JWT secret 生产环境务必设置
+- 跨 agent 任务会注入目标工作区的 TUI 会话，请只把你信任的机器接入虫群
