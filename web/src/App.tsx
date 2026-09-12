@@ -637,27 +637,53 @@ function HomePage({ toast, loggedIn, onGoAccount, onOpenLogin }: { toast: (m: st
   )
 }
 
-/** 演示视频播放器：默认显示封面帧，点击后才真正加载视频（39MB 不拖慢首屏） */
+/** 演示视频：进入视口自动静音播放一次，停在最后一帧，无控件；点击可切换声音 */
 function VideoPlayer({ src }: { src: string }) {
-  const [playing, setPlaying] = useState(false)
+  const videoRef = useRef<HTMLVideoElement>(null)
+  const [muted, setMuted] = useState(true)
+  const playedRef = useRef(false)
+
+  // 进入视口才开始播放（省流量），离开视口暂停；只播一次，播完停在最后一帧
+  useEffect(() => {
+    const v = videoRef.current
+    if (!v) return
+    const onEnded = () => { playedRef.current = true }
+    v.addEventListener("ended", onEnded)
+    const io = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          if (!playedRef.current) v.play().catch(() => {})
+        } else if (!playedRef.current) {
+          v.pause()
+        }
+      },
+      { threshold: 0.3 },
+    )
+    io.observe(v)
+    return () => {
+      io.disconnect()
+      v.removeEventListener("ended", onEnded)
+    }
+  }, [])
+
   return (
     <div className="video-placeholder">
-      {playing ? (
-        <video src={src} controls autoPlay playsInline style={{ width: "100%", height: "100%", display: "block" }} />
-      ) : (
-        <button
-          className="video-cover"
-          onClick={() => setPlaying(true)}
-          title="播放演示视频"
-        >
-          <span className="video-play-btn">
-            <svg width="30" height="30" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-              <path d="M8 5.5v13l11-6.5-11-6.5Z" />
-            </svg>
-          </span>
-          <span className="video-cover-text">观看 30 秒演示</span>
-        </button>
-      )}
+      <video
+        ref={videoRef}
+        src={src}
+        muted={muted}
+        playsInline
+        preload="metadata"
+        style={{ width: "100%", height: "100%", display: "block", objectFit: "cover" }}
+      />
+      {/* 覆盖层：整块可点击切换声音，右下角显示当前状态 */}
+      <button
+        className="video-sound-toggle"
+        title={muted ? "开启声音" : "关闭声音"}
+        onClick={() => setMuted(!muted)}
+      >
+        {muted ? "🔇 已静音，点击开启声音" : "🔊 声音开启，点击静音"}
+      </button>
     </div>
   )
 }
