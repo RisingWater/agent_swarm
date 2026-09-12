@@ -90,4 +90,5 @@ export const api = {
   deleteWorkspace: (id: string) => request(`/api/workspaces/${id}`, { method: "DELETE" }),
 
   calls: () => request("/api/calls") as Promise<WorkspaceCall[]>,
+  deleteCall: (id: string) => request(`/api/calls/${id}`, { method: "DELETE" }),
 }

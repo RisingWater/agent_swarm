@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session
 
 from server import models
@@ -38,3 +38,21 @@ def list_calls(
     out = [call_out(c, session) for c in rows if c.caller_ws_id in ws_ids or c.target_ws_id in ws_ids]
     out.sort(key=lambda x: x["created_at"], reverse=True)
     return out
+
+
+@router.delete("/{call_id}")
+def delete_call(
+    call_id: str,
+    user: models.User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+):
+    call = session.get(models.WorkspaceCall, call_id)
+    if call is None:
+        raise HTTPException(404, "call not found")
+    if call.caller_ws_id not in visible_workspace_ids(user, session):
+        raise HTTPException(403, "not your call")
+    if call.status not in ("done", "failed"):
+        raise HTTPException(409, "only done/failed calls can be deleted")
+    session.delete(call)
+    session.commit()
+    return {"ok": True}

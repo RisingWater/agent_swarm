@@ -167,6 +167,12 @@ body {
   background: var(--bg-weak);
 }
 
+/* 表格行内的删除（垃圾桶）按钮：hover 变红提示危险操作 */
+.btn-icon.btn-danger-hover:hover {
+  color: #d1242f;
+  background: #ffebe9;
+}
+
 .btn:disabled {
   opacity: 0.4;
   cursor: not-allowed;
@@ -193,6 +199,46 @@ body {
 
 .field:focus {
   border-color: var(--text-strong);
+}
+
+/* ---------- 表格搜索框 ---------- */
+
+.search-box {
+  position: relative;
+  margin-bottom: 16px;
+  max-width: 420px;
+}
+
+.search-box .field {
+  font-size: 14px;
+  padding: 7px 32px 7px 32px;
+}
+
+.search-icon {
+  position: absolute;
+  left: 11px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-weak);
+  pointer-events: none;
+}
+
+.search-clear {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  color: var(--text-weak);
+  font-size: 18px;
+  line-height: 1;
+  padding: 4px 6px;
+  cursor: pointer;
+}
+
+.search-clear:hover {
+  color: var(--text-strong);
 }
 
 /* ---------- 页面布局 ---------- */
@@ -426,6 +472,11 @@ a.link:hover {
   overflow: auto;
 }
 
+/* 内容较长的详情弹窗（如调用记录） */
+.dialog-wide {
+  width: 860px;
+}
+
 .dialog h3 {
   margin: 0 0 16px;
   font-size: 18px;
@@ -586,6 +637,92 @@ a.link:hover {
   color: var(--text-strong);
   word-break: break-all;
   white-space: pre-wrap;
+}
+
+/* ---------- markdown 渲染（调用记录结果等） ---------- */
+
+.md {
+  font-size: 14px;
+  line-height: 1.65;
+  word-break: break-word;
+}
+
+/* dd 自带 pre-wrap，md 块级排版下去掉避免双倍空行 */
+.md { white-space: normal; }
+
+.md > :first-child { margin-top: 0; }
+.md > :last-child { margin-bottom: 0; }
+
+.md p { margin: 0.5em 0; }
+
+.md h1, .md h2, .md h3, .md h4 {
+  margin: 1em 0 0.4em;
+  line-height: 1.3;
+  color: var(--text-strong);
+}
+.md h1 { font-size: 1.35em; }
+.md h2 { font-size: 1.2em; }
+.md h3 { font-size: 1.05em; }
+
+.md ul, .md ol { margin: 0.5em 0; padding-left: 1.6em; }
+.md li { margin: 0.2em 0; }
+
+.md code {
+  font-family: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+  font-size: 0.9em;
+  background: var(--bg-weak);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 1px 5px;
+}
+
+.md pre {
+  background: var(--bg-weak);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px 14px;
+  overflow-x: auto;
+  margin: 0.6em 0;
+}
+
+.md pre code {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.md blockquote {
+  margin: 0.6em 0;
+  padding: 2px 14px;
+  border-left: 3px solid var(--border);
+  color: var(--text-weak);
+}
+
+.md a { color: var(--text-strong); text-decoration: underline; }
+
+.md table {
+  border-collapse: collapse;
+  margin: 0.6em 0;
+  font-size: 13px;
+  display: block;
+  overflow-x: auto;
+  max-width: 100%;
+}
+
+.md th, .md td {
+  border: 1px solid var(--border);
+  padding: 4px 10px;
+  text-align: left;
+}
+
+.md th { background: var(--bg-weak); }
+
+.md hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 1em 0;
 }
 
 .confirm-pop {

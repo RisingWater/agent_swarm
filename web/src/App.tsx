@@ -1,8 +1,55 @@
 /** agent_swarm 管理端 —— opencode.ai 风格，纯 React 无 UI 库 */
 import { useEffect, useState, useCallback, useRef, type ReactNode } from "react"
+import Markdown from "react-markdown"
+import remarkGfm from "remark-gfm"
 import { api, pageOrigin, type Workspace, type WorkspaceCall, type User } from "./api"
 
 const maskKey = (k: string) => "*".repeat(k.length - 2) + k.slice(-2)
+
+/** 结果文本（多为 markdown）渲染；无内容返回 null */
+function Md({ text }: { text: string | null | undefined }) {
+  if (!text?.trim()) return null
+  return (
+    <div className="md">
+      <Markdown remarkPlugins={[remarkGfm]}>{text}</Markdown>
+    </div>
+  )
+}
+
+/** 表格上方搜索框（纯前端过滤） */
+function SearchBox({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder: string }) {
+  return (
+    <div className="search-box">
+      <svg className="search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+        strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+        <circle cx="11" cy="11" r="7" />
+        <path d="m20 20-3.5-3.5" />
+      </svg>
+      <input
+        className="field"
+        placeholder={placeholder}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      />
+      {value && (
+        <button className="search-clear" title="清空" onClick={() => onChange("")}>×</button>
+      )}
+    </div>
+  )
+}
+
+/** 大小写不敏感的子串匹配 */
+function hit(haystack: string | null | undefined, q: string): boolean {
+  return !!haystack && haystack.toLowerCase().includes(q)
+}
+
+/** 后端 ISO 时间串 → 本地时间显示；非法输入返回 "-"（避免 Invalid Date） */
+function fmtTime(iso: string | null | undefined, mode: "time" | "datetime" = "time"): string {
+  if (!iso) return "-"
+  const d = new Date(iso.endsWith("Z") || iso.includes("+") ? iso : iso + "Z")
+  if (isNaN(d.getTime())) return "-"
+  return mode === "time" ? d.toLocaleTimeString() : d.toLocaleString()
+}
 
 // ---------------- 基础组件 ----------------
 
@@ -20,11 +67,12 @@ function Btn(props: {
   size?: "sm"
   disabled?: boolean
   title?: string
+  className?: string
   onClick?: () => void
   children?: ReactNode
 }) {
-  const { variant = "ghost", size, ...rest } = props
-  const cls = ["btn", `btn-${variant}`, size === "sm" ? "btn-sm" : ""].join(" ")
+  const { variant = "ghost", size, className, ...rest } = props
+  const cls = ["btn", `btn-${variant}`, size === "sm" ? "btn-sm" : "", className ?? ""].join(" ")
   return <button className={cls} {...rest} />
 }
 
@@ -44,10 +92,20 @@ function useToast() {
   return { msg, show }
 }
 
-function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
+function Modal({
+  title,
+  onClose,
+  children,
+  wide,
+}: {
+  title: string
+  onClose: () => void
+  children: ReactNode
+  wide?: boolean
+}) {
   return (
     <div className="dialog-overlay" onClick={onClose}>
-      <div className="dialog" onClick={(e) => e.stopPropagation()}>
+      <div className={`dialog${wide ? " dialog-wide" : ""}`} onClick={(e) => e.stopPropagation()}>
         <h3>{title}</h3>
         {children}
       </div>
@@ -150,7 +208,7 @@ export default function App() {
       <main className="page">
         {page === "account" && <AccountPage toast={toast} />}
         {page === "workspaces" && <WorkspacesPage toast={toast} />}
-        {page === "calls" && <CallsPage />}
+        {page === "calls" && <CallsPage toast={toast} />}
       </main>
       <Toast msg={msg} />
     </>
@@ -326,6 +384,7 @@ function WorkspacesPage({ toast }: { toast: (m: string) => void }) {
   const [detail, setDetail] = useState<Workspace | null>(null)
   const [delTarget, setDelTarget] = useState<Workspace | null>(null)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  const [query, setQuery] = useState("")
 
   const refresh = useCallback(async () => {
     try { setList(await api.workspaces()) } catch (e: any) { toast(e.message) }
@@ -362,10 +421,16 @@ function WorkspacesPage({ toast }: { toast: (m: string) => void }) {
     })
   }
 
+  const q = query.trim().toLowerCase()
+  const filtered = q
+    ? list.filter((w) => hit(w.id, q) || hit(w.name, q) || hit(w.path, q) || hit(w.purpose, q) || hit(w.capabilities, q) || hit(w.notes, q))
+    : list
+
   return (
     <>
       <h1 className="page-title">工作区</h1>
       <p className="page-sub">你的 agent 工作区及在线状态，每 10s 自动刷新。</p>
+      <SearchBox value={query} onChange={setQuery} placeholder="搜索名称 / 路径 / 用途…" />
       <table className="grid">
         <thead>
           <tr>
@@ -379,7 +444,7 @@ function WorkspacesPage({ toast }: { toast: (m: string) => void }) {
           </tr>
         </thead>
         <tbody>
-          {list.map((w) => (
+          {filtered.map((w) => (
             <tr key={w.id}>
               <td><Switch on={w.status !== "disabled"} onClick={() => toggle(w)} /></td>
               <td style={{ color: "var(--text-weak)", fontSize: 12, fontFamily: "var(--font-mono)" }}>{w.id}</td>
@@ -414,9 +479,9 @@ function WorkspacesPage({ toast }: { toast: (m: string) => void }) {
               </td>
             </tr>
           ))}
-          {!list.length && (
-            <tr><td colSpan={5} style={{ color: "var(--text-weak)", textAlign: "center", padding: 32 }}>
-              [*] 暂无工作区 — 在目标机器执行接入页的安装命令
+          {!filtered.length && (
+            <tr><td colSpan={7} style={{ color: "var(--text-weak)", textAlign: "center", padding: 32 }}>
+              {q ? `[*] 没有匹配「${query.trim()}」的工作区` : "[*] 暂无工作区 — 在目标机器执行接入页的安装命令"}
             </td></tr>
           )}
         </tbody>
@@ -452,57 +517,125 @@ function WorkspacesPage({ toast }: { toast: (m: string) => void }) {
 
 // ---------------- 调用记录 ----------------
 
-function CallsPage() {
+function CallsPage({ toast }: { toast: (m: string) => void }) {
   const [list, setList] = useState<WorkspaceCall[]>([])
   const [detail, setDetail] = useState<WorkspaceCall | null>(null)
+  const [deleting, setDeleting] = useState<string | null>(null)
+  const [query, setQuery] = useState("")
 
+  const load = useCallback(() => api.calls().then(setList).catch(() => {}), [])
   useEffect(() => {
-    const load = () => api.calls().then(setList).catch(() => {})
     load()
     const t = setInterval(load, 10_000)
     return () => clearInterval(t)
-  }, [])
+  }, [load])
+
+  const removeCall = async (id: string) => {
+    setDeleting(id)
+    try {
+      await api.deleteCall(id)
+      setList((prev) => prev.filter((c) => c.id !== id))
+      if (detail?.id === id) setDetail(null)
+      toast("调用记录已删除")
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "删除失败")
+    } finally {
+      setDeleting(null)
+    }
+  }
 
   return (
     <>
       <h1 className="page-title">调用记录</h1>
       <p className="page-sub">agent 之间的 workspace_call 调用历史。</p>
+      <SearchBox value={query} onChange={setQuery} placeholder="搜索发起方 / 目标 / 指令 / 状态…" />
       <table className="grid">
         <thead>
           <tr>
-            <th style={{ width: 100 }}>time</th>
-            <th style={{ width: 140 }}>from</th>
-            <th style={{ width: 140 }}>to</th>
-            <th style={{ width: 110 }}>status</th>
-            <th>instruction</th>
+            <th style={{ width: 110 }}>时间</th>
+            <th style={{ width: 140 }}>发起方</th>
+            <th style={{ width: 140 }}>目标</th>
+            <th style={{ width: 110 }}>状态</th>
+            <th>指令</th>
+            <th style={{ width: 60 }}></th>
           </tr>
         </thead>
         <tbody>
-          {list.map((r) => (
+          {list
+            .filter((r) => {
+              const q = query.trim().toLowerCase()
+              if (!q) return true
+              return (
+                hit(r.caller?.name, q) || hit(r.target?.name, q) || hit(r.instruction, q) ||
+                hit(r.status, q) || hit(r.result, q) || hit(r.error, q)
+              )
+            })
+            .map((r) => (
             <tr key={r.id}>
-              <td style={{ color: "var(--text-weak)", fontSize: 12 }}>{new Date(r.created_at + "Z").toLocaleTimeString()}</td>
+              <td style={{ color: "var(--text-weak)", fontSize: 12 }}>{fmtTime(r.created_at, "datetime")}</td>
               <td>{r.caller?.name ?? "-"}</td>
               <td>{r.target?.name ?? "-"}</td>
               <td><span className={`status-pill ${r.status === "running" ? "accepted" : r.status}`}>{r.status}</span></td>
               <td><a className="link" onClick={() => setDetail(r)}>{r.instruction}</a></td>
+              <td>
+                {(r.status === "done" || r.status === "failed") && (
+                  <Btn
+                    variant="icon"
+                    size="sm"
+                    className="btn-danger-hover"
+                    title="删除该调用记录"
+                    disabled={deleting === r.id}
+                    onClick={() => removeCall(r.id)}
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                      strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                      <path d="M3 6h18" />
+                      <path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2" />
+                      <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+                      <path d="M10 11v6M14 11v6" />
+                    </svg>
+                  </Btn>
+                )}
+              </td>
             </tr>
           ))}
           {!list.length && (
-            <tr><td colSpan={5} style={{ color: "var(--text-weak)", textAlign: "center", padding: 32 }}>
+            <tr><td colSpan={6} style={{ color: "var(--text-weak)", textAlign: "center", padding: 32 }}>
               [*] 暂无调用记录
+            </td></tr>
+          )}
+          {list.length > 0 && query.trim() && !list.some((r) => {
+            const q = query.trim().toLowerCase()
+            return (
+              hit(r.caller?.name, q) || hit(r.target?.name, q) || hit(r.instruction, q) ||
+              hit(r.status, q) || hit(r.result, q) || hit(r.error, q)
+            )
+          }) && (
+            <tr><td colSpan={6} style={{ color: "var(--text-weak)", textAlign: "center", padding: 32 }}>
+              [*] 没有匹配「{query.trim()}」的调用记录
             </td></tr>
           )}
         </tbody>
       </table>
 
       {detail && (
-        <Modal title="workspace call" onClose={() => setDetail(null)}>
+        <Modal wide title={`调用 ${detail.id.slice(0, 8)}`} onClose={() => setDetail(null)}>
           <dl className="dl">
-            <dt>from</dt><dd>{detail.caller?.name} ({detail.caller?.path})</dd>
-            <dt>to</dt><dd>{detail.target?.name} ({detail.target?.path})</dd>
-            <dt>status</dt><dd>{detail.status}</dd>
-            <dt>instruction</dt><dd>{detail.instruction}</dd>
-            <dt>result</dt><dd>{detail.status === "failed" ? detail.error : (detail.result ?? "-")}</dd>
+            <dt>发起方</dt><dd>{detail.caller?.name} ({detail.caller?.path})</dd>
+            <dt>目标</dt><dd>{detail.target?.name} ({detail.target?.path})</dd>
+            <dt>状态</dt><dd>{detail.status}</dd>
+            <dt>发起时间</dt><dd>{fmtTime(detail.created_at, "datetime")}</dd>
+            <dt>指令</dt><dd>{detail.instruction}</dd>
+            <dt>结果</dt>
+            <dd>
+              {detail.status === "failed" ? (
+                detail.error ?? "-"
+              ) : detail.result?.trim() ? (
+                <Md text={detail.result} />
+              ) : (
+                "-"
+              )}
+            </dd>
           </dl>
         </Modal>
       )}
