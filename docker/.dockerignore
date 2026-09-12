@@ -1,0 +1,13 @@
+# 构建上下文排除（配合 docker/Dockerfile）
+.git
+.venv
+**/__pycache__
+**/*.pyc
+data
+web/node_modules
+web/dist
+plugin/node_modules
+plugin/types
+*.tsbuildinfo
+docs
+*.md

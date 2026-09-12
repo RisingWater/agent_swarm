@@ -1,0 +1,32 @@
+version: "3.8"
+
+# agent_swarm 单服务编排：管理前端 + API + MCP 同端口 :8700
+# 用法:
+#   docker compose -f docker/compose.yaml up -d
+#   # 查看日志
+#   docker compose -f docker/compose.yaml logs -f
+#   # 停止
+#   docker compose -f docker/compose.yaml down
+#
+# 镜像从项目根目录构建（context=..，dockerfile=docker/Dockerfile）
+
+services:
+  agent-swarm:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: agent-swarm:latest
+    container_name: agent-swarm
+    restart: unless-stopped
+    ports:
+      - "8700:8700"
+    environment:
+      # 生产环境务必改成随机长字符串
+      AGENT_SWARM_JWT_SECRET: ${AGENT_SWARM_JWT_SECRET:-agent-swarm-dev-secret-change-me}
+      # 有公网域名/反代时设置，注入到 /download/install.* 的服务地址
+      # AGENT_SWARM_PUBLIC_URL: https://swarm.example.com
+    volumes:
+      - agent-swarm-data:/app/data
+
+volumes:
+  agent-swarm-data:

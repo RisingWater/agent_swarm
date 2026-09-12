@@ -709,15 +709,130 @@ function DocsPage() {
             {s.title}
           </a>
         ))}
-        <p className="docs-toc-empty">文档内容建设中…</p>
       </aside>
       <article className="subpage-body">
-        {DOC_SECTIONS.map((s) => (
-          <section key={s.id} id={`doc-${s.id}`} className="docs-section">
-            <h2>{s.title}</h2>
-            <p className="docs-placeholder">（内容建设中，敬请期待）</p>
-          </section>
-        ))}
+        <section id="doc-intro" className="docs-section">
+          <h2>介绍</h2>
+          <p>
+            <b>agent_swarm</b> 是一个自托管的多 agent 协作中枢。它把你的 AI 编程工具
+            （opencode 等）组织成一个「虫群」：每个工具实例作为一个<b>工作区</b>注册到中枢，
+            任意 agent 都可以把任务派发给其他 agent 执行——你写代码，它跑测试，另一个整理文档。
+          </p>
+          <p>三个核心特点：</p>
+          <ul>
+            <li><b>任何 MCP 客户端可用</b> —— 所有 agent 操作都是标准 MCP 工具，opencode、claude、deepseek 等均可接入</li>
+            <li><b>跨 agent 任务派发</b> —— 任务直接注入对方 TUI 会话，实时可见，结果自动回传</li>
+            <li><b>自托管 &amp; 轻量</b> —— 单个 FastAPI 服务 + SQLite，一条命令启动，数据留在你自己机器上</li>
+          </ul>
+          <p>
+            架构上分为三部分：<b>服务端</b>（FastAPI 单体，:8700 同时服务管理前端 / REST API / MCP 端点 / 插件分发）、
+            <b>插件</b>（跑在每个 agent 的 opencode 里，负责心跳保活与任务接收执行）、
+            <b>管理前端</b>（工作区看板、调用记录、账号管理）。
+          </p>
+        </section>
+
+        <section id="doc-quickstart" className="docs-section">
+          <h2>快速开始</h2>
+          <h3>1. 启动服务端</h3>
+          <pre><code>{`# Linux / macOS
+./deploy/start.sh          # 默认 :8700
+
+# Windows
+.\\deploy\\start.ps1`}</code></pre>
+          <p>启动后打开 <code>http://localhost:8700</code>，注册账号并获得 API Key（随时可在「账号」页查看或重置）。</p>
+          <h3>2. 接入 agent 工作区</h3>
+          <p>在装有 AI 编程工具（opencode）的目标机器上，执行首页生成的安装命令：</p>
+          <pre><code>{`# Linux / macOS
+curl -fsSL http://<server>:8700/download/install.sh | bash -s -- --api-key <key>
+
+# Windows (PowerShell)
+& ([scriptblock]::Create((irm http://<server>:8700/download/install.ps1))) -ApiKey <key>`}</code></pre>
+          <p>
+            安装脚本会自动：写入服务配置（地址 + apikey）→ 注册 MCP 端点到 <code>opencode.jsonc</code> →
+            部署心跳插件 → 拷贝 <code>/swarm-*</code> 命令。<b>重启 opencode 后生效</b>。
+          </p>
+          <h3>3. 开始协作</h3>
+          <p>
+            在 agent 对话里直接使用 MCP 工具，或用 <code>/swarm-add</code> 注册当前目录为工作区。
+            之后就可以让 agent 互相派发任务了：
+          </p>
+          <pre><code>{`你: 调用 nas_brain 工作区，查看它最新一次 git 提交
+agent: (workspace_call) → 对方 TUI 实时出现任务 → 执行 → 结果自动回传`}</code></pre>
+        </section>
+
+        <section id="doc-concepts" className="docs-section">
+          <h2>核心概念</h2>
+          <h3>工作区（Workspace）</h3>
+          <p>
+            一个接入虫群的 agent 实例。注册后获得唯一 ID，持久化在项目根 <code>.agent-swarm.md</code> 的
+            <code>WORKSPACE_ID:</code> 行。插件每 30 秒心跳保活，超过 90 秒无心跳视为离线；
+            禁用（disabled）的工作区不可见、不参与任务派发。
+          </p>
+          <h3>调用（Workspace Call）</h3>
+          <p>
+            一次跨 agent 任务派发，状态流转：<code>pending → running → done / failed</code>。
+            目标端插件领取任务后<b>前台注入优先</b>——任务直接进入对方正在看的 TUI 会话（弹 toast 通知）；
+            对方忙时排队等待（上限 10 分钟），完全无会话时才退回后台会话执行。
+            完成后最后一条 assistant 回复自动回传给调用方。
+          </p>
+          <h3>心跳与在线状态</h3>
+          <p>
+            插件每 30 秒向服务端心跳一次，心跳响应会捎带该工作区的待处理任务，无需独立轮询通道。
+            在线状态可在「工作区」页实时查看。
+          </p>
+        </section>
+
+        <section id="doc-mcp" className="docs-section">
+          <h2>MCP 工具</h2>
+          <p>
+            所有面向 agent 的操作都是标准 MCP 工具，通过 <code>/mcp/</code> 端点访问
+            （Streamable HTTP + Bearer apikey 鉴权），任何 MCP 客户端可直连。
+          </p>
+          <table>
+            <thead><tr><th>工具</th><th>说明</th></tr></thead>
+            <tbody>
+              <tr><td><code>workspace_add</code></td><td>注册当前目录为工作区，返回 ID 并写入 .agent-swarm.md</td></tr>
+              <tr><td><code>workspace_remove</code></td><td>移除自己的工作区（仅离线可删）</td></tr>
+              <tr><td><code>workspace_enable</code> / <code>workspace_disable</code></td><td>启用 / 禁用工作区</td></tr>
+              <tr><td><code>heartbeat</code></td><td>心跳保活，响应捎带待执行任务</td></tr>
+              <tr><td><code>update_info</code> / <code>update_notes</code></td><td>更新用途/能力描述、备注</td></tr>
+              <tr><td><code>list_workspaces</code></td><td>列出可见工作区（默认仅在线）</td></tr>
+              <tr><td><code>workspace_call</code></td><td>跨 agent 任务派发（异步，返回 call_id）</td></tr>
+              <tr><td><code>workspace_call_status</code></td><td>轮询调用结果</td></tr>
+              <tr><td><code>workspace_call_ack</code> / <code>workspace_call_result</code></td><td>任务领取确认 / 结果回传（插件专用）</td></tr>
+            </tbody>
+          </table>
+        </section>
+
+        <section id="doc-faq" className="docs-section">
+          <h2>FAQ</h2>
+          <h3>任务会出现在对方屏幕上吗？</h3>
+          <p>
+            会。前台注入优先：任务直接进入对方当前 TUI 会话并弹 toast 通知，实时可见。
+            对方正在忙时任务会排队，不会打断。
+          </p>
+          <h3>支持哪些 AI 工具？</h3>
+          <p>
+            任何支持 MCP 的客户端都可调用虫群工具（opencode 已内置安装脚本；claude、deepseek 等
+            直连 <code>/mcp/</code> 端点即可）。任务<b>接收方</b>目前需要 opencode（依赖其插件机制）。
+          </p>
+          <h3>数据存在哪里？</h3>
+          <p>
+            全部在你自己的机器上：服务端 SQLite（<code>data/agent_swarm.db</code>）。
+            Docker 部署时持久化在 <code>agent-swarm-data</code> 卷。
+          </p>
+          <h3>安装后 agent 没出现 / 收不到任务？</h3>
+          <p>
+            重启 opencode 了吗？插件在会话启动时加载，运行中的会话持有旧代码。
+            另外 查看 <code>~/.config/opencode/plugins/agent-swarm/plugin.log</code> 可以看到
+            心跳与任务领取日志。
+          </p>
+          <h3>安全吗？</h3>
+          <p>
+            MCP 与 REST 全部鉴权（apikey / JWT）。跨 agent 任务会注入目标工作区的会话——
+            只把你信任的机器接入虫群。
+          </p>
+        </section>
       </article>
     </div>
   )
