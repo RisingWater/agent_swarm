@@ -840,14 +840,14 @@ a.link:hover {
 }
 
 .home-hero {
-  text-align: center;
-  padding: 32px 0 40px;
+  text-align: left;
+  padding: 16px 0 24px;
 }
 
 .home-hero-row {
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
   gap: 16px;
 }
 
@@ -862,11 +862,17 @@ a.link:hover {
 .home-tagline {
   font-size: 18px;
   color: var(--text-weak);
-  margin: 18px 0 0;
+  margin: 12px 0 0;
 }
 
 .home-install {
-  padding: 24px 0 8px;
+  padding: 4px 0 12px;
+}
+
+.home-install h2 {
+  font-size: 24px;
+  color: var(--text-strong);
+  margin: 12px 0 14px;
 }
 
 .home-hint {
@@ -888,26 +894,26 @@ a.link:hover {
 }
 
 .home-about {
-  padding: 24px 0;
+  padding: 8px 0;
 }
 
 .home-about h2 {
   font-size: 24px;
   color: var(--text-strong);
-  margin: 32px 0 12px;
+  margin: 16px 0 12px;
 }
 
 .home-about > p {
   color: var(--text);
   line-height: 1.7;
-  margin: 0 0 20px;
+  margin: 0 0 16px;
 }
 
 .home-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
   gap: 16px;
-  margin: 20px 0;
+  margin: 12px 0;
 }
 
 .home-card {
@@ -951,8 +957,8 @@ a.link:hover {
 }
 
 .home-docs-cta {
-  text-align: center;
-  padding: 32px 0 48px;
+  text-align: left;
+  padding: 20px 0 32px;
 }
 
 .docs-btn {

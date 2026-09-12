@@ -538,46 +538,7 @@ function HomePage({ toast, loggedIn, onGoAccount, onOpenLogin }: { toast: (m: st
         </p>
       </section>
 
-      {/* 2. 安装 */}
-      <section className="home-install">
-        <div className="tablist tablist-inline">
-          <button role="tab" aria-selected={plat === "sh"} onClick={() => setPlat("sh")}>
-            macOS / linux
-          </button>
-          <button role="tab" aria-selected={plat === "ps1"} onClick={() => setPlat("ps1")}>
-            windows
-          </button>
-        </div>
-        <div className="cmdblock cmdblock-joined">
-          <span className="cmd-text">
-            <span className="prompt">{plat === "sh" ? "$" : "PS>"}</span>
-            {loggedIn && !key ? "# 正在获取 api key…" : installCmd}
-          </span>
-          {loggedIn && (
-            <Btn variant="icon" title="copy" onClick={() => {
-              navigator.clipboard.writeText(installCmd)
-              toast("安装命令已复制")
-            }}>⧉</Btn>
-          )}
-        </div>
-        {loggedIn ? (
-          <p className="home-hint" style={{ marginTop: 10 }}>
-            命令中的 API Key 可在 <a className="link" onClick={onGoAccount}>账号</a> 页查看或重置。
-          </p>
-        ) : (
-          <p className="home-hint" style={{ marginTop: 10 }}>
-            <a className="link" onClick={onOpenLogin}>注册</a>或者
-            <a className="link" onClick={onOpenLogin}>登录</a>账号即可安装。
-          </p>
-        )}
-      </section>
-
-      {/* 3. 介绍视频（16:9 黑框占位） */}
-      <section className="home-video">
-        <div className="video-placeholder" />
-      </section>
-
-      {/* 4. 详细介绍 */}
+      {/* 2. 什么是 agent_swarm？ */}
       <section className="home-about">
         <h2>什么是 agent_swarm？</h2>
         <p>
@@ -615,6 +576,45 @@ function HomePage({ toast, loggedIn, onGoAccount, onOpenLogin }: { toast: (m: st
             <p>单个 FastAPI 服务 + SQLite，一条命令启动，数据完全留在你自己的机器上。</p>
           </div>
         </div>
+      </section>
+
+      {/* 3. 马上安装 */}
+      <section className="home-install">
+        <h2>马上安装</h2>
+        <div className="tablist tablist-inline">
+          <button role="tab" aria-selected={plat === "sh"} onClick={() => setPlat("sh")}>
+            macOS / linux
+          </button>
+          <button role="tab" aria-selected={plat === "ps1"} onClick={() => setPlat("ps1")}>
+            windows
+          </button>
+        </div>
+        <div className="cmdblock cmdblock-joined">
+          <span className="cmd-text">
+            <span className="prompt">{plat === "sh" ? "$" : "PS>"}</span>
+            {loggedIn && !key ? "# 正在获取 api key…" : installCmd}
+          </span>
+          {loggedIn && (
+            <Btn variant="icon" title="copy" onClick={() => {
+              navigator.clipboard.writeText(installCmd)
+              toast("安装命令已复制")
+            }}>⧉</Btn>
+          )}
+        </div>
+        {loggedIn ? (
+          <p className="home-hint" style={{ marginTop: 10 }}>
+            命令中的 API Key 可在 <a className="link" onClick={onGoAccount}>账号</a> 页查看或重置。
+          </p>
+        ) : (
+          <p className="home-hint" style={{ marginTop: 10 }}>
+            <a className="link" onClick={onOpenLogin}>注册</a>或者
+            <a className="link" onClick={onOpenLogin}>登录</a>账号即可安装。
+          </p>
+        )}
+      </section>
+
+      {/* 4. 它可以做什么？ */}
+      <section className="home-about">
         <h2>它可以做什么？</h2>
         <ul className="home-list">
           <li>让前端 agent 把后端 bug 派发给后端工作区的 agent 修复</li>
