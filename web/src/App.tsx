@@ -684,7 +684,8 @@ function FeatureIcon({ kind }: { kind: "mcp" | "swarm" | "pulse" | "shield" }) {
 
 const DOC_SECTIONS = [
   { id: "intro", title: "介绍" },
-  { id: "quickstart", title: "快速开始" },
+  { id: "install", title: "安装插件" },
+  { id: "register", title: "注册工作区" },
   { id: "concepts", title: "核心概念" },
   { id: "mcp", title: "MCP 工具" },
   { id: "faq", title: "FAQ" },
@@ -730,25 +731,51 @@ function DocsPage() {
           </p>
         </section>
 
-        <section id="doc-quickstart" className="docs-section">
-          <h2>快速开始</h2>
-          <h3>1. 注册工作区</h3>
+        <section id="doc-install" className="docs-section">
+          <h2>安装插件</h2>
           <p>
-            在装有 AI 编程工具（opencode）的目标机器上，执行首页生成的安装命令，
-            安装脚本会自动：写入服务配置 → 注册 MCP 端点 → 部署插件 → 拷贝 <code>/swarm-*</code> 命令。
-            <b>重启 opencode 后生效</b>。
+            插件是 agent 接入虫群的载体，负责心跳保活与接收任务。它跑在每个 agent 工作区的
+            opencode 里，安装一次即可。
+          </p>
+          <h3>安装方式</h3>
+          <p>
+            在装有 opencode 的目标机器上，执行<b>首页</b>生成的安装命令（已自动带上你的账号 API Key）。
+            脚本会自动完成：写入服务配置 → 注册 MCP 端点 → 部署插件 → 拷贝 <code>/swarm-*</code> 命令。
           </p>
           <p>
-            也可以在 agent 对话里直接让它调用 <code>workspace_add</code> 工具注册当前目录，
-            或使用 <code>/swarm-add</code> 命令。
+            <b>重启 opencode 后生效</b>——插件在会话启动时加载，运行中的会话不会热更新。
           </p>
-          <h3>2. 查看虫群</h3>
+          <h3>验证安装</h3>
           <p>
-            打开「工作区」页，能看到所有已接入的 agent：名称、路径、用途描述、在线状态。
-            在这里可以启用/禁用工作区、删除离线工作区、搜索过滤。
+            重启后打开「工作区」页，约 30 秒内应看到该机器的工作区状态点变绿（online）。
+            也可以查看 <code>~/.config/opencode/plugins/agent-swarm/plugin.log</code>，
+            里面有启动与心跳日志。
           </p>
-          <h3>3. 开始协作</h3>
-          <p>在 agent 对话里让它派发任务即可：</p>
+        </section>
+
+        <section id="doc-register" className="docs-section">
+          <h2>注册工作区</h2>
+          <p>
+            安装插件后，把一个项目目录注册为工作区，它才算真正加入虫群（可被发现、被派发任务）。
+            一个机器可以注册多个工作区，每个项目一个。
+          </p>
+          <h3>注册方式</h3>
+          <p>任选其一：</p>
+          <ul>
+            <li>在该项目的 opencode 对话里使用 <code>/swarm-add</code> 命令</li>
+            <li>直接让 agent：「帮我把当前目录注册到虫群」（它会调用 <code>workspace_add</code> 工具）</li>
+          </ul>
+          <p>
+            注册时会要求 agent 总结这个目录的用途与能力（显示在「工作区」页，方便其他 agent 了解找谁帮忙）。
+            注册成功后，工作区 ID 会写入项目根的 <code>.agent-swarm.md</code> 文件，后续心跳自动带身份。
+          </p>
+          <h3>管理已注册的工作区</h3>
+          <p>
+            「工作区」页可以启用/禁用（disabled 的工作区不参与任务派发）、删除离线工作区、修改备注。
+            也可以在 agent 里用 <code>workspace_enable</code> / <code>workspace_disable</code> 等工具操作。
+          </p>
+          <h3>开始协作</h3>
+          <p>注册完成后，在 agent 对话里让它派发任务即可：</p>
           <pre><code>{`你: 调用 nas_brain 工作区，查看它最新一次 git 提交
 agent: (workspace_call) → 对方 TUI 实时出现任务 → 执行 → 结果自动回传`}</code></pre>
         </section>
