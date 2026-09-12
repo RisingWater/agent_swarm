@@ -1,6 +1,6 @@
 # agent_swarm 开发进度 TODO
 
-> 更新时间: 2026-09-12 晚 · 交接给下一个 agent
+> 更新时间: 2026-09-12 深夜 · 交接给下一个 agent
 > 项目路径: D:\wangxu\work\agent_swarm · 服务已跑在 :8700 · 前端构建产物由 8700 静态托管
 
 ## 项目一句话
@@ -27,38 +27,36 @@
 ### 前端 (web/) —— 本轮重点打磨
 
 - ✅ **虫群品牌**：favicon/logo（六椭圆个体环绕 AI 核，黑白）+ logo-48/128/512/1024.png（Pillow 生成）
-- ✅ **首页**：左对齐 hero → 马上安装（登录/未登录两种态，未登录命令显示"你的apikey"占位 + 注册/登录链接弹登录弹窗）→ **演示视频**（agent_swarm.mp4，39MB，进视口自动静音播放一次、停末帧、无控件、右下角声音切换）→ 什么是 agent_swarm（4 特性卡黑白线性图标）→ 它可以做什么 → 阅读文档 CTA
+- ✅ **首页**：左对齐 hero → 马上安装（登录/未登录两种态，未登录命令显示"你的apikey"占位 + 注册/登录链接弹登录弹窗；**agent 工具图标组**：opencode 已支持高亮，claude code/deepseek harness/pi/更多 用官方 SVG logo 灰显待支持）→ **演示视频**（agent_swarm.mp4，39MB，进视口自动静音播放一次、停末帧、无控件、右下角声音切换）→ 什么是 agent_swarm（4 特性卡黑白线性图标）→ 它可以做什么 → 阅读文档 CTA
 - ✅ **登录弹窗化**：未登录可见 首页/文档；工作区、调用记录、账号菜单隐藏；"登录/注册"弹覆盖弹窗
 - ✅ **账号页**（点用户名进入）：左侧二级菜单 API Key | 修改密码，右侧内容
-- ✅ **文档页**：左目录右内容滚动定位，6 章（介绍/安装插件/注册工作区/核心概念/MCP 工具/FAQ）——纯用户视角，无服务器部署内容
+- ✅ **文档页**：左目录右内容滚动定位，6 章（介绍/安装插件/注册工作区/核心概念/MCP 工具/FAQ）——纯用户视角，无服务器部署内容；"支持哪些 AI 工具"表述已对齐：目标是所有 MCP 客户端，目前支持 opencode，逐步扩展
 - ✅ 工作区/调用记录页：中文表头、搜索框、时间列完整日期、markdown 渲染结果弹窗（react-markdown+remark-gfm）、垃圾桶删除
 - ✅ switch on 色改黑、状态 pill、Invalid Date 修复（fmtTime 安全解析）
 
 ### 基建
 
-- ✅ docker/（Dockerfile 多阶段：node 构建前端 → python 运行时；compose.yaml；.dockerignore）——**未实测，待用户 docker build 验证**
+- ✅ docker/（Dockerfile 多阶段：node 构建前端 → python 运行时；compose.yaml；.dockerignore）——**未实测，用户计划下周一在公司验证**
 - ✅ README.md（架构图、快速开始、MCP 工具表、Docker 部署、配置表、开发指南）
+- ✅ AGENTS.md 刷新（12 工具清单、任务派发机制、前端坑，与 README 去重：产品文档归 README/文档页，AGENTS 只放架构决策与 gotcha）
 
 ## 🟡 未完成 / 待办
 
 ### 高优先级
 
-- [ ] **视频进 git 的方式待定**：agent_swarm.mp4（39MB）已在 commit 5e698bd/c61f8aa 里作为普通 blob（本地已提交），push 时网络断过两次；建议考虑 git lfs track "*.mp4" 重做这两个提交（git-lfs 3.4.0 已装，仓库未初始化 LFS）。若不介意 clone 变重也可以直接推
-- [ ] **Docker 构建实测**：Dockerfile/compose.yaml 已写好但本机无 docker，首次 build 可能在 npm ci（alpine 平台二进制）或 cairo 类依赖出问题，待验证
+- [ ] **Docker 构建实测**（用户下周一去公司测试）：Dockerfile/compose.yaml 已写好但未跑过，首次 build 可能在 npm ci（alpine 平台二进制）出问题，待验证
 - [ ] nas_brain 工作区重新注册后 ID 变了（XYaR4TdtGqdqoAEW9vNn8g），注意旧的 nDZDDucfudwSPmN5Nec3GU 已失效
 
 ### 中优先级
 
-- [ ] e2e 测试脚本正式化：scripts/test_plugin_smoke.ts 还引用已删的旧 API 需重写为纯 MCP 调用；/tmp/opencode/ 下的 test_api.py、test_mcp_e2e.py 挪进 scripts/ 并纳入 run_e2e.sh
-- [ ] 视频封面帧：当前自动播放依赖 IntersectionObserver，若想在视频加载前显示海报帧，可给 video 加 poster 属性（先截一帧图）
 - [ ] 文档页内容可以再丰富：任务派发的权限交互（permission.asked 由目标端用户在 TUI 响应）还没写进 FAQ
-- [ ] 团队功能：models.py 保留表，前端/API 已删；用户"想好后再加"
+- [ ] 团队功能：models.py 保留 teams/team_members 表（用户 2026-09-12 确认继续保留），API/前端已删；"想好后再加"
 - [ ] npm install 慢（~40s）：可把 @opencode-ai/* 设为 peerDependencies
+- [ ] **视频 LFS 不做了**：mp4 已作为普通 blob push 成功（39MB < GitHub 100MB 限制），用户接受；将来视频更新会增大仓库体积，留意即可
+- [ ] **e2e 测试脚本不做**（用户 2026-09-12 决定放弃）：scripts/test_plugin_smoke.ts 仍是引用旧 API 的死代码，可删可留
 
 ### 低优先级 / 备忘
 
-- [ ] teams 表清理（确认永不恢复后删）
-- [ ] AGENTS.md 与 README.md 有部分重复内容，后续统一
 - [ ] 前端 lint 有一个既存 warning（WorkspacesPage set-state-in-effect），非阻塞
 
 ## 环境/常用操作
