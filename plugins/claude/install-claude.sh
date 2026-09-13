@@ -49,6 +49,7 @@ command -v node >/dev/null || { echo "错误: 未找到 node（keepalive 需要�
 mkdir -p "$INSTALL_DIR"
 [ -f "$SRC/keepalive.mjs" ] && cp -f "$SRC/keepalive.mjs" "$INSTALL_DIR/"
 [ -f "$SRC/hook-timeline.mjs" ] && cp -f "$SRC/hook-timeline.mjs" "$INSTALL_DIR/"
+[ -f "$SRC/merge-hooks.mjs" ] && cp -f "$SRC/merge-hooks.mjs" "$INSTALL_DIR/"
 cat > "$INSTALL_DIR/config.json" <<EOF
 {
   "serverUrl": "$SERVER",
@@ -81,39 +82,14 @@ else
 fi
 
 # 4. 注册 hooks（PreToolUse/PostToolUse/Stop → hook-timeline.mjs），幂等合并进 settings.json
+# 合并逻辑在 merge-hooks.mjs（与 ps1 共用；保留用户 env/theme 等已有字段）
 HOOK_SCRIPT="$INSTALL_DIR/hook-timeline.mjs"
-if [ -f "$HOOK_SCRIPT" ]; then
-    node - "$HOOK_SCRIPT" <<'NODE'
-const fs = require("fs")
-const [hookScript] = process.argv.slice(2)
-const os = require("os"), path = require("path")
-const settingsPath = path.join(os.homedir(), ".claude", "settings.json")
-let settings = {}
-try { settings = JSON.parse(fs.readFileSync(settingsPath, "utf-8")) } catch { settings = {} }
-if (!settings.hooks || typeof settings.hooks !== "object") settings.hooks = {}
-const marker = "hook-timeline.mjs"
-let changed = false
-for (const evt of ["PreToolUse", "PostToolUse", "Stop"]) {
-    if (!Array.isArray(settings.hooks[evt])) settings.hooks[evt] = []
-    const exists = settings.hooks[evt].some((grp) =>
-        (grp.hooks ?? []).some((h) => typeof h.command === "string" && h.command.includes(marker) && (h.args ?? []).includes(evt)),
-    )
-    if (exists) continue
-    settings.hooks[evt].push({ hooks: [{ type: "command", command: "node", args: [hookScript, evt] }] })
-    changed = true
-    console.log(`    已注册 hooks 事件 ${evt}`)
-}
-if (changed) {
-    fs.mkdirSync(path.dirname(settingsPath), { recursive: true })
-    fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2))
-    console.log(`==> 已写入 hooks 到 ${settingsPath}`)
-} else {
-    console.log("==> hooks 已注册，跳过")
-}
-NODE
+MERGE_SCRIPT="$INSTALL_DIR/merge-hooks.mjs"
+if [ -f "$HOOK_SCRIPT" ] && [ -f "$MERGE_SCRIPT" ]; then
+    node "$MERGE_SCRIPT" "$HOME/.claude/settings.json" "$HOOK_SCRIPT"
     echo "提示: 任务注入需以 --dangerously-load-development-channels server:agent-swarm-keepalive 启动 claude"
 else
-    echo "警告: hook-timeline.mjs 不在分发包中，跳过 hooks 注册（时间线不可用）" >&2
+    echo "警告: hook-timeline.mjs/merge-hooks.mjs 不在分发包中，跳过 hooks 注册（时间线不可用）" >&2
 fi
 
 # 5. 注册自定义命令（markdown 源文件在 commands/，拷贝即安装）
