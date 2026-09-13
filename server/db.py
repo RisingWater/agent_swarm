@@ -30,6 +30,9 @@ def _migrate() -> None:
         cols = {r[1] for r in con.execute("PRAGMA table_info(users)")}
         if "api_key" not in cols:
             con.execute("ALTER TABLE users ADD COLUMN api_key TEXT DEFAULT ''")
+        ws_cols = {r[1] for r in con.execute("PRAGMA table_info(workspaces)")}
+        if "agent_type" not in ws_cols:
+            con.execute("ALTER TABLE workspaces ADD COLUMN agent_type TEXT DEFAULT ''")
         # 旧用户没有明文（哈希不可逆）：补发新 key，旧 key 立即失效
         from server import models
 

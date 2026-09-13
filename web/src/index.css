@@ -20,6 +20,11 @@
   box-sizing: border-box;
 }
 
+html {
+  /* 页面级滚动条恒定预留 gutter，避免内容超出/不足一屏时整页左右跳动 */
+  scrollbar-gutter: stable;
+}
+
 body {
   margin: 0;
   background: var(--bg);
@@ -430,8 +435,8 @@ a.link:hover {
 .purpose-cell .purpose-text {
   flex: 1;
   min-width: 0;
+  max-width: 450px;
   overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
@@ -1105,3 +1110,817 @@ a.link:hover {
   background: var(--bg-weak);
   color: var(--text-strong);
 }
+
+/* ---------------- 中枢（nexus） ---------------- */
+
+.nexus-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 14px 0 18px;
+}
+
+.nexus-ws-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 14px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  font-size: 13.5px;
+  cursor: pointer;
+}
+
+.nexus-ws-chip:hover {
+  border-color: var(--text-strong);
+}
+
+.nexus-ws-chip.selected {
+  border-color: var(--text-strong);
+  background: var(--bg-weak);
+  font-weight: 600;
+}
+
+.nexus-empty {
+  color: var(--text-weak);
+  font-size: 13px;
+}
+
+/* 工作区下拉选择（自绘，选项内嵌图标） */
+.nexus-select-wrap {
+  position: relative;
+  display: inline-block;
+}
+
+.nexus-select-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 280px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 13.5px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.nexus-select-btn:hover { border-color: var(--text-strong); }
+
+.nexus-select-placeholder { color: var(--text-weak); }
+
+.nexus-select-caret {
+  margin-left: auto;
+  color: var(--text-weak);
+}
+
+.nexus-select-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 50;
+  min-width: 100%;
+  max-height: 320px;
+  overflow-y: auto;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.nexus-select-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border: none;
+  border-radius: var(--radius);
+  background: none;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.nexus-select-item:hover { background: var(--bg-weak); }
+
+.nexus-select-item.selected {
+  background: var(--bg-weak);
+  font-weight: 600;
+}
+
+.nexus-select-item-name { flex: 0 0 auto; }
+
+.nexus-select-item-path {
+  color: var(--text-weak);
+  font-size: 11.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-left: auto;
+  padding-left: 16px;
+}
+
+/* ===== 终端容器（默认浅色 = 兜底控件） ===== */
+
+.nexus-terminal {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--bg);
+}
+
+.nexus-terminal-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-weak);
+}
+
+.nexus-head-title {
+  font-weight: 600;
+}
+
+.nexus-head-status.on { color: #2e7d32; }
+.nexus-head-status.off { color: var(--text-weak); }
+
+.nexus-head-clear {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: none;
+  border: 1px solid #3a3a3a;
+  border-radius: 6px;
+  color: #a8a8a8;
+  font-family: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+  padding: 3px 10px;
+}
+
+.nexus-head-clear:hover { border-color: #6a6a6a; color: #fff; }
+
+/* 底部状态栏：第一行灰色路径，第二行绿色状态 */
+.nexus-footer {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 16px 7px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-weak);
+  font-size: 11.5px;
+}
+
+.nexus-terminal.tui .nexus-footer {
+  border-top-color: #2a2a2a;
+  background: #141414;
+}
+
+.nexus-footer-path {
+  color: #8a8a8a;
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nexus-footer-main {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  color: #2e7d32;
+}
+
+.nexus-terminal.tui .nexus-footer-main { color: #7ec97e; }
+
+.nexus-footer-key { font-weight: 600; }
+
+.nexus-footer-dim { color: var(--text-weak); }
+.nexus-terminal.tui .nexus-footer-dim { color: #555; }
+
+.nexus-timeline {
+  flex: 1;
+  min-height: 320px;
+  max-height: 62vh;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.nexus-waiting {
+  color: var(--text-weak);
+  font-size: 13px;
+  text-align: center;
+  margin: auto;
+}
+
+/* ===== 兜底默认控件：气泡风格 ===== */
+
+.tl-item {
+  font-size: 13.5px;
+  line-height: 1.55;
+}
+
+.tl-role {
+  font-size: 11.5px;
+  color: var(--text-weak);
+  margin-bottom: 3px;
+}
+
+.tl-bubble {
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-weak);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.tl-user {
+  align-self: flex-end;
+  max-width: 85%;
+}
+
+.tl-user .tl-bubble {
+  background: var(--text-strong);
+  color: var(--bg);
+  border-color: var(--text-strong);
+}
+
+.tl-assistant {
+  align-self: flex-start;
+  max-width: 92%;
+}
+
+.tl-assistant .tl-bubble {
+  white-space: normal;
+}
+
+.tl-reasoning {
+  align-self: flex-start;
+  max-width: 92%;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  padding: 6px 12px;
+  color: var(--text-weak);
+}
+
+.tl-reasoning summary {
+  cursor: pointer;
+  font-size: 12.5px;
+  user-select: none;
+}
+
+.tl-plain {
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin-top: 6px;
+  font-size: 13px;
+}
+
+.tl-tool {
+  align-self: flex-start;
+  max-width: 92%;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 7px 12px;
+}
+
+.tl-tool-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.tl-tool-state {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.tl-tool.st-completed .tl-tool-state { color: var(--text-strong); }
+.tl-tool.st-error .tl-tool-state { color: #c0392b; }
+.tl-tool.st-running .tl-tool-state { color: var(--text-weak); }
+
+.tl-tool-name {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.tl-tool-cmd {
+  margin: 6px 0 0;
+  padding: 7px 9px;
+  background: var(--bg-weak);
+  border-radius: 6px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.tl-tool-output {
+  margin: 6px 0 0;
+  padding: 7px 9px;
+  border-left: 2px solid var(--border);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-weak);
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.tl-idle {
+  align-self: center;
+  color: var(--text-weak);
+  font-size: 12.5px;
+}
+
+/* 权限/问答交互卡（两种控件共用结构，颜色随容器） */
+.tl-ask {
+  align-self: flex-start;
+  max-width: 92%;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 9px 12px;
+}
+
+.tl-ask-head {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.tl-ask-body {
+  margin-top: 4px;
+  font-size: 12.5px;
+  color: var(--text-weak);
+  word-break: break-all;
+}
+
+.tl-ask-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+
+.tl-ask-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 12px;
+  padding: 4px 12px;
+  cursor: pointer;
+}
+
+.tl-ask-btn:hover { border-color: var(--text-strong); }
+
+.tl-ask-btn.danger { color: #c0392b; border-color: #c0392b; }
+
+.tl-error {
+  align-self: flex-start;
+  max-width: 92%;
+}
+
+.tl-error .tl-bubble {
+  border-color: #c0392b;
+  color: #c0392b;
+}
+
+/* ===== opencode TUI 控件：黑底终端风（.tui 作用域） ===== */
+
+.nexus-terminal.tui {
+  background: #0d0d0d;
+  border-color: #2a2a2a;
+  color: #e6e6e6;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.nexus-terminal.tui .nexus-terminal-head {
+  background: #141414;
+  border-bottom-color: #2a2a2a;
+  font-size: 12px;
+  align-items: center;
+}
+
+/* 头部图标与文字同一水平线（图标 inline svg 的 baseline 偏移修正） */
+.nexus-terminal.tui .nexus-terminal-head .agent-type-ico {
+  display: inline-flex;
+  align-items: center;
+  margin: 0;
+  vertical-align: middle;
+}
+
+.nexus-terminal.tui .nexus-terminal-head .agent-type-ico svg {
+  display: block;
+}
+
+.nexus-terminal.tui .nexus-head-title { color: #fff; }
+
+.nexus-terminal.tui .nexus-head-status.on { color: #7ec97e; }
+.nexus-terminal.tui .nexus-head-status.off { color: #666; }
+
+.nexus-terminal.tui .nexus-head-clear { color: #666; }
+.nexus-terminal.tui .nexus-head-clear:hover { color: #fff; }
+
+.nexus-terminal.tui .nexus-timeline {
+  gap: 10px;
+}
+
+.nexus-terminal.tui .nexus-timeline::-webkit-scrollbar { width: 8px; }
+.nexus-terminal.tui .nexus-timeline::-webkit-scrollbar-thumb { background: #2e2e2e; border-radius: 4px; }
+
+.nexus-terminal.tui .nexus-waiting { color: #555; font-size: 12.5px; }
+
+/* 用户指令：方形背景块 + 左侧蓝色竖线（居左，直角无圆角） */
+.tl-user-box {
+  position: relative;
+  background: #1a1a1a;
+  border: 1px solid #2e2e2e;
+  border-radius: 0;
+  padding: 8px 12px 8px 16px;
+  align-self: stretch;
+}
+
+.tl-user-box::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 6px;
+  bottom: 6px;
+  width: 3px;
+  border-radius: 2px;
+  background: #4a8dff;
+}
+
+.tl-user-text {
+  color: #e8e8e8;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* assistant 输出：● 圆点前缀 */
+.nexus-terminal.tui .tl-assistant {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  max-width: none;
+  align-self: auto;
+}
+
+.tl-dot {
+  color: #e6e6e6;
+  font-size: 10px;
+  line-height: 1.9;
+  flex: 0 0 auto;
+}
+
+.tl-assistant-text {
+  color: #f0f0f0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  min-width: 0;
+  flex: 1;
+}
+
+/* 黑底 markdown 适配（代码块也直角） */
+.tl-assistant-text pre {
+  background: #161616;
+  border: 1px solid #2a2a2a;
+  border-radius: 0;
+  padding: 8px 10px;
+  overflow-x: auto;
+  font-size: 12px;
+}
+
+.tl-assistant-text code {
+  background: #1c1c1c;
+  border-radius: 3px;
+  padding: 1px 5px;
+  font-size: 12px;
+}
+
+.tl-assistant-text pre code { background: none; padding: 0; }
+
+.tl-assistant-text a { color: #8ab4f8; }
+.tl-assistant-text table { border-color: #2a2a2a; }
+.tl-assistant-text th, .tl-assistant-text td { border-color: #2a2a2a; }
+
+/* thinking 折叠行 */
+.tl-thought { color: #6e6e6e; font-size: 12.5px; align-self: auto; }
+
+.tl-thought summary {
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+}
+
+.tl-thought summary::before { content: "▸ "; }
+.tl-thought[open] summary::before { content: "▾ "; }
+.tl-thought summary:hover { color: #9a9a9a; }
+
+.tl-thought-body {
+  margin: 6px 0 0 14px;
+  padding: 8px 10px;
+  border-left: 2px solid #2a2a2a;
+  color: #9a9a9a;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 12.5px;
+}
+
+/* 工具调用：整体方框（头部 + 输出都在框内），占满可用宽度，直角 */
+.nexus-terminal.tui .tl-tool-box {
+  background: #141414;
+  border: 1px solid #262626;
+  border-radius: 0;
+  padding: 8px 12px;
+  align-self: stretch;
+}
+
+.nexus-terminal.tui .tl-tool-box.running {
+  border-color: #3a3325;
+}
+
+.tl-tool-head {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  flex-wrap: wrap;
+}
+
+.tl-tool-glyph { color: #6e6e6e; flex: 0 0 auto; }
+
+.nexus-terminal.tui .tl-tool .tl-tool-name,
+.nexus-terminal.tui .tl-tool-box .tl-tool-name { color: #c9a26d; font-weight: 600; }
+.nexus-terminal.tui .tl-tool-box.running .tl-tool-name { color: #e0b97d; }
+
+.tl-tool-args {
+  color: #7a7a7a;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.tl-tool-ellipsis { color: #e0b97d; }
+
+/* 工具输出：无内框，直接平铺在工具方框里；超长限高 + expand */
+.nexus-terminal.tui .tl-tool-box .tl-tool-output {
+  margin: 8px 0 0;
+  padding: 0;
+  background: none;
+  border: none;
+  border-radius: 0;
+  color: #a8a8a8;
+  white-space: pre-wrap;
+  word-break: break-all;
+  /* 覆盖兜底控件的限高滚动：TUI 输出不做内部滚动 */
+  max-height: none;
+  overflow: visible;
+  overflow-x: visible;
+  overflow-y: visible;
+}
+
+/* 超长输出：默认限高隐藏，expand 后完全展开（无滚动条，下方内容自然下移） */
+.tl-tool-output-wrap { margin: 8px 0 0; }
+
+.nexus-terminal.tui .tl-tool-output.clamped {
+  max-height: 220px;
+  overflow: hidden;
+}
+
+.nexus-terminal.tui .tl-tool-output.expanded {
+  max-height: none;
+  overflow: visible;
+}
+
+.tl-tool-expand {
+  display: block;
+  margin-top: 4px;
+  background: none;
+  border: none;
+  padding: 0;
+  color: #8ab4f8;
+  font-family: inherit;
+  font-size: 12px;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.tl-tool-expand:hover { color: #aecbfa; }
+
+/* 错误行 */
+.nexus-terminal.tui .tl-error {
+  display: flex;
+  gap: 8px;
+  color: #e07b7b;
+  font-size: 12.5px;
+  align-self: auto;
+  max-width: none;
+}
+
+.tl-error-mark { flex: 0 0 auto; }
+
+.tl-error-text { white-space: pre-wrap; word-break: break-word; }
+
+/* 权限/问答交互卡（黑底版） */
+.nexus-terminal.tui .tl-ask {
+  border-color: #3a3a3a;
+  background: #141414;
+}
+
+.nexus-terminal.tui .tl-ask-head { color: #e6e6e6; font-size: 12.5px; }
+.nexus-terminal.tui .tl-ask-head b { color: #fff; }
+
+.tl-ask-glyph { margin-right: 4px; }
+
+.nexus-terminal.tui .tl-ask-body { color: #8a8a8a; font-size: 12px; }
+
+.nexus-terminal.tui .tl-ask-btn { background: #1e1e1e; border-color: #3a3a3a; color: #d8d8d8; }
+.nexus-terminal.tui .tl-ask-btn:hover { border-color: #6a6a6a; color: #fff; }
+
+.tl-ask-btn.primary {
+  background: #e6e6e6;
+  border-color: #e6e6e6;
+  color: #0d0d0d;
+  font-weight: 600;
+}
+
+.tl-ask-btn.primary:hover { background: #fff; }
+
+.nexus-terminal.tui .tl-ask-btn.danger { color: #e07b7b; border-color: #5a2e2e; }
+
+.tl-ask-done { color: #7ec97e; font-size: 12.5px; align-self: auto; }
+
+/* 运行状态行：✳ Working… */
+.nexus-statusline {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  color: #e0b97d;
+  font-size: 12.5px;
+}
+
+.nexus-spinner {
+  display: inline-block;
+  animation: nexus-spin 1.2s linear infinite;
+}
+
+@keyframes nexus-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.nexus-status-dim { color: #666; }
+
+/* 输入区 */
+.nexus-input-row {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  padding: 10px 16px;
+  border-top: 1px solid var(--border);
+}
+
+/* opencode TUI：输入框左侧蓝色竖线指示条
+   竖线在容器左缘 16px 处（与指令方框/工具方框左缘对齐），输入文字在其右侧 */
+.nexus-terminal.tui .nexus-input-row {
+  border-top-color: #2a2a2a;
+  position: relative;
+  padding-left: 28px;
+  align-items: center;
+}
+
+.nexus-terminal.tui .nexus-input-row::before {
+  content: "";
+  position: absolute;
+  left: 16px;
+  top: 8px;
+  bottom: 8px;
+  width: 3px;
+  border-radius: 2px;
+  background: #4a8dff;
+}
+
+.nexus-terminal.tui .nexus-input-row:focus-within::before {
+  background: #6ea8ff;
+  box-shadow: 0 0 6px rgba(74, 141, 255, 0.5);
+}
+
+/* 输入区左侧竖线即指示器，无 ❯ 符号 */
+
+.nexus-input {
+  flex: 1;
+  background: none;
+  border: none;
+  outline: none;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 13px;
+}
+
+/* 动态多行输入：textarea 自动换行，高度随内容增长 */
+textarea.nexus-input {
+  resize: none;
+  overflow: hidden;
+  min-height: 20px;
+  max-height: 160px;
+  line-height: 1.5;
+  padding: 0;
+}
+
+.nexus-terminal.tui .nexus-input {
+  color: #f0f0f0;
+  caret-color: #e6e6e6;
+}
+
+.nexus-input::placeholder { color: var(--text-weak); }
+.nexus-terminal.tui .nexus-input::placeholder { color: #555; }
+
+.nexus-input:disabled { opacity: 0.5; }
+
+.nexus-send {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 12px;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+
+.nexus-terminal.tui .nexus-send { border-color: #3a3a3a; color: #a8a8a8; }
+
+.nexus-send:hover:not(:disabled) { border-color: var(--text-strong); }
+.nexus-terminal.tui .nexus-send:hover:not(:disabled) { border-color: #6a6a6a; color: #fff; }
+
+.nexus-send:disabled { opacity: 0.4; cursor: default; }
+
+/* 工作区名称旁的 agent 类型小图标（表格内与文字垂直居中）
+   inline-flex 盒子在 inline 流里参与 baseline 对齐：让它以自身中线对齐文字 x-height 中心 */
+.agent-type-ico {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-right: 7px;
+  vertical-align: middle;
+  height: 16px;
+  line-height: 16px;
+}
+
+.agent-type-ico svg {
+  display: block;
+}
+
+/* 工作区表格：固定列宽布局 —— 用途列展开多行时列宽不再变化 */
+/* 工作区表格：恢复自动布局（按内容分配列宽），仅首/尾/用途三列定宽
+   —— 用途列 450px 固定，展开折行只在列内进行，其他列不受影响 */
+table.grid.ws-grid {
+  table-layout: auto;
+}
+
+/* 路径/用途单元格：超长文本省略，不撑列 */
+/* 路径列超长省略即可：不用全局 td 截断（会误伤开关/操作列显示 ... ） */
+.ws-grid td {
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+/* 状态列：offline 时间戳较长，缩小字号防截断 */
+.ws-grid td:nth-child(4) {
+  font-size: 12px;
+}
+
+/* 用途单元格例外：展开时允许多行（仍在固定列宽内） */
+.ws-grid td.purpose-td {
+  overflow: hidden;
+}
+
+/* 用途展开：完整显示所有行，不限制高度（无滚动条） */

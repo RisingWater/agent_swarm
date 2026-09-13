@@ -195,7 +195,7 @@ function Confirm({ text, onOk, onClose }: { text: string; onOk: () => void; onCl
 
 // ---------------- 应用骨架 ----------------
 
-export type Page = "home" | "docs" | "workspaces" | "calls" | "account" | "login"
+export type Page = "home" | "docs" | "workspaces" | "calls" | "account" | "nexus" | "login"
 
 export default function App() {
   const [token, setToken] = useState(localStorage.getItem("swarm_token"))
@@ -207,7 +207,7 @@ export default function App() {
 
   // 未登录：可见页面只有 首页/文档，受保护页面跳回首页
   const effectivePage: Page =
-    !loggedIn && (page === "workspaces" || page === "calls" || page === "account")
+    !loggedIn && (page === "workspaces" || page === "calls" || page === "account" || page === "nexus")
       ? "home"
       : page
 
@@ -228,6 +228,7 @@ export default function App() {
           <a className={effectivePage === "docs" ? "active" : ""} onClick={() => goto("docs")}>文档</a>
           {loggedIn && (
             <>
+              <a className={effectivePage === "nexus" ? "active" : ""} onClick={() => goto("nexus")}>中枢</a>
               <a className={effectivePage === "workspaces" ? "active" : ""} onClick={() => goto("workspaces")}>工作区</a>
               <a className={effectivePage === "calls" ? "active" : ""} onClick={() => goto("calls")}>调用记录</a>
             </>
@@ -283,6 +284,7 @@ export default function App() {
           />
         )}
         {effectivePage === "docs" && <DocsPage />}
+        {effectivePage === "nexus" && <NexusPage toast={toast} />}
         {effectivePage === "workspaces" && <WorkspacesPage toast={toast} />}
         {effectivePage === "calls" && <CallsPage toast={toast} />}
         {effectivePage === "account" && <AccountPage toast={toast} />}
@@ -735,15 +737,38 @@ function AgentToolIcon({ tool }: { tool: "opencode" | "claude" | "deepseek" | "p
         </svg>
       )
     case "more":
-      // 三点省略
+      // 其它：问号圆圈
       return (
         <svg {...common}>
-          <circle cx="5" cy="12" r="1" fill="currentColor" stroke="none" />
-          <circle cx="12" cy="12" r="1" fill="currentColor" stroke="none" />
-          <circle cx="19" cy="12" r="1" fill="currentColor" stroke="none" />
+          <circle cx="12" cy="12" r="9" />
+          <path d="M9.6 9.2a2.4 2.4 0 1 1 3.2 2.9c-.6.3-.8.7-.8 1.4v.3" />
+          <circle cx="12" cy="16.6" r="0.8" fill="currentColor" stroke="none" />
         </svg>
       )
   }
+}
+
+/** 按 agent_type 字符串取图标（未识别的用"其它"问号图标） */
+function agentToolKind(agentType: string | null | undefined): "opencode" | "claude" | "deepseek" | "pi" | "more" {
+  const t = (agentType ?? "").trim().toLowerCase()
+  if (t.includes("opencode")) return "opencode"
+  if (t.includes("claude")) return "claude"
+  if (t.includes("deepseek")) return "deepseek"
+  if (t === "pi" || t.startsWith("pi ")) return "pi"
+  return "more"
+}
+
+/** 工作区名称旁的 agent 类型小图标（识别的类型用品牌色，未知用灰问号） */
+function AgentTypeIcon({ type, inherit }: { type: string | null | undefined; inherit?: boolean }) {
+  const kind = agentToolKind(type)
+  const label = (type ?? "").trim() || "未知 agent"
+  // inherit=true：跟随容器文字色（如 TUI 黑底头部要白色），否则用品牌色
+  const color = inherit ? "" : kind === "claude" ? "#D97757" : kind === "more" ? "" : "var(--text-strong)"
+  return (
+    <span className="agent-type-ico" title={label} style={color ? { color } : undefined}>
+      <AgentToolIcon tool={kind} />
+    </span>
+  )
 }
 
 /** 首页"已支持的 agent 工具"图标组 */
@@ -997,6 +1022,613 @@ agent: (workspace_call) → 对方 TUI 实时出现任务 → 执行 → 结果�
   )
 }
 
+// ---------------- 中枢（nexus） ----------------
+
+/** timeline 事件（WS 从服务端转发） */
+type TimelineEvent =
+  | { kind: "run-started"; req_id: string; session_id: string; text: string; time: number }
+  | { kind: "text-updated"; req_id: string; part_id: string; text: string; time: number }
+  | { kind: "reasoning-updated"; req_id: string; part_id: string; text: string; time: number }
+  | {
+      kind: "tool-state-changed"
+      req_id: string
+      call_id: string
+      tool: string
+      state: "running" | "completed" | "error"
+      input?: Record<string, unknown>
+      output?: string
+      time: number
+    }
+  | {
+      kind: "permission-requested"
+      req_id: string
+      request_id: string
+      session_id: string
+      permission: string
+      title: string
+      time: number
+    }
+  | {
+      kind: "question-requested"
+      req_id: string
+      request_id: string
+      session_id: string
+      question: string
+      options: Array<{ label: string; value: string }>
+      time: number
+    }
+  | { kind: "session-idle"; req_id: string; session_id: string; time: number }
+  | { kind: "run-error"; req_id: string; error: string; time: number }
+
+/** 渲染用 timeline 条目 */
+interface TimelineItem {
+  key: string
+  kind: "user" | "text" | "reasoning" | "tool" | "permission" | "question" | "idle" | "error"
+  text: string
+  tool?: string
+  state?: string
+  output?: string
+  request_id?: string
+  permission?: string
+  options?: Array<{ label: string; value: string }>
+  answered?: string
+  time: number
+}
+
+/** 从工具入参提取可展示命令（bash 类） */
+function toolCommand(input: Record<string, unknown> | undefined): string {
+  if (!input) return ""
+  const c = input.command ?? input.cmd ?? input.command_line ?? input.description
+  return typeof c === "string" ? c : JSON.stringify(input)
+}
+
+/** 自绘下拉：选项内可嵌 agent 图标（原生 option 不支持 SVG） */
+function NexusWorkspaceSelect({ list, value, onChange }: {
+  list: Workspace[]
+  value: string
+  onChange: (id: string) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  const current = list.find((w) => w.id === value)
+
+  useEffect(() => {
+    if (!open) return
+    const close = (e: MouseEvent) => {
+      if (!ref.current?.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener("mousedown", close)
+    return () => document.removeEventListener("mousedown", close)
+  }, [open])
+
+  return (
+    <div className="nexus-select-wrap" ref={ref}>
+      <button type="button" className="nexus-select-btn" onClick={() => setOpen((o) => !o)}>
+        {current ? (
+          <>
+            <AgentTypeIcon type={current.agent_type} />
+            <span>{current.name}</span>
+          </>
+        ) : (
+          <span className="nexus-select-placeholder">选择工作区…</span>
+        )}
+        <svg className="nexus-select-caret" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+          <path d="M6 9l6 6 6-6" />
+        </svg>
+      </button>
+      {open && (
+        <div className="nexus-select-menu">
+          {list.map((w) => (
+            <button
+              key={w.id}
+              type="button"
+              className={`nexus-select-item${w.id === value ? " selected" : ""}`}
+              onClick={() => { onChange(w.id); setOpen(false) }}
+            >
+              <AgentTypeIcon type={w.agent_type} />
+              <span className="nexus-select-item-name">{w.name}</span>
+              <span className="nexus-select-item-path">{w.path}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function NexusPage({ toast }: { toast: (m: string) => void }) {
+  const [list, setList] = useState<Workspace[]>([])
+  const [selected, setSelected] = useState<string>("")
+  const [pluginOnline, setPluginOnline] = useState(false)
+  const [items, setItems] = useState<TimelineItem[]>([])
+  const [input, setInput] = useState("")
+  const [busy, setBusy] = useState(false)
+  const wsRef = useRef<WebSocket | null>(null)
+  const timelineRef = useRef<HTMLDivElement>(null)
+  const reqSeq = useRef(0)
+
+  const refresh = useCallback(async () => {
+    try { setList(await api.workspaces()) } catch { /* 静默 */ }
+  }, [])
+  useEffect(() => { refresh(); const t = setInterval(refresh, 10_000); return () => clearInterval(t) }, [refresh])
+
+  const onlineList = list.filter((w) => w.status === "online")
+
+  // 选中工作区时建立 WS 订阅
+  useEffect(() => {
+    setItems([])
+    setPluginOnline(false)
+    if (!selected) return
+    const token = localStorage.getItem("swarm_token") ?? ""
+    const proto = location.protocol === "https:" ? "wss:" : "ws:"
+    const ws = new WebSocket(`${proto}//${location.host}/ws/nexus`)
+    wsRef.current = ws
+    let helloDone = false
+
+    ws.onopen = () => ws.send(JSON.stringify({ type: "hello", token }))
+    ws.onmessage = (e) => {
+      let msg: any
+      try { msg = JSON.parse(e.data) } catch { return }
+      switch (msg.type) {
+        case "hello_ok":
+          helloDone = true
+          ws.send(JSON.stringify({ type: "subscribe", workspace_id: selected }))
+          break
+        case "hello_err":
+          toast("WS 鉴权失败，请重新登录")
+          break
+        case "subscribed":
+          setPluginOnline(!!msg.plugin_online)
+          // 服务端回放历史 timeline
+          if (Array.isArray(msg.history) && msg.history.length) {
+            setItems([])
+            for (const evt of msg.history as TimelineEvent[]) applyTimelineEvent(evt)
+          }
+          break
+        case "cleared":
+          setItems([])
+          break
+        case "event":
+          applyTimelineEvent(msg.event as TimelineEvent)
+          break
+        case "result":
+          if (msg.ok === false) toast(`指令失败: ${msg.result}`)
+          break
+      }
+    }
+    ws.onclose = () => { if (!helloDone) setTimeout(() => setSelected((s) => (s === selected ? s : s)), 0) }
+
+    return () => { ws.close(); wsRef.current = null }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected])
+
+  // timeline 事件 → 渲染条目（合并同 part_id 的流式更新）
+  function applyTimelineEvent(evt: TimelineEvent) {
+    setItems((prev) => {
+      const next = [...prev]
+      const mergeByKey = (key: string, text: string) => {
+        const i = next.findIndex((it) => it.key === key)
+        if (i >= 0) next[i] = { ...next[i], text, time: evt.time ?? Date.now() }
+        else next.push({ key, kind: "text", text, time: evt.time ?? Date.now() })
+      }
+      switch (evt.kind) {
+        case "run-started":
+          next.push({ key: `u-${evt.req_id}`, kind: "user", text: evt.text, time: evt.time })
+          break
+        case "reasoning-updated":
+          mergeByKey(`r-${evt.part_id}`, evt.text)
+          // reasoning 条目 kind 单独标
+          {
+            const i = next.findIndex((it) => it.key === `r-${evt.part_id}`)
+            if (i >= 0) next[i].kind = "reasoning"
+          }
+          break
+        case "text-updated":
+          mergeByKey(`t-${evt.part_id}`, evt.text)
+          break
+        case "tool-state-changed": {
+          const key = `tool-${evt.call_id}`
+          const i = next.findIndex((it) => it.key === key)
+          const cmd = toolCommand(evt.input)
+          const entry: TimelineItem = { key, kind: "tool", text: cmd, tool: evt.tool, state: evt.state, output: evt.output, time: evt.time }
+          if (i >= 0) next[i] = entry
+          else next.push(entry)
+          break
+        }
+        case "session-idle":
+          next.push({ key: `idle-${evt.req_id}`, kind: "idle", text: "已完成", time: evt.time })
+          setBusy(false)
+          break
+        case "permission-requested": {
+          const key = `perm-${evt.request_id}`
+          const i = next.findIndex((it) => it.key === key)
+          const entry: TimelineItem = {
+            key,
+            kind: "permission",
+            text: evt.title || evt.permission,
+            permission: evt.permission,
+            request_id: evt.request_id,
+            time: evt.time,
+          }
+          if (i < 0) next.push(entry)
+          break
+        }
+        case "question-requested": {
+          const key = `ques-${evt.request_id}`
+          const i = next.findIndex((it) => it.key === key)
+          const entry: TimelineItem = {
+            key,
+            kind: "question",
+            text: evt.question,
+            options: evt.options,
+            request_id: evt.request_id,
+            time: evt.time,
+          }
+          if (i < 0) next.push(entry)
+          break
+        }
+        case "run-error":
+          next.push({ key: `err-${evt.req_id}-${next.length}`, kind: "error", text: evt.error, time: evt.time })
+          setBusy(false)
+          break
+      }
+      return next
+    })
+  }
+
+  // 自动滚到底部
+  useEffect(() => {
+    timelineRef.current?.scrollTo({ top: timelineRef.current.scrollHeight })
+  }, [items])
+
+  const send = () => {
+    const text = input.trim()
+    if (!text || !selected || busy) return
+    if (!pluginOnline) { toast("目标工作区插件不在线"); return }
+    const reqId = `nexus-${Date.now()}-${++reqSeq.current}`
+    setBusy(true)
+    setInput("")
+    wsRef.current?.send(JSON.stringify({ type: "command", workspace_id: selected, text, req_id: reqId, source: "nexus-web" }))
+  }
+
+  const clearHistory = () => {
+    if (!selected) return
+    setItems([])
+    wsRef.current?.send(JSON.stringify({ type: "clear", workspace_id: selected }))
+  }
+
+  /** 标记权限/问答条目已答复（按钮替换为结果文字） */
+  const markAnswered = (key: string, answer: string) => {
+    setItems((prev) => prev.map((it) => (it.key === key ? { ...it, answered: answer } : it)))
+  }
+
+  const current = list.find((w) => w.id === selected)
+
+  return (
+    <>
+      <h1 className="page-title">中枢</h1>
+      <p className="page-sub">选择一个在线工作区直接下达指令，实时查看 agent 的思考、工具调用与答复。</p>
+
+      <div className="nexus-picker">
+        <NexusWorkspaceSelect
+          list={onlineList}
+          value={selected}
+          onChange={setSelected}
+        />
+        {!onlineList.length && <span className="nexus-empty">暂无在线工作区 — 等待插件心跳上线</span>}
+      </div>
+
+      {selected && (
+        <div className={`nexus-terminal${agentToolKind(current?.agent_type) === "opencode" ? " tui" : ""}`}>
+          <div className="nexus-terminal-head">
+            <AgentTypeIcon type={current?.agent_type} inherit />
+            <span className="nexus-head-title">{current?.name ?? selected}</span>
+            <span className={`nexus-head-status ${pluginOnline ? "on" : "off"}`}>{pluginOnline ? "● online" : "○ offline"}</span>
+            <span style={{ flex: 1 }} />
+            <button className="nexus-head-clear" title="清空历史记录（服务端持久化数据一并删除）" onClick={clearHistory}>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <path d="M3 6h18" />
+                <path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2" />
+                <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+              </svg>
+              clear
+            </button>
+          </div>
+          <div className="nexus-timeline" ref={timelineRef}>
+            {!items.length && (
+              <div className="nexus-waiting">waiting for input — type a command to start</div>
+            )}
+            {items.map((it) => (
+              <TimelineEntrySwitch
+                key={it.key}
+                item={it}
+                agentType={current?.agent_type}
+                onPermissionReply={(reqId, reply) => {
+                  wsRef.current?.send(JSON.stringify({ type: "permission_reply", workspace_id: selected, request_id: reqId, reply }))
+                  markAnswered(it.key, reply === "once" ? "一次" : reply === "always" ? "始终" : "拒绝")
+                }}
+                onQuestionReply={(reqId, answers) => {
+                  wsRef.current?.send(JSON.stringify({ type: "question_reply", workspace_id: selected, request_id: reqId, answers }))
+                  markAnswered(it.key, answers[0]?.[0] ?? "已选择")
+                }}
+              />
+            ))}
+            {busy && (
+              <div className="nexus-statusline">
+                <span className="nexus-spinner">✳</span>
+                <span className="nexus-status-text">Working…</span>
+                <span className="nexus-status-dim">(nexus-web · esc to interrupt in TUI)</span>
+              </div>
+            )}
+          </div>
+          <div className="nexus-input-row">
+            <textarea
+              className="nexus-input"
+              placeholder={pluginOnline ? "type a command for this agent" : "plugin offline — history only"}
+              value={input}
+              disabled={!pluginOnline || busy}
+              rows={1}
+              onChange={(e) => {
+                setInput(e.target.value)
+                // 自动增高：随内容撑开，超出 max-height 后内部滚动
+                e.target.style.height = "auto"
+                e.target.style.height = `${e.target.scrollHeight}px`
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault()
+                  send()
+                }
+              }}
+            />
+            <button className="nexus-send" onClick={send} disabled={!pluginOnline || busy || !input.trim()}>send ⏎</button>
+          </div>
+          <div className="nexus-footer">
+            <div className="nexus-footer-path">{current?.path ?? selected}</div>
+            <div className="nexus-footer-main">
+              <span className="nexus-footer-key">nexus-web</span>
+              <span className="nexus-footer-dim">·</span>
+              <span>target: {current?.name ?? selected}</span>
+              <span className="nexus-footer-dim">·</span>
+              <span>{busy ? "agent running…" : "agent idle"}</span>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  )
+}
+
+/** timeline 条目渲染入口：按 agent 类型分发控件
+ *  opencode → OpencodeTuiEntry（TUI 黑底终端风格）
+ *  其他/未知 → TimelineEntry（气泡风格，兜底默认）
+ */
+function TimelineEntrySwitch({ item, agentType, onPermissionReply, onQuestionReply }: {
+  item: TimelineItem
+  agentType: string | null | undefined
+  onPermissionReply?: (requestId: string, reply: "once" | "always" | "reject") => void
+  onQuestionReply?: (requestId: string, answers: string[][]) => void
+}) {
+  const kind = agentToolKind(agentType)
+  const props = { item, onPermissionReply, onQuestionReply }
+  return kind === "opencode" ? <OpencodeTuiEntry {...props} /> : <TimelineEntry {...props} />
+}
+
+/** 兜底默认控件：气泡风格（通用，不依赖具体 agent 工具的视觉习惯） */
+function TimelineEntry({ item, onPermissionReply, onQuestionReply }: {
+  item: TimelineItem
+  onPermissionReply?: (requestId: string, reply: "once" | "always" | "reject") => void
+  onQuestionReply?: (requestId: string, answers: string[][]) => void
+}) {
+  if (item.kind === "user") {
+    return (
+      <div className="tl-item tl-user">
+        <div className="tl-role">你</div>
+        <div className="tl-bubble">{item.text}</div>
+      </div>
+    )
+  }
+  if (item.kind === "idle") {
+    return <div className="tl-item tl-idle">✓ {item.text}</div>
+  }
+  if (item.kind === "error") {
+    return (
+      <div className="tl-item tl-error">
+        <div className="tl-role">错误</div>
+        <div className="tl-bubble">{item.text}</div>
+      </div>
+    )
+  }
+  if (item.kind === "reasoning") {
+    return (
+      <details className="tl-item tl-reasoning">
+        <summary>思考过程</summary>
+        <div className="tl-plain">{item.text}</div>
+      </details>
+    )
+  }
+  if (item.kind === "tool") {
+    const st = item.state === "completed" ? "✓" : item.state === "error" ? "✗" : "⟳"
+    return (
+      <div className={`tl-item tl-tool st-${item.state}`}>
+        <div className="tl-tool-head">
+          <span className="tl-tool-state">{st}</span>
+          <span className="tl-tool-name">{item.tool}</span>
+        </div>
+        {item.text && <pre className="tl-tool-cmd">{item.text}</pre>}
+        {item.output?.trim() && <pre className="tl-tool-output">{item.output}</pre>}
+      </div>
+    )
+  }
+  if (item.kind === "permission") {
+    if (item.answered) {
+      return <div className="tl-item tl-idle">✓ 权限已{item.answered === "拒绝" ? "拒绝" : `允许（${item.answered}）`}</div>
+    }
+    return (
+      <div className="tl-item tl-ask">
+        <div className="tl-ask-head">🔐 权限请求：{item.permission}</div>
+        {item.text && <div className="tl-ask-body">{item.text}</div>}
+        <div className="tl-ask-actions">
+          <button className="tl-ask-btn" onClick={() => onPermissionReply?.(item.request_id!, "once")}>允许一次</button>
+          <button className="tl-ask-btn" onClick={() => onPermissionReply?.(item.request_id!, "always")}>始终允许</button>
+          <button className="tl-ask-btn danger" onClick={() => onPermissionReply?.(item.request_id!, "reject")}>拒绝</button>
+        </div>
+      </div>
+    )
+  }
+  if (item.kind === "question") {
+    if (item.answered) {
+      return <div className="tl-item tl-idle">✓ 已选择：{item.answered}</div>
+    }
+    return (
+      <div className="tl-item tl-ask">
+        <div className="tl-ask-head">❓ {item.text}</div>
+        <div className="tl-ask-actions">
+          {(item.options ?? []).map((o) => (
+            <button key={o.value} className="tl-ask-btn" onClick={() => onQuestionReply?.(item.request_id!, [[o.value]])}>
+              {o.label}
+            </button>
+          ))}
+        </div>
+      </div>
+    )
+  }
+  return (
+    <div className="tl-item tl-assistant">
+      <div className="tl-role">agent</div>
+      <div className="tl-bubble md"><Md text={item.text} /></div>
+    </div>
+  )
+}
+
+/** opencode 专用控件：TUI 黑底终端风格（用户指令方框+左蓝竖线 / ● 答复 / Thought for… / 工具方框） */
+function OpencodeTuiEntry({ item, onPermissionReply, onQuestionReply }: {
+  item: TimelineItem
+  onPermissionReply?: (requestId: string, reply: "once" | "always" | "reject") => void
+  onQuestionReply?: (requestId: string, answers: string[][]) => void
+}) {
+  if (item.kind === "user") {
+    // 用户指令：方形背景块 + 左侧蓝色竖线（居左，同 TUI）
+    return (
+      <div className="tl-user-box">
+        <div className="tl-user-text">{item.text}</div>
+      </div>
+    )
+  }
+  if (item.kind === "idle") {
+    return null // 完成标记由底部状态行呈现，不占时间线
+  }
+  if (item.kind === "error") {
+    return (
+      <div className="tl-error">
+        <span className="tl-error-mark">✗</span>
+        <span className="tl-error-text">{item.text}</span>
+      </div>
+    )
+  }
+  if (item.kind === "reasoning") {
+    return (
+      <details className="tl-thought">
+        <summary>Thought for a bit (click to expand)</summary>
+        <div className="tl-thought-body">{item.text}</div>
+      </details>
+    )
+  }
+  if (item.kind === "tool") {
+    const running = item.state === "running"
+    const glyph = toolGlyph(item.tool ?? "")
+    return (
+      <div className={`tl-tool-box${running ? " running" : ""}`}>
+        <div className="tl-tool-head">
+          <span className="tl-tool-glyph">{glyph}</span>
+          <span className="tl-tool-name">{item.tool}</span>
+          {item.text && <span className="tl-tool-args">{truncateLine(item.text, 96)}</span>}
+          {running && <span className="tl-tool-ellipsis">…</span>}
+        </div>
+        {item.output?.trim() && <TuiToolOutput output={item.output} />}
+      </div>
+    )
+  }
+  if (item.kind === "permission") {
+    if (item.answered) {
+      return (
+        <div className="tl-ask-done">
+          <span className="tl-ask-glyph">🔐</span>
+          权限已{item.answered === "拒绝" ? "拒绝" : `允许（${item.answered}）`}：{item.permission}
+        </div>
+      )
+    }
+    return (
+      <div className="tl-ask">
+        <div className="tl-ask-head"><span className="tl-ask-glyph">🔐</span> 权限请求：<b>{item.permission}</b></div>
+        {item.text && <div className="tl-ask-body">{item.text}</div>}
+        <div className="tl-ask-actions">
+          <button className="tl-ask-btn primary" onClick={() => onPermissionReply?.(item.request_id!, "once")}>allow once</button>
+          <button className="tl-ask-btn" onClick={() => onPermissionReply?.(item.request_id!, "always")}>always allow</button>
+          <button className="tl-ask-btn danger" onClick={() => onPermissionReply?.(item.request_id!, "reject")}>reject</button>
+        </div>
+      </div>
+    )
+  }
+  if (item.kind === "question") {
+    if (item.answered) {
+      return (
+        <div className="tl-ask-done">
+          <span className="tl-ask-glyph">❓</span> 已选择：<b>{item.answered}</b>
+        </div>
+      )
+    }
+    return (
+      <div className="tl-ask">
+        <div className="tl-ask-head"><span className="tl-ask-glyph">❓</span> {item.text}</div>
+        <div className="tl-ask-actions">
+          {(item.options ?? []).map((o) => (
+            <button key={o.value} className="tl-ask-btn primary" onClick={() => onQuestionReply?.(item.request_id!, [[o.value]])}>
+              {o.label}
+            </button>
+          ))}
+        </div>
+      </div>
+    )
+  }
+  return (
+    <div className="tl-assistant">
+      <span className="tl-dot">●</span>
+      <span className="tl-assistant-text md"><Md text={item.text} /></span>
+    </div>
+  )
+}
+
+/** 截断单行文本（工具命令摘要用） */
+function truncateLine(s: string, max: number): string {
+  const line = s.split("\n")[0]
+  return line.length > max ? line.slice(0, max) + "…" : line
+}
+
+/** 按工具类型取符号：edit/write → →，read/glob/grep/list → ←，bash → $，其余 ⎇ */
+function toolGlyph(tool: string): string {
+  const t = tool.toLowerCase()
+  if (t === "edit" || t === "write" || t === "patch" || t === "multiedit") return "→"
+  if (t === "read" || t === "glob" || t === "grep" || t === "list" || t === "view") return "←"
+  if (t === "bash" || t === "shell" || t === "terminal") return "$"
+  return "⎇"
+}
+
+/** TUI 工具输出：默认限高隐藏，超长时显示 expand 文字（下划线），点击完全展开 */
+function TuiToolOutput({ output }: { output: string }) {
+  const [expanded, setExpanded] = useState(false)
+  const LONG = 600 // 超过此长度视为超长输出
+  const isLong = output.length > LONG
+  return (
+    <div className="tl-tool-output-wrap">
+      <pre className={`tl-tool-output${isLong ? (expanded ? " expanded" : " clamped") : ""}`}>{output}</pre>
+      {isLong && !expanded && (
+        <button className="tl-tool-expand" onClick={() => setExpanded(true)}>expand</button>
+      )}
+    </div>
+  )
+}
+
 // ---------------- 工作区 ----------------
 
 function WorkspacesPage({ toast }: { toast: (m: string) => void }) {
@@ -1051,7 +1683,7 @@ function WorkspacesPage({ toast }: { toast: (m: string) => void }) {
       <h1 className="page-title">工作区</h1>
       <p className="page-sub">你的 agent 工作区及在线状态，每 10s 自动刷新。</p>
       <SearchBox value={query} onChange={setQuery} placeholder="搜索名称 / 路径 / 用途…" />
-      <table className="grid">
+      <table className="grid ws-grid">
         <thead>
           <tr>
             <th style={{ width: 60 }}></th>
@@ -1059,7 +1691,7 @@ function WorkspacesPage({ toast }: { toast: (m: string) => void }) {
             <th>名称</th>
             <th>状态</th>
             <th>路径</th>
-            <th>用途</th>
+            <th style={{ width: 450 }}>用途</th>
             <th style={{ width: 110 }}></th>
           </tr>
         </thead>
@@ -1068,7 +1700,10 @@ function WorkspacesPage({ toast }: { toast: (m: string) => void }) {
             <tr key={w.id}>
               <td><Switch on={w.status !== "disabled"} onClick={() => toggle(w)} /></td>
               <td style={{ color: "var(--text-weak)", fontSize: 12, fontFamily: "var(--font-mono)" }}>{w.id}</td>
-              <td className="strong"><a className="link" onClick={() => setDetail(w)}>{w.name}</a></td>
+              <td className="strong">
+                <AgentTypeIcon type={w.agent_type} />
+                <a className="link" onClick={() => setDetail(w)}>{w.name}</a>
+              </td>
               <td title={w.last_heartbeat ? `最后心跳: ${new Date(w.last_heartbeat + "Z").toLocaleString()}` : undefined}>
                 <StatusDot status={w.status} />
                 {w.status === "offline" && w.last_heartbeat && (
@@ -1122,6 +1757,11 @@ function WorkspacesPage({ toast }: { toast: (m: string) => void }) {
           <dl className="dl">
             <dt>状态</dt><dd><StatusDot status={detail.status} /></dd>
             <dt>路径</dt><dd>{detail.path}</dd>
+            <dt>agent</dt>
+            <dd style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <AgentTypeIcon type={detail.agent_type} />
+              {detail.agent_type || "未知"}
+            </dd>
             <dt>用途</dt><dd>{detail.purpose || "-"}</dd>
             <dt>能力</dt><dd>{detail.capabilities || "-"}</dd>
             <dt>备注</dt><dd>{detail.notes || "-"}</dd>

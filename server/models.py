@@ -80,6 +80,7 @@ class Workspace(SQLModel, table=True):
     capabilities: Optional[str] = Field(default=None, sa_column=Column(Text))
     notes: Optional[str] = Field(default=None, sa_column=Column(Text))
     status: str = Field(default="online", index=True)  # online / offline / disabled
+    agent_type: str = Field(default="")  # agent 工具类型（opencode / claude code / ...）
     last_heartbeat: Optional[datetime] = None
     session_id: Optional[str] = None
     created_at: datetime = Field(default_factory=utcnow)
@@ -100,3 +101,15 @@ class WorkspaceCall(SQLModel, table=True):
     created_at: datetime = Field(default_factory=utcnow)
     accepted_at: Optional[datetime] = None
     done_at: Optional[datetime] = None
+
+
+class NexusEvent(SQLModel, table=True):
+    """中枢 timeline 事件持久化（web 刷新后回放，手动清空才删除）。"""
+    __tablename__ = "nexus_events"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    workspace_id: str = Field(foreign_key="workspaces.id", index=True)
+    req_id: str = Field(index=True)  # 所属指令轮次
+    kind: str  # run-started / text-updated / reasoning-updated / tool-state-changed / session-idle / run-error
+    payload: str = Field(default="{}", sa_column=Column(Text))  # 事件 JSON（kind 特有字段）
+    created_at: datetime = Field(default_factory=utcnow)

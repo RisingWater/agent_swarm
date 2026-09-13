@@ -34,6 +34,7 @@ def ws_out(ws: models.Workspace, session: Session) -> dict:
         "notes": ws.notes,
         "status": effective,
         "raw_status": ws.status,
+        "agent_type": ws.agent_type or None,
         "owner": {"id": owner.id, "username": owner.username} if owner else None,
         "last_heartbeat": ws.last_heartbeat.isoformat() + "Z" if ws.last_heartbeat else None,
         "session_id": ws.session_id,

@@ -22,6 +22,7 @@ import { join } from "node:path"
 import { readWorkspaceId } from "./wsfile"
 import { SwarmClient, type SwarmCall } from "./client"
 import { loadConfig } from "./config"
+import { startNexusClient, type NexusClient, type TimelineEvent } from "./nexus"
 
 const LOG_FILE = join(homedir(), ".config", "opencode", "plugins", "agent-swarm", "plugin.log")
 const LOG_MAX_BYTES = 1_000_000
@@ -56,6 +57,7 @@ const plugin: Plugin = async (input) => {
   }
   const heartbeatMs = cfg.heartbeatIntervalMs ?? 30_000
   const swarm = new SwarmClient(cfg)
+  const AGENT_TYPE = "opencode" // 本插件跑在 opencode 里，心跳固定上报
 
   let currentSessionId = ""
   let currentSessionAt = 0 // event hook 最后一次见到该会话的时间
@@ -63,6 +65,24 @@ const plugin: Plugin = async (input) => {
   const executing = new Set<string>() // 正在执行的 call_id
   const idleSessions = new Set<string>() // 收到 session.idle 的会话
   let fgBusy = false // 前台会话是否有 swarm 任务在跑
+
+  // ---------------- nexus（中枢直连）状态 ----------------
+  let nexus: NexusClient | null = null
+  /** 当前 nexus 指令的 run 上下文：req_id → session */
+  const nexusRuns = new Map<string, string>()
+  /** nexus 指令 baseline 消息数：req_id → 执行前的消息长度 */
+  const nexusBaselines = new Map<string, number>()
+  let nexusSeq = 0
+
+  function nexusEmit(event: TimelineEvent) {
+    nexusSend({ type: "event", event })
+  }
+
+  function nexusSend(obj: Record<string, unknown>): boolean {
+    // nexusSend 由 NexusClient 内部的 send 承载，这里透传给当前连接
+    return nexusRawSend(obj)
+  }
+  let nexusRawSend: (obj: Record<string, unknown>) => boolean = () => false
 
   /** 目标会话是否正在跑模型（busy/retry），running 状态的会话不该被注入 */
   async function isSessionBusy(sessionId: string): Promise<boolean> {
@@ -267,6 +287,146 @@ const plugin: Plugin = async (input) => {
     return true
   }
 
+  // ---------------- nexus 指令执行（web 中枢下发，timeline 上报） ----------------
+
+  /** 从 part 提取工具卡所需字段（参考 opencode-feishu event.ts 的归一化） */
+  function toolEventFromPart(reqId: string, p: Record<string, any>): TimelineEvent | null {
+    const stateObj = p.state ?? {}
+    const rawStatus = stateObj.status ?? (p.error != null ? "error" : "running")
+    if (rawStatus === "pending") return null // 首次 pending 无时间戳，跳过
+    const state: "running" | "completed" | "error" =
+      rawStatus === "completed" || rawStatus === "error" ? rawStatus : "running"
+    return {
+      kind: "tool-state-changed",
+      req_id: reqId,
+      call_id: String(p.callID ?? ""),
+      tool: String(p.tool ?? "unknown"),
+      state,
+      input: stateObj.input,
+      output: stateObj.output,
+      time: stateObj.time?.start ?? Date.now(),
+    }
+  }
+
+  /**
+   * 执行 nexus 下发的 prompt。
+   * 与 executeCall 不同：不开后台会话、不占 fgBusy 锁（web 端看到的就是实时时间线），
+   * 优先注入当前前台会话（与 swarm call 一致），SSE 事件实时上报 timeline。
+   */
+  async function executeNexusCommand(reqId: string, text: string, source = "nexus-web"): Promise<string | null> {
+    let sessionId = currentSessionId || (await pickRecentSession())
+    if (!sessionId) {
+      const created: any = await client.session.create({
+        body: { title: `Nexus-${reqId.slice(0, 8)}` },
+      })
+      sessionId = created?.data?.id ?? created?.id ?? ""
+    }
+    if (!sessionId) throw new Error("no session available")
+    nexusRuns.set(reqId, sessionId)
+    log(`nexus ${reqId.slice(0, 8)}: session ${sessionId}`)
+
+    nexusEmit({ kind: "run-started", req_id: reqId, session_id: sessionId, text, time: Date.now() })
+
+    // baseline：只投影本轮 prompt 之后的消息事件
+    const before: any = await client.session.messages({ path: { id: sessionId } }).catch(() => null)
+    nexusBaselines.set(reqId, Array.isArray(before?.data) ? before.data.length : 0)
+
+    // baseline 之后出现的 messageID 才属于本轮（过滤历史 part 事件）
+    const knownMessageIds = new Set<string>(
+      Array.isArray(before?.data)
+        ? before.data.map((m: any) => m?.info?.id ?? m?.id).filter(Boolean)
+        : [],
+    )
+
+    // 监听本次指令产生的 SSE 事件 → timeline（由全局 event hook 回调写入队列）
+    nexusEventHandlers.set(reqId, (evt: any) => {
+      const type = evt?.type as string
+      const props = evt?.properties ?? {}
+      if (props.sessionID !== sessionId) return
+
+      if (type === "message.part.updated") {
+        const part = props.part ?? {}
+        const msgId = String(part.messageID ?? "")
+        if (msgId && knownMessageIds.has(msgId)) return // 历史消息的快照，跳过
+        const partId = String(part.id ?? "")
+        if (part.type === "tool") {
+          const ev = toolEventFromPart(reqId, part)
+          if (ev) nexusEmit(ev)
+        } else if (part.type === "reasoning") {
+          if (part.text?.trim()) {
+            nexusEmit({ kind: "reasoning-updated", req_id: reqId, part_id: partId, text: part.text, time: part.time?.start ?? Date.now() })
+          }
+        } else if (part.type === "text" && !part.synthetic) {
+          if (part.text?.trim()) {
+            nexusEmit({ kind: "text-updated", req_id: reqId, part_id: partId, text: part.text, time: part.time?.start ?? Date.now() })
+          }
+        }
+      } else if (type === "permission.asked") {
+        // 权限请求：上报给 web，由用户在中枢点允许/拒绝（卡在 TUI 的授权菜单 web 端看不到）
+        const request = props as Record<string, any>
+        const permissionId = String(request.id ?? "")
+        if (permissionId) {
+          nexusEmit({
+            kind: "permission-requested",
+            req_id: reqId,
+            request_id: permissionId,
+            session_id: sessionId,
+            permission: String(request.permission ?? request.type ?? "unknown"),
+            title: String(request.title ?? request.pattern ?? ""),
+            time: Date.now(),
+          })
+        }
+      } else if (type === "question.asked") {
+        // AI 提问（选方案/确认等）：上报选项给 web，由用户在中枢点选
+        const request = props as Record<string, any>
+        const questionId = String(request.id ?? "")
+        const q = Array.isArray(request.questions) ? request.questions[0] : undefined
+        if (questionId && q) {
+          nexusEmit({
+            kind: "question-requested",
+            req_id: reqId,
+            request_id: questionId,
+            session_id: sessionId,
+            question: String(q.question ?? q.header ?? "请选择"),
+            options: (Array.isArray(q.options) ? q.options : []).map((o: any, i: number) => ({
+              label: String(o.label ?? o.value ?? `选项 ${i + 1}`),
+              value: String(o.value ?? o.label ?? ""),
+            })),
+            time: Date.now(),
+          })
+        }
+      } else if (type === "session.error") {
+        const err = props.error
+        const msgText =
+          typeof err === "string" ? err : err?.message ?? err?.type ?? "unknown error"
+        nexusEmit({ kind: "run-error", req_id: reqId, error: String(msgText), time: Date.now() })
+      }
+    })
+
+    try {
+      // prompt 开头标注来源（nexus-web / nexus-feishu / ...），agent 与用户都知道指令来自哪个渠道
+      await client.session.promptAsync({
+        path: { id: sessionId },
+        body: { parts: [{ type: "text", text: `[来自 ${source} 的指令]\n\n${text}` }] },
+      })
+    } catch (e) {
+      nexusEmit({ kind: "run-error", req_id: reqId, error: String(e), time: Date.now() })
+      cleanupNexusRun(reqId)
+      throw e
+    }
+    // 完成判定由 event hook 的 session.idle 处理（见下方 event 回调）
+    return sessionId
+  }
+
+  function cleanupNexusRun(reqId: string) {
+    nexusEventHandlers.delete(reqId)
+    nexusRuns.delete(reqId)
+    nexusBaselines.delete(reqId)
+  }
+
+  /** req_id → SSE 事件回调（event hook 里分发） */
+  const nexusEventHandlers = new Map<string, (evt: any) => void>()
+
   // ---------------- 心跳 + 领取 ----------------
 
   async function heartbeatLoop() {
@@ -281,7 +441,7 @@ const plugin: Plugin = async (input) => {
       }
       if (workspaceId) {
         try {
-          const rsp = await swarm.heartbeat(workspaceId, currentSessionId || undefined)
+          const rsp = await swarm.heartbeat(workspaceId, currentSessionId || undefined, AGENT_TYPE)
           const calls = rsp?.calls ?? []
           if (calls.length) log(`heartbeat: ${calls.length} pending call(s)`)
           for (const call of calls) {
@@ -298,8 +458,37 @@ const plugin: Plugin = async (input) => {
 
   heartbeatLoop()
 
+  // ---------------- nexus WS 直连（web 中枢下发指令 + timeline 上报） ----------------
+  nexus = startNexusClient({
+    url: cfg.serverUrl.replace(/^http/, "ws").replace(/\/+$/, "") + "/ws/plugin",
+    apiKey: cfg.apiKey,
+    workspaceId: () => readWorkspaceId(directory),
+    onCommand: executeNexusCommand,
+    onPermissionReply: async (requestId, reply) => {
+      // 响应 opencode 权限请求（web 中枢的允许/拒绝按钮）
+      await client.postSessionIdPermissionsPermissionId({
+        path: { id: currentSessionId, permissionID: requestId },
+        body: { response: reply },
+      })
+    },
+    onQuestionReply: async (requestId, answers) => {
+      // 响应 AI 提问：v1 SDK 无 question API，走通用 post（feishu 项目同款兜底）
+      const inner = (client as any)?._client
+      if (!inner?.post) throw new Error("no inner http client")
+      await inner.post({
+        url: "/question/{requestID}/reply",
+        path: { requestID: requestId },
+        body: { answers },
+        query: directory ? { directory } : undefined,
+      })
+    },
+    log,
+  })
+  // 把 nexus 内部 send 暴露给 nexusEmit（事件上报走同一条连接）
+  nexusRawSend = (obj: Record<string, unknown>) => nexus.send(obj)
+
   return {
-    // 跟踪当前会话 id（心跳上报用）+ 记录 swarm 任务会话的 idle
+    // 跟踪当前会话 id（心跳上报用）+ 记录 swarm 任务会话的 idle + nexus timeline 分发
     event: async ({ event }) => {
       const anyEvt = event as any
       const sid = anyEvt?.properties?.sessionID ?? anyEvt?.info?.sessionID
@@ -307,14 +496,28 @@ const plugin: Plugin = async (input) => {
         currentSessionId = sid
         currentSessionAt = Date.now()
       }
+      // nexus timeline 事件分发
+      if (nexusEventHandlers.size && anyEvt?.type !== "session.idle") {
+        for (const handler of nexusEventHandlers.values()) {
+          try { handler(anyEvt) } catch { /* 单个 handler 失败不影响其他 */ }
+        }
+      }
       // session.idle：该会话本轮 prompt 处理完毕
       if (anyEvt?.type === "session.idle" && typeof sid === "string" && sid) {
         idleSessions.add(sid)
+        // nexus 指令完成判定：该 session 有 run 在跑 → 上报 idle 并清理
+        for (const [reqId, runSid] of nexusRuns) {
+          if (runSid === sid) {
+            nexusEmit({ kind: "session-idle", req_id: reqId, session_id: sid, time: Date.now() })
+            cleanupNexusRun(reqId)
+          }
+        }
       }
     },
 
     dispose: async () => {
       disposed = true
+      nexus?.close()
       log("disposed")
     },
   }

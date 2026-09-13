@@ -88,12 +88,16 @@ export class SwarmClient {
 
   // ---------------- 心跳保活 + 任务领取 ----------------
 
-  heartbeat(workspaceId: string, sessionId?: string): Promise<{
+  heartbeat(workspaceId: string, sessionId?: string, agentType?: string): Promise<{
     ok: boolean
     status: string
     calls?: SwarmCall[]
   }> {
-    return this.callTool("heartbeat", { workspace_id: workspaceId, session_id: sessionId ?? "" })
+    return this.callTool("heartbeat", {
+      workspace_id: workspaceId,
+      session_id: sessionId ?? "",
+      agent_type: agentType ?? "",
+    })
   }
 
   // ---------------- workspace_call 任务回传 ----------------

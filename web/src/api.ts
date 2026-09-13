@@ -37,6 +37,7 @@ export interface Workspace {
   capabilities: string | null
   notes: string | null
   status: "online" | "offline" | "disabled"
+  agent_type: string | null
   owner: { id: string; username: string } | null
   last_heartbeat: string | null
   created_at: string

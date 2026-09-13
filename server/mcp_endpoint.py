@@ -133,6 +133,7 @@ def workspace_add(
             ws.purpose = purpose
         if capabilities:
             ws.capabilities = capabilities
+        ws.agent_type = "opencode"
         ws.status = "online"
         ws.last_heartbeat = now
         ws.updated_at = now
@@ -215,12 +216,13 @@ def workspace_disable(workspace_id: str) -> dict:
 
 
 @mcp.tool()
-def heartbeat(workspace_id: str, session_id: str = "") -> dict:
+def heartbeat(workspace_id: str, session_id: str = "", agent_type: str = "") -> dict:
     """工作区心跳，保持在线状态。由插件定时调用。
 
     Args:
         workspace_id: 注册时返回的工作区 ID
         session_id: 当前 opencode 会话 ID（可选，前台任务注入需要）
+        agent_type: agent 工具类型（可选，如 opencode；重复上报会更新）
     """
     user = get_user()
     session = next(get_session())
@@ -232,6 +234,8 @@ def heartbeat(workspace_id: str, session_id: str = "") -> dict:
         ws.last_heartbeat = utcnow()
         if session_id:
             ws.session_id = session_id
+        if agent_type:
+            ws.agent_type = agent_type.strip().lower()
         session.add(ws)
         session.commit()
         # 捎带派发：领取指向本工作区的待处理调用任务
