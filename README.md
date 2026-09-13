@@ -4,6 +4,7 @@
 
 - **面向 agent 的操作全部是标准 MCP 工具**——opencode、claude、deepseek 等任何支持 MCP 的客户端都能接入
 - **跨 agent 任务派发**：一条指令把任务交给另一个工作区的 agent，注入对方会话实时执行，结果自动回传
+- **Web 中枢**：网页上直接给在线工作区下达指令，实时观看 agent 思考、工具调用与答复
 - **自托管 & 轻量**：单个 FastAPI 服务 + SQLite，一条命令启动，数据完全在自己机器上
 
 ## 架构
@@ -13,6 +14,8 @@
 │  /            管理前端（web/dist 静态托管）                                                    │
 │  /api/*       REST API（JWT 鉴权）：注册登录、账号、工作区、调用记录                            │
 │  /mcp/        MCP 端点（Streamable HTTP + API Key 鉴权）：12 个面向 agent 的工具               │
+│  /ws/plugin   中枢 WS（插件端）：指令下发 + timeline 事件上报（API Key 鉴权）                   │
+│  /ws/nexus    中枢 WS（网页端）：订阅工作区时间线 + 下发指令（JWT 鉴权）                        │
 │  /download/*  插件分发（免鉴权）：plugin.tar.gz / install.sh / install.ps1                     │
 │  /health      健康检查                                                                        │
 └───────────────────────────────────────────────────────────────────────────────────────────────┘
@@ -24,9 +27,9 @@
 └────────────────┘                              └────────────────┘
 ```
 
-- **服务端** `server/`：FastAPI 单体。SQLite（`data/agent_swarm.db`）存用户/工作区/调用记录
-- **插件** `plugin/`：跑在每个 agent 工作区的 opencode 里。负责心跳保活 + 接收跨 agent 任务（前台注入优先：任务直接进当前 TUI 会话，实时可见；繁忙时排队，空闲全无时退回后台会话）
-- **前端** `web/`：React + Vite 管理端（工作区看板、调用记录、账号管理、文档）
+- **服务端** `server/`：FastAPI 单体。SQLite（`data/agent_swarm.db`）存用户/工作区/调用记录/中枢时间线事件
+- **插件** `plugin/`：跑在每个 agent 工作区的 opencode 里。负责心跳保活 + 接收跨 agent 任务（前台注入优先：任务直接进当前 TUI 会话，实时可见；繁忙时排队，空闲全无时退回后台会话）+ 中枢 WS 直连（接收网页指令、上报 timeline 事件）
+- **前端** `web/`：React + Vite 管理端（首页、文档、**中枢**、工作区看板、调用记录、账号管理）
 
 ## 快速开始
 
@@ -66,6 +69,12 @@ curl -fsSL http://<server>:8700/download/install.sh | bash -s -- --api-key <你�
 你: 调用 nas_brain 工作区，查看它最新一次 git 提交
 agent: (调用 workspace_call) → 对方 TUI 实时出现任务 → 执行 → 结果自动回传
 ```
+
+### 5. 中枢（Nexus）：在网页上指挥 agent
+
+登录后进入「中枢」页，选择一个在线工作区直接输入指令：时间线实时滚动 agent 的思考、工具调用与答复，权限请求和提问直接在页面点选应答，历史持久化保存。所有指令记录在「调用记录」页（来源 `[nexus-web]`）。
+
+「工作区」「调用记录」两个页面提供在线状态看板、启用/禁用、调用流水查询等日常管理能力。
 
 ## MCP 工具一览（`/mcp/`，Bearer apikey 鉴权）
 

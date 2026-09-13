@@ -606,6 +606,13 @@ function HomePage({ toast, loggedIn, onGoAccount, onOpenLogin }: { toast: (m: st
           </div>
           <div className="home-card">
             <div className="home-card-head">
+              <FeatureIcon kind="terminal" />
+              <h3>中枢 Nexus</h3>
+            </div>
+            <p>在网页上选择在线工作区直接下达指令，实时观看 agent 的思考、工具调用与答复，权限请求和提问可直接点选应答。</p>
+          </div>
+          <div className="home-card">
+            <div className="home-card-head">
               <FeatureIcon kind="pulse" />
               <h3>在线状态与心跳</h3>
             </div>
@@ -627,6 +634,7 @@ function HomePage({ toast, loggedIn, onGoAccount, onOpenLogin }: { toast: (m: st
         <ul className="home-list">
           <li>让前端 agent 把后端 bug 派发给后端工作区的 agent 修复</li>
           <li>让一个 agent 去另一个仓库执行测试、汇总结果</li>
+          <li>在网页「中枢」里给任意在线 agent 直接下达指令，实时围观它干活</li>
           <li>集中管理所有 AI 工作区的用途说明、备注与在线状态</li>
           <li>回溯每一次跨 agent 调用的指令与结果（调用记录）</li>
         </ul>
@@ -794,7 +802,7 @@ function SupportedAgents() {
 }
 
 /** 特性卡黑白线性图标（与 SwarmMark 同风格：currentColor 描边） */
-function FeatureIcon({ kind }: { kind: "mcp" | "swarm" | "pulse" | "shield" }) {
+function FeatureIcon({ kind }: { kind: "mcp" | "swarm" | "pulse" | "shield" | "terminal" }) {
   const common = {
     width: 22,
     height: 22,
@@ -832,6 +840,15 @@ function FeatureIcon({ kind }: { kind: "mcp" | "swarm" | "pulse" | "shield" }) {
         <path d="M3 12h4l2-5 4 10 2-5h6" />
       </svg>
     )
+  if (kind === "terminal")
+    return (
+      <svg {...common}>
+        {/* 终端窗口 */}
+        <rect x="3" y="4" width="18" height="16" rx="1" />
+        <path d="m7 9 3 3-3 3" />
+        <path d="M12.5 15H17" />
+      </svg>
+    )
   return (
     <svg {...common}>
       {/* 盾牌 = 自托管安全 */}
@@ -849,6 +866,7 @@ const DOC_SECTIONS = [
   { id: "register", title: "注册工作区" },
   { id: "concepts", title: "核心概念" },
   { id: "mcp", title: "MCP 工具" },
+  { id: "web", title: "Web 管理" },
   { id: "faq", title: "FAQ" },
 ]
 
@@ -884,6 +902,7 @@ function DocsPage() {
           <ul>
             <li><b>任何 MCP 客户端可用</b> —— 所有 agent 操作都是标准 MCP 工具，opencode、claude、deepseek 等均可接入</li>
             <li><b>跨 agent 任务派发</b> —— 任务直接注入对方 TUI 会话，实时可见，结果自动回传</li>
+            <li><b>中枢 Nexus</b> —— 在网页上直接给任意在线 agent 下指令，实时观看它思考、调用工具、给出答复</li>
             <li><b>实时看板</b> —— 工作区在线状态、每次调用的指令与结果，随时可查</li>
           </ul>
           <p>
@@ -985,6 +1004,30 @@ agent: (workspace_call) → 对方 TUI 实时出现任务 → 执行 → 结果�
           <p>
             另有 <code>/swarm-add</code> <code>/swarm-remove</code> <code>/swarm-enable</code>
             <code>/swarm-disable</code> 四个 opencode 命令，是上述工具的快捷方式。
+          </p>
+        </section>
+
+        <section id="doc-web" className="docs-section">
+          <h2>Web 管理</h2>
+          <p>
+            登录后，顶栏可以进入三个管理页面，日常操作都在网页上完成，不需要记任何命令。
+          </p>
+          <h3>中枢</h3>
+          <p>
+            在网页上直接指挥 agent。选择一个在线工作区，输入指令发送，时间线会实时滚动
+            agent 的思考过程、工具调用与最终答复。agent 请求权限或向你提问时，直接在时间线里点按钮应答。
+            时间线历史持久化保存，刷新页面不丢，点 <code>clear</code> 可清空。
+          </p>
+          <h3>工作区</h3>
+          <p>
+            所有已注册工作区的看板：在线状态（30 秒心跳，离线显示最后心跳时间）、
+            agent 类型、路径与用途说明。可以启用/禁用工作区（禁用后不参与任务派发）、
+            删除离线工作区，支持按名称、路径、用途搜索。
+          </p>
+          <h3>调用记录</h3>
+          <p>
+            每一次任务派发的流水账：发起方、目标、指令内容、状态与结果（markdown 渲染）。
+            跨 agent 调用与网页中枢下达的指令都会记录在这里，可按目标或状态筛选，已结束的记录可删除。
           </p>
         </section>
 
