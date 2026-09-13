@@ -30,7 +30,7 @@
 - **服务端** `server/`：FastAPI 单体。SQLite（`data/agent_swarm.db`）存用户/工作区/调用记录/中枢时间线事件
 - **插件** `plugins/`：每个 agent 工具一个子目录，统一由分发器安装
   - `plugins/opencode/`：opencode 插件（TS）。心跳保活 + 接收跨 agent 任务（前台注入优先：任务直接进当前 TUI 会话，实时可见；繁忙时排队，空闲全无时退回后台会话）+ 中枢 WS 直连（接收网页指令、上报 timeline 事件）
-  - `plugins/claude/`：claude code 接入。本地 keepalive MCP server（spawn 即心跳保活）+ `/swarm-*` 命令。claude 工作区当前仅支持注册管理，不支持任务执行
+  - `plugins/claude/`：claude code 接入。本地 keepalive MCP server（spawn 即心跳保活；同时是 **channel**——以 `--dangerously-load-development-channels server:agent-swarm-keepalive` 启动 claude 后可接收任务注入）+ `/swarm-*` 命令 + hooks（工具事件同步到中枢时间线，AskUserQuestion 可在网页上远程作答）
 - **前端** `web/`：React + Vite 管理端（首页、文档、**中枢**、工作区看板、调用记录、账号管理）
 
 ## 快速开始
@@ -64,7 +64,7 @@ curl -fsSL http://<server>:8700/download/install.sh | bash -s -- --api-key <你�
 安装器会下载分发包并逐个执行各插件的安装子脚本（`--only opencode` / `-Only claude` 可只装指定插件）：
 
 - **opencode**：写入 `~/.config/opencode/agent-swarm.json`（服务地址 + apikey）→ 注册 MCP 端点到 `opencode.jsonc` → 部署心跳插件 → 拷贝 `/swarm-*` 命令。**重启 opencode 后生效**
-- **claude code**：`claude mcp add` 注册 remote MCP（工具）+ 本地 keepalive MCP（心跳保活）→ 拷贝 `/swarm-*` 命令到 `~/.claude/commands/`。**重启 claude 后生效**；项目里用 `/swarm-add` 注册工作区后，工作区即上线（agent_type=claude，当前不支持接收任务）
+- **claude code**：`claude mcp add` 注册 remote MCP（工具）+ 本地 keepalive MCP（心跳保活 + 任务注入）→ 拷贝 `/swarm-*` 命令到 `~/.claude/commands/` → 注册 hooks（时间线同步）。**重启 claude 后生效**。要接收任务需以 `claude --dangerously-load-development-channels server:agent-swarm-keepalive` 启动（channel 在 research preview）
 
 ### 4. 使用
 

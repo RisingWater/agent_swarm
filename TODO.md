@@ -12,11 +12,17 @@
 ### claude code 接入（2026-09-13 新增）
 
 - **目录重构**：`plugin/` → `plugins/opencode/`；新增 `plugins/claude/`；安装器改造为「分发器（deploy/install.sh|.ps1）+ 各插件子脚本（install-<name>.sh|.ps1）」结构，一条命令装所有 agent（--only/-Only 可挑选）；tarball 打包整个 plugins/ 树
-- **claude 接入 v1**（注册管理 + 保活，不含任务执行）：
-  - `keepalive.mjs`：零依赖本地 stdio MCP server（手写 JSON-RPC：initialize/ping/tools:list），claude spawn 它即开始 30s 心跳（agent_type=claude），每轮重读 `cwd/.agent-swarm.md`；stdin close + ppid 轮询双保险退出 → 工作区 90s 后离线
-  - install-claude：`claude mcp add` 两条（remote agent-swarm 工具 + 本地 keepalive）+ 拷 5 个 `/swarm-*` 命令到 `~/.claude/commands/`（工具名 `mcp__agent-swarm__*`）+ 写 `~/.claude/agent-swarm/config.json`
-  - 服务端 `workspace_call` 拒绝 claude 目标（明确报错）；web 首页 claude 瓦片点亮
-- **E2E 已实测**：claude -p 会话启动 → keepalive 心跳上线（status=online, agent_type=claude）→ 会话退出 → 90s 后可删除；分发器一键装 opencode+claude 双插件幂等回归通过
+- **claude 接入 v1**（注册管理 + 保活）：
+  - `keepalive.mjs`：零依赖本地 stdio MCP server，30s 心跳（agent_type=claude），stdin close + ppid 轮询退出 → `workspace_offline` 立即下线
+  - install-claude：remote MCP + keepalive MCP 注册 + `/swarm-*` 命令 + `~/.claude/agent-swarm/config.json`
+- **claude 接入 v2（channel 任务执行 + nexus + hooks）**：
+  - keepalive 升级 channel：声明 `claude/channel` + `tools`（swarm_reply 1 个工具，消除 /mcp 三角警告）；心跳捎带 pending call → channel notification 注入 TUI（需 `--dangerously-load-development-channels server:agent-swarm-keepalive` 启动，否则静默丢弃任务超时）；60min 超时；退出时 abort 未完成任务
+  - **swarm_reply 工具**：claude 完成后调用（call_id+result）→ workspace_call_result + timeline 收尾
+  - **nexus WS**：keepalive 连 /ws/plugin（协议同 opencode 插件），网页指令秒级注入（前缀 `[来自 nexus-web 的指令]`）
+  - **hooks 时间线**：`hook-timeline.mjs` 注册进 settings.json（PreToolUse/PostToolUse/Stop）→ POST /api/nexus/hook-events（新端点，apikey 鉴权，复用 _forward_event）；**state.json 门控**——keepalive 注入任务时置 active，swarm_reply 时清除，用户自己的工具调用不外泄
+  - **AskUserQuestion 远程作答**：PreToolUse 上报问题选项 → 轮询 answer-<req_id>.json（keepalive 收 nexus question_reply 后写）→ allow+updatedInput 替答；5min 超时落回本地弹窗
+  - 服务端：workspace_call 放开 claude 目标；`server/api/nexus.py` 新增 hook-events 端点
+- **E2E 已验证**：nexus ws ready → 心跳领取 → channel 注入 injected=true → 退出 abort pending + offline，全链路 ✅；swarm_reply 会话内闭环待 claude 登录后实测
 - **关键 gotcha**：含中文的 ps1（子安装脚本）必须 UTF-8 with BOM（PS 5.1 本地执行按 ANSI 读，无 BOM 时中文吃引号破坏语法，实测失败）；分发器靠 /download/install.ps1 的 utf-8-sig 剥 BOM 保持 irm|iex 兼容
 
 ### workspace_call 跨 agent 调用（核心功能，已上线并实测）
@@ -62,7 +68,8 @@
 ### 高优先级
 
 - [ ] **Docker 构建实测**（用户下周一去公司测试）：Dockerfile/compose.yaml 已写好但未跑过，首次 build 可能在 npm ci（alpine 平台二进制）出问题，待验证；注意 Dockerfile 里 plugin 打包路径若引用 `plugin/` 需同步改成 `plugins/`
-- [ ] claude 接入 v2：任务执行 / 中枢指令下发 / timeline（用户在研究 claude 的限制：headless stream-json、hooks、channel API 等方案待定）
+- [ ] **claude v2 E2E 待补**：keepalive 侧全链路已验证（心跳领取 → channel 注入 injected=true → 退出 abort + offline），但 claude CLI 未登录导致 swarm_reply 闭环（claude 会话内调工具回传结果）待登录后实测；AskUserQuestion 远程作答同理
+- [ ] claude 权限中继（Bash/Write 远程 approve，走 claude/channel/permission）——用户确认要做，v3
 
 ### 备忘
 

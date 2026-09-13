@@ -48,6 +48,7 @@ $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 # 1. 复制插件文件到安装目录 + 写配置（keepalive.mjs 读取）
 New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
 Copy-Item -Path (Join-Path $Src "keepalive.mjs") -Destination $InstallDir -Force -ErrorAction SilentlyContinue
+Copy-Item -Path (Join-Path $Src "hook-timeline.mjs") -Destination $InstallDir -Force -ErrorAction SilentlyContinue
 $cfg = @{ serverUrl = $Server; apiKey = $ApiKey } | ConvertTo-Json
 [IO.File]::WriteAllText((Join-Path $InstallDir "config.json"), $cfg, $utf8NoBom)
 
@@ -77,7 +78,59 @@ if (-not (Test-Path $keepalive)) {
     Write-Host "==> 已注册本地 MCP agent-swarm-keepalive（保活）"
 }
 
-# 4. 注册自定义命令（markdown 源文件在 commands/，拷贝即安装）
+# 4. 注册 hooks（PreToolUse/PostToolUse/Stop → hook-timeline.mjs），幂等合并进 settings.json
+$hookScript = Join-Path $InstallDir "hook-timeline.mjs"
+if (Test-Path $hookScript) {
+    $settingsPath = Join-Path $HOME ".claude\settings.json"
+    $settings = @{}
+    if (Test-Path $settingsPath) {
+        try { $settings = [IO.File]::ReadAllText($settingsPath) | ConvertFrom-Json -AsHashtable } catch { $settings = @{} }
+    }
+    if (-not $settings) { $settings = @{} }
+    if (-not $settings.ContainsKey("hooks")) { $settings["hooks"] = @{} }
+    $hooks = $settings["hooks"]
+
+    $marker = "hook-timeline.mjs"
+    $events = @{
+        "PreToolUse"  = ""
+        "PostToolUse" = ""
+        "Stop"        = ""
+    }
+    $changed = $false
+    foreach ($evt in $events.Keys) {
+        if (-not $hooks.ContainsKey($evt)) { $hooks[$evt] = @() }
+        # 幂等：已有引用本脚本的 hook 则跳过
+        $exists = $false
+        foreach ($grp in $hooks[$evt]) {
+            foreach ($h in $grp["hooks"]) {
+                if (($h["command"] -is [string]) -and $h["command"].Contains($marker)) { $exists = $true; break }
+            }
+            if ($exists) { break }
+        }
+        if ($exists) { continue }
+        $hooks[$evt] += @{
+            hooks = @(@{
+                type    = "command"
+                command = "node"
+                args    = @($hookScript, $evt)
+            })
+        }
+        $changed = $true
+        Write-Host "    已注册 hooks 事件 $evt"
+    }
+    if ($changed) {
+        New-Item -ItemType Directory -Force -Path (Split-Path $settingsPath) | Out-Null
+        [IO.File]::WriteAllText($settingsPath, ($settings | ConvertTo-Json -Depth 10), $utf8NoBom)
+        Write-Host "==> 已写入 hooks 到 $settingsPath"
+    } else {
+        Write-Host "==> hooks 已注册，跳过"
+    }
+    Write-Host "提示: 任务注入需以 --dangerously-load-development-channels server:agent-swarm-keepalive 启动 claude"
+} else {
+    Write-Host "警告: hook-timeline.mjs 不在分发包中，跳过 hooks 注册（时间线不可用）" -ForegroundColor Yellow
+}
+
+# 5. 注册自定义命令（markdown 源文件在 commands/，拷贝即安装）
 $cmdDir = Join-Path $HOME ".claude\commands"
 New-Item -ItemType Directory -Force -Path $cmdDir | Out-Null
 Get-ChildItem (Join-Path $Src "commands") -Filter "swarm-*.md" -ErrorAction SilentlyContinue | ForEach-Object {

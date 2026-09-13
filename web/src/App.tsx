@@ -1054,8 +1054,10 @@ agent: (workspace_call) → 对方 TUI 实时出现任务 → 执行 → 结果�
           </p>
           <h3>claude 工作区在线但不接任务？</h3>
           <p>
-            是预期行为。claude 接入目前包含注册管理与心跳保活（MCP 工具 + <code>/swarm-*</code> 命令全部可用），
-            任务执行与中枢指令注入还在规划中。
+            claude 接入支持注册管理、心跳保活、任务接收与中枢指令。但任务注入依赖 channel API
+            （research preview）：需以
+            <code>claude --dangerously-load-development-channels server:agent-swarm-keepalive</code>
+            启动，否则任务会等待超时。工具调用时间线与网页远程问答均已支持。
           </p>
           <h3>安装后 agent 没出现 / 收不到任务？</h3>
           <p>
