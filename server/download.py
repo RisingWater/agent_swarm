@@ -43,12 +43,14 @@ async def installer(request: Request) -> PlainTextResponse:
 async def installer_ps1(request: Request) -> Response:
     """ps1 含中文注释必须 UTF-8。注意不能加 BOM：BOM 会随 irm 文本进入
     scriptblock::Create，PS 5.1 执行时报"无法将﻿#识别为命令"。
-    一键命令（irm | iex 场景）不含 BOM；手动下载的文件由脚本头自剥 BOM
-    （见 install.ps1 开头的 reparse 逻辑），本地 PS 5.1 无 BOM 会按 ANSI 读，
-    脚本检测到乱码风险时自行以 UTF-8 重读自己。"""
+    一键命令（irm | iex 场景）不含 BOM；本地直接执行无 BOM 的 ps1 会按 ANSI
+    读导致中文乱码破坏语法——因此仓库内的 ps1 源文件一律无 BOM，
+    依赖场景规避：分发包中的子脚本（install-*.ps1）由分发器下载 tar 包解压后
+    Copy 到本地执行，这些文件在打包前已加 BOM（见 deploy 打包脚本/分发器约定）。
+    本分发器自身设计为仅经 irm | iex 执行，无本地执行场景。"""
     if not INSTALL_PS1.exists():
         return PlainTextResponse("install.ps1 not found", 404)
-    text = INSTALL_PS1.read_text(encoding="utf-8")
+    text = INSTALL_PS1.read_text(encoding="utf-8-sig")  # 容忍源文件意外带 BOM
     text = text.replace("__SERVER_URL__", _server_base(request).rstrip("/"))
     return Response(content=text.encode("utf-8"), media_type="text/plain; charset=utf-8")
 

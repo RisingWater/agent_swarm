@@ -42,13 +42,13 @@ COPY deploy/ ./deploy/
 COPY --from=web-builder /build/dist/ ./web/dist/
 
 # 打包插件分发包（/download/plugin.tar.gz），排除 node_modules
-COPY plugin/ ./plugin/
+COPY plugins/ ./plugins/
 RUN mkdir -p data \
     && tar -czf data/agent-swarm-plugin.tar.gz \
-       -C plugin \
+       -C . \
        --exclude='node_modules' --exclude='types' --exclude='*.tsbuildinfo' \
-       package.json tsconfig.json src commands \
-    && rm -rf plugin
+       plugins \
+    && rm -rf plugins
 
 # 数据目录（SQLite + 插件包），挂卷持久化
 VOLUME ["/app/data"]

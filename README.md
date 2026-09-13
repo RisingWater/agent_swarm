@@ -28,7 +28,9 @@
 ```
 
 - **服务端** `server/`：FastAPI 单体。SQLite（`data/agent_swarm.db`）存用户/工作区/调用记录/中枢时间线事件
-- **插件** `plugin/`：跑在每个 agent 工作区的 opencode 里。负责心跳保活 + 接收跨 agent 任务（前台注入优先：任务直接进当前 TUI 会话，实时可见；繁忙时排队，空闲全无时退回后台会话）+ 中枢 WS 直连（接收网页指令、上报 timeline 事件）
+- **插件** `plugins/`：每个 agent 工具一个子目录，统一由分发器安装
+  - `plugins/opencode/`：opencode 插件（TS）。心跳保活 + 接收跨 agent 任务（前台注入优先：任务直接进当前 TUI 会话，实时可见；繁忙时排队，空闲全无时退回后台会话）+ 中枢 WS 直连（接收网页指令、上报 timeline 事件）
+  - `plugins/claude/`：claude code 接入。本地 keepalive MCP server（spawn 即心跳保活）+ `/swarm-*` 命令。claude 工作区当前仅支持注册管理，不支持任务执行
 - **前端** `web/`：React + Vite 管理端（首页、文档、**中枢**、工作区看板、调用记录、账号管理）
 
 ## 快速开始
@@ -49,7 +51,7 @@
 
 ### 3. 接入 agent 工作区
 
-在装有 AI 编程工具（opencode）的目标机器上，执行首页生成的安装命令：
+在装有 AI 编程工具的目标机器上，执行首页生成的安装命令（一条命令安装所有已支持的 agent 插件）：
 
 ```bash
 # Linux / macOS
@@ -59,7 +61,10 @@ curl -fsSL http://<server>:8700/download/install.sh | bash -s -- --api-key <你�
 & ([scriptblock]::Create((irm http://<server>:8700/download/install.ps1))) -ApiKey <你的key>
 ```
 
-安装脚本会：写入 `~/.config/opencode/agent-swarm.json`（服务地址 + apikey）→ 注册 MCP 端点到 `opencode.jsonc` → 部署心跳插件 → 拷贝 `/swarm-*` 命令。**重启 opencode 后生效**。
+安装器会下载分发包并逐个执行各插件的安装子脚本（`--only opencode` / `-Only claude` 可只装指定插件）：
+
+- **opencode**：写入 `~/.config/opencode/agent-swarm.json`（服务地址 + apikey）→ 注册 MCP 端点到 `opencode.jsonc` → 部署心跳插件 → 拷贝 `/swarm-*` 命令。**重启 opencode 后生效**
+- **claude code**：`claude mcp add` 注册 remote MCP（工具）+ 本地 keepalive MCP（心跳保活）→ 拷贝 `/swarm-*` 命令到 `~/.claude/commands/`。**重启 claude 后生效**；项目里用 `/swarm-add` 注册工作区后，工作区即上线（agent_type=claude，当前不支持接收任务）
 
 ### 4. 使用
 
@@ -120,25 +125,27 @@ docker run -d --name agent-swarm -p 8700:8700 \
 ## 目录结构
 
 ```
-server/    FastAPI 服务端（api/ REST、mcp_endpoint.py MCP 工具、download.py 插件分发）
-plugin/    opencode 插件（TS）：心跳、任务接收执行；commands/ 为 /swarm-* 命令源文件
-web/       React 管理前端（首页、文档、工作区、调用记录、账号）
-deploy/    启动/停止/安装脚本（sh + ps1）
-docker/    Dockerfile + compose.yaml
-docs/      补充文档
+server/            FastAPI 服务端（api/ REST、mcp_endpoint.py MCP 工具、download.py 插件分发）
+plugins/opencode/  opencode 插件（TS）：心跳、任务接收执行、中枢直连；commands/ 为 /swarm-* 命令源
+plugins/claude/    claude code 接入：keepalive.mjs（本地 MCP 保活 server）+ /swarm-* 命令 + 安装脚本
+web/               React 管理前端（首页、文档、中枢、工作区、调用记录、账号）
+deploy/            启动/停止脚本 + 安装分发器（sh + ps1）
+docker/            Dockerfile + compose.yaml
+docs/              补充文档
 ```
 
 ## 开发
 
 ```bash
-./deploy/start.sh              # 服务端（改 server/ 后重启生效）
+./deploy/start.sh              # 服务端（改 server/ 后重启生效；同时打包 plugins/ 到 data/）
 cd web && npm run dev          # 前端 dev :8701（代理 /api /mcp /download 到 8700）
 cd web && npm run build        # 前端构建（产物由 8700 静态托管）
 cd web && npm run lint         # oxlint
-cd plugin && npm run typecheck # 插件类型检查
+cd plugins/opencode && npm run typecheck # opencode 插件类型检查
 ```
 
-> 注意：改了 `plugin/src/` 后需要重装插件并**重启 opencode** 才生效（运行中的会话持有旧代码）。
+> 注意：改了 `plugins/opencode/src/` 后需要重装插件并**重启 opencode** 才生效（运行中的会话持有旧代码）。
+> 注意：含中文的 ps1 安装脚本必须保存为 UTF-8 **with BOM**（本地 PS 5.1 执行按 ANSI 读无 BOM 文件会乱码破坏语法）；分发器自身经 `irm | iex` 执行时由服务端以文本下发，无 BOM 要求。
 
 ## 安全说明
 

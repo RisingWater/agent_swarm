@@ -6,8 +6,8 @@
 data
 web/node_modules
 web/dist
-plugin/node_modules
-plugin/types
+plugins/opencode/node_modules
+plugins/opencode/types
 *.tsbuildinfo
 docs
 *.md

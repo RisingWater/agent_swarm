@@ -2,26 +2,27 @@
 
 > Agent-facing contributor guide (architecture decisions, gotchas, conventions). Product intro & user docs live in README.md and the web docs page — don't duplicate them here.
 
-Multi-agent collaboration hub: agents register their opencode workspaces to a central server and ask each other for help. Single FastAPI service (`server/`) that hosts the management REST API, the MCP endpoint, and plugin distribution; an opencode plugin (`plugin/`); a React 19+Vite SPA (`web/`). Repo docs/comments and TODO.md are written in Chinese.
+Multi-agent collaboration hub: agents register their workspaces (opencode, claude code, …) to a central server and ask each other for help. Single FastAPI service (`server/`) that hosts the management REST API, the MCP endpoint, and plugin distribution; per-agent plugins under `plugins/`; a React 19+Vite SPA (`web/`). Repo docs/comments and TODO.md are written in Chinese.
 
 ## Layout
 - `server/` — FastAPI app, entry `server/main.py:app`. Routes: `/mcp` (MCP Streamable HTTP, API-key auth), `/api/*` (JWT auth except `/api/auth/*`), `/download/*` (unauthenticated plugin distribution), `/health`.
-- `plugin/` — opencode plugin (TS, entry `src/index.ts`, default-export `Plugin`). Deployed to `~/.config/opencode/plugins/agent-swarm/src/index.ts`. **Heartbeat + task execution**: reads WORKSPACE_ID from the project's `.agent-swarm.md`, heartbeats every 30s, and receives dispatched `workspace_call` tasks. It injects NO tools — all agent-facing operations live in the server's MCP tool set.
+- `plugins/opencode/` — opencode plugin (TS, entry `src/index.ts`, default-export `Plugin`). Deployed to `~/.config/opencode/plugins/agent-swarm/src/index.ts`. **Heartbeat + task execution**: reads WORKSPACE_ID from the project's `.agent-swarm.md`, heartbeats every 30s, and receives dispatched `workspace_call` tasks. It injects NO tools — all agent-facing operations live in the server's MCP tool set.
+- `plugins/claude/` — claude code integration. `keepalive.mjs` is a **zero-dependency local stdio MCP server** (minimal hand-rolled JSON-RPC: answers `initialize`/`ping`/`tools:list` only) that claude spawns as an MCP subprocess; on spawn it starts a 30s heartbeat loop (`agent_type=claude`), reading WORKSPACE_ID from `process.cwd()/.agent-swarm.md` each cycle. Exit: stdin close + ppid poll fallback → workspace goes offline via the server's 90s timeout. Plus `commands/` (`/swarm-*` md for `~/.claude/commands/`) and `install-claude.sh|.ps1`. claude workspaces are **registration/keepalive only** — `workspace_call` rejects them server-side (`mcp_endpoint.py`).
 - `web/` — SPA, dev server :8701 proxying `/api /download /mcp /health` → :8700.
-- `deploy/` — bash run scripts (Linux-targeted; `.venv/bin/python`, `pgrep`/`kill`) plus `install.ps1`/`start.ps1`/`stop.ps1` Windows equivalents. install.sh is Linux-targeted.
+- `deploy/` — `start`/`stop` scripts (sh + ps1) and **installer dispatchers** (`install.sh`/`install.ps1`): download `plugin.tar.gz` (now contains the whole `plugins/` tree), extract to a temp dir, and run each `plugins/<name>/install-<name>.sh|.ps1` with `--server/--api-key/--src` passed through (`--only`/`-Only` filters).
 - `docker/` — Dockerfile (multi-stage: node builds web → python runtime) + compose.yaml. Written but NOT yet build-tested (user will verify).
 
 ## Commands
 ```bash
 ./deploy/start.sh [port]     # server on :8700 (default). Creates .venv, installs requirements.txt,
-                             # tarballs plugin -> data/agent-swarm-plugin.tar.gz, and FOREGROUND runs
+                             # tarballs plugins/ -> data/agent-swarm-plugin.tar.gz, and FOREGROUND runs
                              # uvicorn (Ctrl-C stops). Idempotent: exits if /health already OK.
 .\deploy\start.ps1           # Windows equivalent (-NoWeb skips frontend build check)
 ./deploy/stop.sh [port]
 cd web && npm run dev        # vite :8701
 cd web && npm run build      # tsc -b && vite build
 cd web && npm run lint       # oxlint
-cd plugin && npm run typecheck
+cd plugins/opencode && npm run typecheck
 ```
 
 ## Tests
@@ -39,11 +40,14 @@ There is **no committed pytest suite** and no maintained E2E suite (user decided
 - `teams`/`team_members` tables remain in `server/models.py` but the feature was removed (API + web gone). Don't wire them back without asking (user chose to KEEP them, 2026-09-12).
 
 ## Plugin facts / gotchas
-- `plugin/src/config.ts` `loadConfig()` only reads `~/.config/opencode/agent-swarm.json` (or env `AGENT_SWARM_SERVER`/`AGENT_SWARM_API_KEY`); install scripts write both that file and `plugins/agent-swarm/config.json`.
-- `/swarm-add` (and `/swarm-register`, `/swarm-remove`, `/swarm-enable`, `/swarm-disable`) are **not** registered by the plugin: they are markdown files in `plugin/commands/` copied to `~/.config/opencode/commands/` by install scripts. To change command behavior, edit the source md in the repo and reinstall — don't inline command text in install scripts.
-- The opencode plugin runs on the user machine, not in this repo: after editing `plugin/src/`, reinstall locally via the one-liner printed on the web install page (server must be restarted first so start.ps1/start.sh rebuilds the tarball).
-- **IMPORTANT: after changing `plugin/src/`, the running opencode sessions still hold the OLD plugin code** — a reinstall + opencode restart is required before any E2E test. ALWAYS notify the user and wait for them to restart opencode before running end-to-end tests; don't fire test calls and wonder why nothing happens (the plugin.log shows which version is actually loaded).
+- **Installer structure (2026-09-13)**: `deploy/install.sh|.ps1` are dispatchers only; per-agent logic lives in `plugins/<name>/install-<name>.sh|.ps1` (dispatch passes `--server/--api-key/--src`). The tarball contains the whole `plugins/` tree — `deploy/start.*` tarballs `-C . plugins` (not `-C plugin`).
+- **ps1 encoding**: Chinese-containing ps1 scripts that get **executed as local files** (the per-plugin installers, copied out of the tarball) MUST be saved UTF-8 **with BOM** — PS 5.1 reads BOM-less files as ANSI and Chinese bytes then eat quotes/newlines, breaking parsing (verified failure mode). The dispatcher `deploy/install.ps1` also has BOM now (local execution), but the server's `/download/install.ps1` endpoint strips it via `read_text(utf-8-sig)` so `irm | iex` stays safe.
+- `plugins/opencode/src/config.ts` `loadConfig()` only reads `~/.config/opencode/agent-swarm.json` (or env `AGENT_SWARM_SERVER`/`AGENT_SWARM_API_KEY`); install scripts write both that file and `plugins/agent-swarm/config.json`.
+- `/swarm-add` (and `/swarm-register`, `/swarm-remove`, `/swarm-enable`, `/swarm-disable`) are **not** registered by the plugin: they are markdown files in `plugins/<name>/commands/` copied to `~/.config/opencode/commands/` (opencode) or `~/.claude/commands/` (claude) by install scripts. To change command behavior, edit the source md in the repo and reinstall — don't inline command text in install scripts. claude copies use `mcp__agent-swarm__*` tool naming in the md body.
+- The opencode plugin runs on the user machine, not in this repo: after editing `plugins/opencode/src/`, reinstall locally via the one-liner printed on the web install page (server must be restarted first so start.ps1/start.sh rebuilds the tarball).
+- **IMPORTANT: after changing `plugins/opencode/src/`, the running opencode sessions still hold the OLD plugin code** — a reinstall + opencode restart is required before any E2E test. ALWAYS notify the user and wait for them to restart opencode before running end-to-end tests; don't fire test calls and wonder why nothing happens (the plugin.log shows which version is actually loaded).
 - **Task injection is foreground-first** (user decision 2026-09-12): target = event-hook-tracked current session (cold start: `session.list` picks most recent + `tui.showToast` notice); if fgBusy or target session busy (`session.status`), queue-wait up to 10 min; background `session.create` only as last resort. Completion = `session.idle` event + 2s polling fallback; stuck-on-tool-call gets synthetic nudges (≤2).
+- **claude keepalive lifecycle**: `claude mcp list` health checks also spawn/exit the keepalive process (stdin-close exit is by design). Multiple claude sessions on one project → multiple keepalives heartbeating the same workspace, harmless (server-side idempotent). `claude mcp list` output format is `name: ... - ✔ Connected` — idempotency checks in install-claude must match `name:` (with colon).
 
 ## Web facts / gotchas
 - Frontend is user-facing: docs page (`web/src/App.tsx` `DocsPage`) intentionally contains NO server-deployment content — the user is already looking at a running deployment. Keep it that way.

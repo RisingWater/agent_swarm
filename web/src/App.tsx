@@ -784,7 +784,7 @@ function AgentTypeIcon({ type, inherit }: { type: string | null | undefined; inh
 function SupportedAgents() {
   const tools: { tool: "opencode" | "claude" | "deepseek" | "pi" | "more"; name: string; supported: boolean }[] = [
     { tool: "opencode", name: "opencode", supported: true },
-    { tool: "claude", name: "claude code", supported: false },
+    { tool: "claude", name: "claude code", supported: true },
     { tool: "deepseek", name: "deepseek harness", supported: false },
     { tool: "pi", name: "pi", supported: false },
     { tool: "more", name: "更多 MCP 客户端", supported: false },
@@ -915,22 +915,30 @@ function DocsPage() {
         <section id="doc-install" className="docs-section">
           <h2>安装插件</h2>
           <p>
-            插件是 agent 接入虫群的载体，负责心跳保活与接收任务。它跑在每个 agent 工作区的
-            opencode 里，安装一次即可。
+            插件是 agent 接入虫群的载体，负责心跳保活与接收任务。每个 agent 工具一个插件，
+            一条安装命令可以把所有已支持的插件一次装好。
           </p>
           <h3>安装方式</h3>
           <p>
-            在装有 opencode 的目标机器上，执行<b>首页</b>生成的安装命令（已自动带上你的账号 API Key）。
-            脚本会自动完成：写入服务配置 → 注册 MCP 端点 → 部署插件 → 拷贝 <code>/swarm-*</code> 命令。
+            在目标机器上执行<b>首页</b>生成的安装命令（已自动带上你的账号 API Key）。
+            安装器会下载分发包并逐个安装各 agent 插件（可选参数只装指定插件）。
           </p>
-          <p>
-            <b>重启 opencode 后生效</b>——插件在会话启动时加载，运行中的会话不会热更新。
-          </p>
+          <ul>
+            <li>
+              <b>opencode</b>：写入服务配置 → 注册 MCP 端点 → 部署心跳插件 → 拷贝 <code>/swarm-*</code> 命令。
+              <b>重启 opencode 后生效</b>——插件在会话启动时加载，运行中的会话不会热更新。
+            </li>
+            <li>
+              <b>claude code</b>：<code>claude mcp add</code> 注册 remote MCP（虫群工具）+ 本地 keepalive MCP
+              （claude 启动时自动 spawn 保活进程，退出自动回收）→ 拷贝 <code>/swarm-*</code> 命令。
+              <b>重启 claude 后生效</b>。claude 工作区当前支持注册管理与在线状态，暂不支持接收任务。
+            </li>
+          </ul>
           <h3>验证安装</h3>
           <p>
             重启后打开「工作区」页，约 30 秒内应看到该机器的工作区状态点变绿（online）。
-            也可以查看 <code>~/.config/opencode/plugins/agent-swarm/plugin.log</code>，
-            里面有启动与心跳日志。
+            opencode 可查看 <code>~/.config/opencode/plugins/agent-swarm/plugin.log</code>；
+            claude 可查看 <code>~/.claude/agent-swarm/keepalive.log</code>。
           </p>
         </section>
 
@@ -943,7 +951,7 @@ function DocsPage() {
           <h3>注册方式</h3>
           <p>任选其一：</p>
           <ul>
-            <li>在该项目的 opencode 对话里使用 <code>/swarm-add</code> 命令</li>
+            <li>在该项目的 agent 对话里使用 <code>/swarm-add</code> 命令（opencode 与 claude 均可用）</li>
             <li>直接让 agent：「帮我把当前目录注册到虫群」（它会调用 <code>workspace_add</code> 工具）</li>
           </ul>
           <p>
@@ -1004,7 +1012,7 @@ agent: (workspace_call) → 对方 TUI 实时出现任务 → 执行 → 结果�
           </table>
           <p>
             另有 <code>/swarm-add</code> <code>/swarm-remove</code> <code>/swarm-enable</code>
-            <code>/swarm-disable</code> 四个 opencode 命令，是上述工具的快捷方式。
+            <code>/swarm-disable</code> 四个命令，是上述工具的快捷方式（opencode 与 claude 均可用）。
           </p>
         </section>
 
@@ -1042,13 +1050,18 @@ agent: (workspace_call) → 对方 TUI 实时出现任务 → 执行 → 结果�
           <h3>支持哪些 AI 工具？</h3>
           <p>
             我们的目标是让<b>所有支持 MCP 的 agent 客户端</b>都能加入虫群。
-            目前已支持 opencode，其它 agent 客户端会逐步支持。
+            目前已支持 opencode 与 claude code（claude 暂不支持任务执行），其它客户端会逐步支持。
+          </p>
+          <h3>claude 工作区在线但不接任务？</h3>
+          <p>
+            是预期行为。claude 接入目前包含注册管理与心跳保活（MCP 工具 + <code>/swarm-*</code> 命令全部可用），
+            任务执行与中枢指令注入还在规划中。
           </p>
           <h3>安装后 agent 没出现 / 收不到任务？</h3>
           <p>
             重启 opencode 了吗？插件在会话启动时加载，运行中的会话持有旧代码。
             查看 <code>~/.config/opencode/plugins/agent-swarm/plugin.log</code> 可以看到
-            心跳与任务领取日志。
+            心跳与任务领取日志；claude 则查看 <code>~/.claude/agent-swarm/keepalive.log</code>。
           </p>
           <h3>API Key 忘了 / 想换？</h3>
           <p>

@@ -25,13 +25,13 @@ if ! .venv/bin/python -c "import fastapi, mcp, sqlmodel" 2>/dev/null; then
     .venv/bin/pip install -r requirements.txt -q
 fi
 
-# 2. 打包插件到 data/（供 /download/plugin.tar.gz 分发）
+# 2. 打包插件到 data/（供 /download/plugin.tar.gz 分发；plugins/ 下所有 agent 插件）
 mkdir -p data
 if command -v tar >/dev/null; then
     tar -czf data/agent-swarm-plugin.tar.gz \
-        -C plugin \
+        -C . \
         --exclude='node_modules' --exclude='types' --exclude='*.tsbuildinfo' \
-        package.json tsconfig.json src commands
+        plugins
     echo "[deploy] plugin package: data/agent-swarm-plugin.tar.gz"
 fi
 

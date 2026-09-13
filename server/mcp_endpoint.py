@@ -391,6 +391,8 @@ def workspace_call(target_workspace_id: str, instruction: str) -> dict:
         tgt = session.get(models.Workspace, target_workspace_id)
         if tgt is None or tgt.user_id != user.id:
             raise ValueError(f"target workspace {target_workspace_id} not found or not visible to you")
+        if (tgt.agent_type or "").strip().lower() == "claude":
+            raise ValueError("claude workspace does not support task execution yet (keepalive only)")
         if not ws_is_online(tgt) or tgt.status == "disabled":
             raise ValueError("target workspace is not online")
 

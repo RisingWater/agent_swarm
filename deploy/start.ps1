@@ -40,10 +40,10 @@ if ($LASTEXITCODE -ne 0) {
     & $venvPython -m pip install -r requirements.txt -q
 }
 
-# 2. 打包插件到 data\（供 /download/plugin.tar.gz 分发）
+# 2. 打包插件到 data\（供 /download/plugin.tar.gz 分发；plugins\ 下所有 agent 插件）
 New-Item -ItemType Directory -Force -Path data | Out-Null
 if (Get-Command tar.exe -ErrorAction SilentlyContinue) {
-    tar -czf data\agent-swarm-plugin.tar.gz -C plugin --exclude=node_modules --exclude=types --exclude="*.tsbuildinfo" package.json tsconfig.json src commands
+    tar -czf data\agent-swarm-plugin.tar.gz -C . --exclude=node_modules --exclude=types --exclude="*.tsbuildinfo" plugins
     if ($LASTEXITCODE -ne 0) { throw "plugin tarball failed" }
     Write-Host "[deploy] plugin package: data\agent-swarm-plugin.tar.gz"
 } else {
