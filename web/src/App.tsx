@@ -281,6 +281,7 @@ export default function App() {
             loggedIn={loggedIn}
             onGoAccount={() => goto("account")}
             onOpenLogin={() => setPage("login")}
+            onGoDocs={() => goto("docs")}
           />
         )}
         {effectivePage === "docs" && <DocsPage />}
@@ -509,7 +510,7 @@ function ConfirmWrap({ text, onOk, children }: { text: string; onOk: () => void;
 
 // ---------------- 首页 ----------------
 
-function HomePage({ toast, loggedIn, onGoAccount, onOpenLogin }: { toast: (m: string) => void; loggedIn: boolean; onGoAccount: () => void; onOpenLogin: () => void }) {
+function HomePage({ toast, loggedIn, onGoAccount, onOpenLogin, onGoDocs }: { toast: (m: string) => void; loggedIn: boolean; onGoAccount: () => void; onOpenLogin: () => void; onGoDocs: () => void }) {
   const [me, setMe] = useState<(User & { api_key: string }) | null>(null)
   const [plat, setPlat] = useState<"sh" | "ps1">(
     /Win/i.test(navigator.platform) ? "ps1" : "sh",
@@ -642,7 +643,7 @@ function HomePage({ toast, loggedIn, onGoAccount, onOpenLogin }: { toast: (m: st
 
       {/* 6. 阅读文档 */}
       <section className="home-docs-cta">
-        <a className="btn btn-primary docs-btn" href="#/docs">阅读文档 →</a>
+        <a className="btn btn-primary docs-btn" onClick={onGoDocs}>阅读文档 →</a>
       </section>
     </div>
   )
