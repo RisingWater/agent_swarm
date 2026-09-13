@@ -229,11 +229,56 @@ process.stdin.on("data", (chunk) => {
 })
 
 // ---------------- 退出检测：stdin close + ppid 轮询双保险 ----------------
+/** 退出前主动下线（workspace_offline），服务端立即置离线，不等 90s 心跳超时。
+ * 必须同步快速完成：shutdown 里用 3s 超时的 fetch + waitUntil 式轮询，
+ * 超时/失败直接放弃（下次心跳超时兜底）。 */
+async function goOffline(cfg) {
+  const id = readWorkspaceId(process.cwd())
+  if (!id) return
+  try {
+    const ctl = new AbortController()
+    const timer = setTimeout(() => ctl.abort(), 3_000)
+    const baseUrl = cfg.serverUrl.replace(/\/+$/, "")
+    const post = (body) =>
+      fetch(`${baseUrl}/mcp/`, {
+        method: "POST",
+        signal: ctl.signal,
+        headers: {
+          Authorization: `Bearer ${cfg.apiKey}`,
+          "Content-Type": "application/json",
+          Accept: "application/json, text/event-stream",
+        },
+        body: JSON.stringify(body),
+      })
+    // stateless MCP：initialize + tools/call 两条（带同一超时预算）
+    const init = await post({
+      jsonrpc: "2.0", id: 1, method: "initialize",
+      params: { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "claude-agent-swarm-keepalive", version: "0.1.0" } },
+    })
+    clearTimeout(timer)
+    if (!init.ok) return
+    const ctl2 = new AbortController()
+    const timer2 = setTimeout(() => ctl2.abort(), 3_000)
+    await post({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "workspace_offline", arguments: { workspace_id: id } } }).catch(() => {})
+    clearTimeout(timer2)
+    log(`offline notification sent for ${id}`)
+  } catch {
+    // 网络失败无所谓：90s 心跳超时兜底
+  }
+}
+
 function shutdown(reason) {
   if (disposed) return
   disposed = true
   log(`exit: ${reason}`)
-  process.exit(0)
+  // 主动下线：与进程退出竞速（Node 在事件循环空后退出，await 挂起即保活）
+  const cfg = loadedCfg
+  const work = cfg ? goOffline(cfg) : Promise.resolve()
+  work.finally(() => {
+    try { process.exit(0) } catch { /* ignore */ }
+  })
+  // 兜底：最多再等 4s 强制退出，防止网络挂起拖住进程
+  setTimeout(() => { try { process.exit(0) } catch { /* ignore */ } }, 4_000).unref()
 }
 
 process.stdin.on("close", () => shutdown("stdin closed"))
@@ -251,6 +296,7 @@ process.on("SIGINT", () => shutdown("sigint"))
 
 // ---------------- 启动 ----------------
 const cfg = loadConfig()
+var loadedCfg = cfg // shutdown 时主动下线用
 if (!cfg) {
   log("no apiKey config; keepalive idle (MCP still answering)")
 } else {

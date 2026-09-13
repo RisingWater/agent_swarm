@@ -518,6 +518,14 @@ const plugin: Plugin = async (input) => {
     dispose: async () => {
       disposed = true
       nexus?.close()
+      // 主动下线：不等 90s 心跳超时（失败无所谓，超时兜底）
+      const wid = readWorkspaceId(directory)
+      if (wid) {
+        await swarm
+          .callTool("workspace_offline", { workspace_id: wid })
+          .then(() => log(`offline notification sent for ${wid}`))
+          .catch((e) => log(`offline notify failed (timeout fallback): ${e}`))
+      }
       log("disposed")
     },
   }

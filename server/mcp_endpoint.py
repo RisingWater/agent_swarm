@@ -266,6 +266,26 @@ def heartbeat(workspace_id: str, session_id: str = "", agent_type: str = "") -> 
 
 
 @mcp.tool()
+def workspace_offline(workspace_id: str) -> dict:
+    """主动下线：插件/保活进程退出前调用，立即把工作区置为离线（不等 90s 心跳超时）。
+
+    幂等：重复调用无害。disabled 状态保持不变（不能靠它绕过 disable）。
+    """
+    user = get_user()
+    session = next(get_session())
+    try:
+        ws = _own_workspace(session, user, workspace_id)
+        if ws.status != "disabled":
+            ws.status = "offline"
+            ws.updated_at = utcnow()
+            session.add(ws)
+            session.commit()
+        return {"ok": True, "status": ws.status}
+    finally:
+        session.close()
+
+
+@mcp.tool()
 def update_notes(workspace_id: str, notes: str, append: bool = True) -> dict:
     """更新工作区备注（/swarm-note 命令）。
 
