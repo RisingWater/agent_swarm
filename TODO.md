@@ -1,6 +1,6 @@
 # agent_swarm 开发进度 TODO
 
-> 更新时间: 2026-09-12 深夜 · 交接给下一个 agent
+> 更新时间: 2026-09-13 · 交接给下一个 agent
 > 项目路径: D:\wangxu\work\agent_swarm · 服务已跑在 :8700 · 前端构建产物由 8700 静态托管
 
 ## 项目一句话
@@ -40,24 +40,19 @@
 - ✅ README.md（架构图、快速开始、MCP 工具表、Docker 部署、配置表、开发指南）
 - ✅ AGENTS.md 刷新（12 工具清单、任务派发机制、前端坑，与 README 去重：产品文档归 README/文档页，AGENTS 只放架构决策与 gotcha）
 
+### 中枢 nexus（2026-09-12/13 新增，已提交）
+
+- ✅ **服务端**：`server/nexus.py` WebSocket hub（`/ws/nexus`，JWT 鉴权）；订阅工作区时间线 + 下发指令；`nexus_events` 表持久化（models.py，自增 id 即时间序）；指令落调用记录，来源标注 `nexus-web`（预留 nexus-feishu/wechat 等扩展）
+- ✅ **插件**：`plugin/src/nexus.ts`（239 行）——接收网页指令、回传会话事件流（user/text/reasoning/tool/permission/question/idle/error）
+- ✅ **前端**：「中枢」页——选在线工作区下发指令，时间线实时滚动；权限请求/提问直接在页面点选应答（permission_reply）；终端风格 UI（tui 主题）
+- ✅ 文档同步：README「中枢」章节 + 首页特性 + 文档页 web-admin 小节
+
 ## 🟡 未完成 / 待办
 
 ### 高优先级
 
 - [ ] **Docker 构建实测**（用户下周一去公司测试）：Dockerfile/compose.yaml 已写好但未跑过，首次 build 可能在 npm ci（alpine 平台二进制）出问题，待验证
 - [ ] nas_brain 工作区重新注册后 ID 变了（XYaR4TdtGqdqoAEW9vNn8g），注意旧的 nDZDDucfudwSPmN5Nec3GU 已失效
-
-### 中优先级
-
-- [ ] 文档页内容可以再丰富：任务派发的权限交互（permission.asked 由目标端用户在 TUI 响应）还没写进 FAQ
-- [ ] 团队功能：models.py 保留 teams/team_members 表（用户 2026-09-12 确认继续保留），API/前端已删；"想好后再加"
-- [ ] npm install 慢（~40s）：可把 @opencode-ai/* 设为 peerDependencies
-- [ ] **视频 LFS 不做了**：mp4 已作为普通 blob push 成功（39MB < GitHub 100MB 限制），用户接受；将来视频更新会增大仓库体积，留意即可
-- [ ] **e2e 测试脚本不做**（用户 2026-09-12 决定放弃）：scripts/test_plugin_smoke.ts 仍是引用旧 API 的死代码，可删可留
-
-### 低优先级 / 备忘
-
-- [ ] 前端 lint 有一个既存 warning（WorkspacesPage set-state-in-effect），非阻塞
 
 ## 环境/常用操作
 

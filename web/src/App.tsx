@@ -1182,7 +1182,19 @@ function NexusWorkspaceSelect({ list, value, onChange }: {
 
 function NexusPage({ toast }: { toast: (m: string) => void }) {
   const [list, setList] = useState<Workspace[]>([])
-  const [selected, setSelected] = useState<string>("")
+  const [selected, setSelected] = useState<string>(() => {
+    // 恢复上次选中的工作区（cookie 记录，30 天有效）
+    const m = document.cookie.match(/(?:^|;\s*)swarm_nexus_ws=([^;]*)/)
+    try { return m ? decodeURIComponent(m[1]) : "" } catch { return "" }
+  })
+
+  // 选中变化时写入 cookie
+  useEffect(() => {
+    if (selected) {
+      document.cookie = `swarm_nexus_ws=${encodeURIComponent(selected)}; max-age=${60 * 60 * 24 * 30}; path=/; SameSite=Lax`
+    }
+  }, [selected])
+
   const [pluginOnline, setPluginOnline] = useState(false)
   const [items, setItems] = useState<TimelineItem[]>([])
   const [input, setInput] = useState("")
@@ -1748,13 +1760,12 @@ function WorkspacesPage({ toast }: { toast: (m: string) => void }) {
                 <AgentTypeIcon type={w.agent_type} />
                 <a className="link" onClick={() => setDetail(w)}>{w.name}</a>
               </td>
-              <td title={w.last_heartbeat ? `最后心跳: ${new Date(w.last_heartbeat + "Z").toLocaleString()}` : undefined}>
-                <StatusDot status={w.status} />
-                {w.status === "offline" && w.last_heartbeat && (
-                  <span style={{ color: "var(--text-weak)", fontSize: 12, marginLeft: 6 }}>
-                    {new Date(w.last_heartbeat + "Z").toLocaleString()}
-                  </span>
-                )}
+              <td>
+                <span
+                  title={w.status === "offline" && w.last_heartbeat ? `最后心跳: ${fmtTime(w.last_heartbeat, "datetime")}` : undefined}
+                >
+                  <StatusDot status={w.status} />
+                </span>
               </td>
               <td title={w.path} style={{ color: "var(--text-weak)", fontSize: 12 }}>{w.path}</td>
               <td className="purpose-td">
@@ -1811,7 +1822,7 @@ function WorkspacesPage({ toast }: { toast: (m: string) => void }) {
             <dt>备注</dt><dd>{detail.notes || "-"}</dd>
             <dt>所有者</dt><dd>{detail.owner?.username ?? "-"}</dd>
             <dt>最后心跳</dt>
-            <dd>{detail.last_heartbeat ? new Date(detail.last_heartbeat + "Z").toLocaleString() : "-"}</dd>
+            <dd>{fmtTime(detail.last_heartbeat, "datetime")}</dd>
           </dl>
         </Modal>
       )}
