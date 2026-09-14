@@ -86,8 +86,23 @@ function swarmFile(worktree: string) {
       return ""
     }
   }
+  /** 文件不存在则按模板创建（WORKSPACE_ID/PURPOSE/CAPABILITIES 占位行） */
+  const ensure = (workspaceId: string) => {
+    if (read() === "") {
+      fs.writeFileSync(
+        path,
+        `# agent_swarm\n\nPURPOSE: \nCAPABILITIES: \nWORKSPACE_ID: ${workspaceId}\n`,
+        "utf-8",
+      )
+    }
+  }
   const setLine = (key: string, value: string | null) => {
     let text = read()
+    if (text === "") {
+      // 文件不存在：先按模板建（ID 稍后由调用方传入），再在末尾加行
+      ensure("")
+      text = read()
+    }
     const re = new RegExp(`^${key}:.*$`, "m")
     if (value === null) {
       text = text.replace(new RegExp(`^${key}:.*\\n?`, "m"), "")
@@ -102,7 +117,7 @@ function swarmFile(worktree: string) {
     const m = read().match(new RegExp(`^${key}:\\s*(.*)$`, "m"))
     return m?.[1]?.trim() ?? ""
   }
-  return { path, read, setLine, getLine }
+  return { path, read, setLine, getLine, ensure }
 }
 
 /** 拉起 headless opencode（挂载当前会话）总结项目用途，返回总结文本。30s 超时。 */
@@ -235,16 +250,19 @@ const tui: TuiPlugin = async (api) => {
           toastErr(`注册失败: ${rsp.error}`)
           return
         }
+        // 写 .agent-swarm.md：模板创建（PURPOSE/CAPABILITIES/WORKSPACE_ID 行）并更新 ID
+        file.ensure(rsp.data.workspace_id)
         file.setLine("WORKSPACE_ID", rsp.data.workspace_id)
         api.ui.toast({
           variant: "success",
           message: `已注册 ${rsp.data.workspace_id}，正在总结用途…`,
           duration: 4000,
         })
-        // headless opencode 总结项目用途（挂当前会话），成功后回传 server 覆盖 purpose
+        // headless opencode 总结项目用途（挂当前会话），成功后上传 server 并写入 .agent-swarm.md
         const purpose = await summarizePurpose(worktree, currentSessionId)
         if (purpose) {
           await swarmApi("/api/workspaces", "POST", { path: worktree, purpose })
+          file.setLine("PURPOSE", purpose)
           api.ui.toast({
             variant: "success",
             message: `用途已更新: ${purpose.slice(0, 60)}${purpose.length > 60 ? "…" : ""}`,
