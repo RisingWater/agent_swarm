@@ -48,6 +48,8 @@ command -v node >/dev/null || { echo "错误: 未找到 node（keepalive 需要�
 # 1. 复制插件文件到安装目录 + 写配置（keepalive.mjs 读取）
 mkdir -p "$INSTALL_DIR"
 [ -f "$SRC/keepalive.mjs" ] && cp -f "$SRC/keepalive.mjs" "$INSTALL_DIR/"
+[ -f "$SRC/nexus_a2a.mjs" ] && cp -f "$SRC/nexus_a2a.mjs" "$INSTALL_DIR/"
+[ -f "$SRC/background.mjs" ] && cp -f "$SRC/background.mjs" "$INSTALL_DIR/"
 cat > "$INSTALL_DIR/config.json" <<EOF
 {
   "serverUrl": "$SERVER",

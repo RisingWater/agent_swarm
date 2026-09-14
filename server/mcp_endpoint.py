@@ -418,8 +418,6 @@ async def a2a_call(target: str, message: str, context_id: str = "") -> dict:
         tgt = session.get(models.Workspace, target)
         if tgt is None or tgt.user_id != user.id:
             raise ValueError(f"target workspace {target!r} not found or not visible to you")
-        if (tgt.agent_type or "").strip().lower() == "claude":
-            raise ValueError("claude workspace does not support task execution yet (keepalive only)")
         if tgt.status == "disabled":
             raise ValueError("target workspace is disabled")
         from server.nexus_a2a import ws_online as _ws_plugin_online

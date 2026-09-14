@@ -6,16 +6,26 @@
  * MCP 协议：最小 JSON-RPC 应答（initialize / ping / tools/list），
  * 不引入 SDK —— 保持零依赖，node 直接跑。
  *
+ * A2A 任务执行（claude 仅后台会话模式）：keepalive 另起一条 WS 连 /ws/plugin
+ * （与心跳同进程，共享配置），收到 message/send 后按来源映射表路由后台会话
+ * （同一 caller 的任务复用同一 claude 会话，保证对话连续性），spawn
+ * `claude -p` headless 执行并流式上报事件（nexus_a2a.mjs + background.mjs）。
+ *
  * 配置：~/.claude/agent-swarm/config.json（install-claude 脚本写入），
  * 环境变量 AGENT_SWARM_SERVER / AGENT_SWARM_API_KEY 可覆盖。
  * 工作区 ID：每轮心跳从 process.cwd() 的 .agent-swarm.md 重读
  * （MCP 子进程 cwd = claude 启动目录），/swarm-add 换 ID 后无需重启。
  *
+ * 会话映射表：<cwd>/.agent-swarm-sessions.json（caller → claude session UUID），
+ * 与 opencode 插件同一格式，机器本地状态不进 git。
+ *
  * 日志：~/.claude/agent-swarm/keepalive.log（不进 claude 控制台，stdout 是协议通道）。
  */
-import { appendFileSync, existsSync, readFileSync, statSync, truncateSync } from "node:fs"
+import { appendFileSync, existsSync, readFileSync, statSync, truncateSync, writeFileSync } from "node:fs"
 import { homedir } from "node:os"
 import { join } from "node:path"
+import { startNexusA2AClient } from "./nexus_a2a.mjs"
+import { runBackgroundTask, cancelBackgroundTask } from "./background.mjs"
 
 const HEARTBEAT_MS = 30_000
 const LOG_MAX_BYTES = 500_000
@@ -63,6 +73,44 @@ function readWorkspaceId(dir) {
       .match(/^\s*(?:#+\s*)?WORKSPACE_ID[:：]\s*([A-Za-z0-9_-]+)/im)?.[1] ?? ""
   } catch {
     return ""
+  }
+}
+
+// ---------------- 后台会话映射表（caller → claude session UUID） ----------------
+
+const SESSIONS_FILE = ".agent-swarm-sessions.json"
+
+function sessionsFilePath(dir) {
+  return join(dir, SESSIONS_FILE)
+}
+
+/** 读映射表（文件缺失/损坏返回空表） */
+function readSessionMap(dir) {
+  const file = sessionsFilePath(dir)
+  if (!existsSync(file)) return {}
+  try {
+    const parsed = JSON.parse(readFileSync(file, "utf-8"))
+    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) return {}
+    const out = {}
+    for (const [k, v] of Object.entries(parsed)) {
+      if (typeof k === "string" && k && typeof v === "string" && v) out[k] = v
+    }
+    return out
+  } catch {
+    return {} // 损坏时视为空表，下次写入重建
+  }
+}
+
+/** 写/更新单条映射（caller → sessionId），文件不存在则创建 */
+function writeSessionEntry(dir, caller, sessionId) {
+  if (!caller || !sessionId) return
+  const map = readSessionMap(dir)
+  if (map[caller] === sessionId) return
+  map[caller] = sessionId
+  try {
+    writeFileSync(sessionsFilePath(dir), JSON.stringify(map, null, 2) + "\n", "utf-8")
+  } catch {
+    // 写失败不阻塞任务执行（下轮任务会再试）
   }
 }
 
@@ -165,6 +213,40 @@ async function heartbeatLoop(cfg) {
     }
     await new Promise((r) => setTimeout(r, HEARTBEAT_MS))
   }
+}
+
+// ---------------- A2A 任务执行（claude 仅后台会话模式） ----------------
+
+/** 启动 A2A WS 客户端：收到 message/send → 按来源映射表路由后台会话执行。
+ *  cwd 固定为 keepalive 启动目录（= claude 工作区目录），任务在此目录下执行。 */
+function startA2A(cfg) {
+  const directory = process.cwd()
+  const a2a = startNexusA2AClient({
+    url: cfg.serverUrl.replace(/^http/, "ws").replace(/\/+$/, "") + "/ws/plugin",
+    apiKey: cfg.apiKey,
+    workspaceId: () => readWorkspaceId(directory),
+    onTask: async (task, text, caller) => {
+      const resume = readSessionMap(directory)[caller] ?? ""
+      log(`a2a ${task.taskId.slice(0, 8)}: background mode${resume ? ` (resume ${resume.slice(0, 12)})` : " (new session)"} caller=${caller}`)
+      const result = await runBackgroundTask(
+        task,
+        text,
+        caller,
+        { cwd: directory, resumeSessionId: resume },
+        { emit: (event) => a2a.send({ type: "event", payload: event }), log },
+      )
+      // 会话回写映射表（成功失败都写：失败也可能已产生新会话，保证连续性）
+      if (result.sessionId) writeSessionEntry(directory, caller, result.sessionId)
+      return result.ok ? (result.sessionId ?? "background") : null
+    },
+    onTaskCancel: (taskId) => {
+      if (cancelBackgroundTask(taskId)) {
+        log(`a2a ${taskId.slice(0, 8)}: background process killed`)
+      }
+    },
+    log,
+  })
+  return a2a
 }
 
 // ---------------- 最小 stdio MCP server ----------------
@@ -271,6 +353,7 @@ function shutdown(reason) {
   if (disposed) return
   disposed = true
   log(`exit: ${reason}`)
+  try { nexus?.close() } catch { /* ignore */ }
   // 主动下线：与进程退出竞速（Node 在事件循环空后退出，await 挂起即保活）
   const cfg = loadedCfg
   const work = cfg ? goOffline(cfg) : Promise.resolve()
@@ -297,8 +380,10 @@ process.on("SIGINT", () => shutdown("sigint"))
 // ---------------- 启动 ----------------
 const cfg = loadConfig()
 var loadedCfg = cfg // shutdown 时主动下线用
+let nexus = null
 if (!cfg) {
   log("no apiKey config; keepalive idle (MCP still answering)")
 } else {
   heartbeatLoop(cfg).catch((e) => log(`heartbeat loop crashed: ${e}`))
+  nexus = startA2A(cfg)
 }

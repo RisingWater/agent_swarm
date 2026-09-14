@@ -1,8 +1,8 @@
 # agent_swarm 开发进度 TODO
 
-> 更新时间: 2026-09-14 深夜 · Windows 机（D:\wangxu\work\agent_swarm，workspace ID 4g8rHi43MHaWurH9XYsGNH）
+> 更新时间: 2026-09-14 深夜2 · Windows 机（D:\wangxu\work\agent_swarm，workspace ID 4g8rHi43MHaWurH9XYsGNH）
 > 服务已跑在 :8700（.\deploy\start.ps1 前台运行）· 前端构建产物由 8700 静态托管
-> 已推送 origin/dev（HEAD = 0a5e46e，含后台会话按 caller 续聊 + Windows 适配，见已完成第 1 节）
+> claude 后台会话骨架已写完并提交（见已完成第 1 节），**简单测试发现多个问题未解决** → 接手先看待办第 0 条
 
 ## 项目一句话
 
@@ -13,8 +13,10 @@
 - **2026-09-11 v0**：插件注入 8 个 swarm_* 工具 + request_help 求助闭环 + LLM 惰性总结目录
 - **2026-09-12 MCP-first（用户拍板）**：**MCP 工具是唯一面向 agent 的接口**，任何 MCP 客户端（claude/deepseek harness/…）直连 /mcp 即用，可移植性优先；插件瘦身为心跳保活；工作区 ID 持久化到项目根 `.agent-swarm.md` 的 `WORKSPACE_ID:` 行（register_workspace/whoami 已删，workspace_add 一个工具覆盖）
 - **2026-09-12 workspace_call**：跨 agent 任务派发上线（前台注入优先，后台会话兜底，权限由目标端用户在 TUI 响应）；旧 request_help/poll/submit 双模式设计整体删除
-- **2026-09-13 claude 接入**：keepalive.mjs 零依赖 stdio MCP 保活；claude 工作区仅注册/保活
+- **2026-09-13 claude 接入**：keepalive.mjs 零依赖 stdio MCP 保活
 - **2026-09-14 A2A 化（替换 workspace_call + nexus 自定义协议）**：统一走 A2A 0.3.x 子集（手写，无官方 SDK）
+- **2026-09-14 后台会话（用户拍板）**：后台会话必须在独立会话执行（复用前台会话会上下文互串）；同一来源（caller）的任务归组到同一后台会话（映射表 `.agent-swarm-sessions.json`，键=caller）；opencode 后台 spawn 加 `--pure`（不加载插件）+ `--thinking`（reasoning 流）
+- **2026-09-14 claude 只做后台（用户拍板）**：claude 无前台注入，全部任务走 headless `claude -p` 后台执行；keepalive 进程兼任 A2A 任务接收
 - **2026-09-14 /swarm-* 命令 TUI 化**：md 命令 → 原生 TUI 命令（tui.ts）；后 /swarm-add 因 headless 总结方案废弃**回退 md 命令**，其余 4 个保持 TUI
 - ~~**headless spawn opencode 生成 purpose**~~（2026-09-14 已废弃）：挂 `--session 当前会话` 把对话上下文带进总结上传过屁话；专属 summarySessionId 复用会话方案复杂度又高，写了又删。purpose 回归前台 agent 自己分析（md 命令流程）
 - ~~teams 团队功能~~（API/前端已删，**表保留**，用户"想好后再加"）
@@ -24,6 +26,16 @@
 - ~~e2e 测试脚本~~（用户 2026-09-12 决定放弃，scripts/test_plugin_smoke.ts 是死代码可删可留）
 
 ## 已完成（除注明外均已进 git）
+
+### claude 后台会话骨架（2026-09-14 深夜2，已提交，简单测试发现多处问题 → 接手先看待办第 0 条）
+
+- ✅ **`plugins/claude/nexus_a2a.mjs`（新文件，零依赖）**：WS 客户端连 `/ws/plugin`（hello/rpc/event/ping/重连，与 opencode `nexus_a2a.ts` 同构）；A2A 事件构造 statusUpdate/agentMessage/artifactUpdate/toolStatus/streamStatus；DataPart（input-required 应答）直接报错拒绝（claude 后台不支持交互）
+- ✅ **`plugins/claude/background.mjs`（新文件，零依赖）**：spawn `claude -p <prompt> --output-format stream-json --include-partial-messages --verbose --dangerously-skip-permissions --max-turns 100`（用户拍板 100 轮）；事件归一化：system/init→session_id、thinking_delta→reasoning、text_delta→text（累积）、content_block_start(tool_use)→toolStatus(running)、user.tool_result→toolStatus(completed/error)、result(is_error)→failed；30min 超时/并发 3/cancel（Windows taskkill /T /F，POSIX 负 PID）；`resolveBin` 解析 Windows 真实 exe（`%APPDATA%\npm\node_modules\@anthropic-ai\claude-code\bin\claude.exe`）；resume 被拒（exit≠0 且从未见 session_id，实测 stderr "No conversation found"）自动新会话重试
+- ✅ **`keepalive.mjs` 改造**：启动 A2A WS 客户端收任务（与心跳同进程）；来源映射表（`.agent-swarm-sessions.json`，caller→claude session UUID，与 opencode 同格式同文件名）查表 `--resume` 续聊 + 任务结束回写（成功失败都写）
+- ✅ **服务端放开 claude 拦截 ×3**：`nexus_a2a.py` a2a_rpc/nexus_send + `mcp_endpoint.py` a2a_call
+- ✅ **`install-claude.ps1/.sh`**：拷贝新增 mjs 文件
+- ✅ 语法验证过（node --check ×3）；实验验证过 claude -p stream-json 事件形状、--resume 续聊/无效 resume 语义（Windows 机）
+- ⚠️ **未 E2E 验证，用户简单测试发现多处问题（见待办第 0 条，日志已留档分析）**
 
 ### 后台会话按 caller 续聊 + Windows 适配（2026-09-14 深夜，0a5e46e 已提交推送，E2E 首单已验证）
 
@@ -75,8 +87,9 @@
 
 ### claude code 接入（2026-09-13）
 
-- ✅ `plugins/claude/keepalive.mjs` 零依赖 stdio MCP 保活 + install-claude 脚本 + `/swarm-*` 命令；claude 工作区仅注册/保活
+- ✅ `plugins/claude/keepalive.mjs` 零依赖 stdio MCP 保活 + install-claude 脚本 + `/swarm-*` 命令
 - ✅ 含中文 ps1 必须 UTF-8 with BOM（详见 AGENTS.md）
+- ✅ claude 后台会话骨架（2026-09-14 深夜2，见已完成第 1 节，问题见待办第 0 条）
 
 ### 服务端 / 前端 / 基建（2026-09-11~12）
 
@@ -88,13 +101,22 @@
 
 ## 🟡 未完成 / 待办（接手从这里开始）
 
+### 0. claude 后台会话问题修复（最高优先级，接手先做这个）
+
+骨架已提交但用户简单测试发现多处问题。**keepalive.log 实测异常（2026-09-14T15:49 前后，nas_brain 工作区 CZBLEoPszNwLWpA2J4auGA，cwd=D:\wangxu\Ai\nas_brain）**：
+
+1. **keepalive 多实例互相踢**（最严重）：日志见同一秒内多个 `start: cwd=...` + `nexus a2a ready` / `nexus disconnected, reconnecting` 无限循环。根因：多个 claude 会话/`claude -p` spawn 各自的 keepalive 子进程（MCP 配置是 --scope user，每个 claude 实例都 spawn），且**后台任务自己 spawn 的 `claude -p` 又会 spawn 新的 keepalive**（`claude -p` 默认加载 user-scope MCP！）→ 同一 workspace_id 多个 WS 连接互相顶（服务端 nexus_a2a.py:930 "replaced by new connection"），还伴随 stdin close 退出风暴。**修复方向**：后台 spawn claude 时加 `--strict-mcp-config --mcp-config '{"mcpServers":{}}'`（禁掉 user-scope MCP，与 opencode `--pure` 同思路）；keepalive 侧再考虑启动时锁（如端口/文件锁）或服务端容忍多连（只读心跳无害，但任务分发要幂等）
+2. **同一任务被两个实例各执行一次**：日志 `a2a task ZJB2B3UD` 出现两次、spawn 两次（顶号后补推 queued + hello 时 `_flush_queued` 补推叠加）。修掉问题 1 后大概率自愈，但服务端最好加"任务已派发不重推"标记
+3. **续聊上下文**：2AMhaTMF 走了 `resume 8db4c0e9-6a8`（映射表生效），但需验证 resume 后对话真的延续（claude session UUID 写入时机 = system/init 行，若任务失败在 init 前会回写空）
+4. **web 中枢展示**：claude 后台事件（metadata.agent=claude）是否正常渲染未验证
+5. 修完跑完整 E2E：web 中枢给 claude 工作区连发 2 条（验证同 session 续聊 + 中枢实时滚动 thinking/tool/text）+ opencode 工作区 a2a_call claude 工作区 1 条
+
 ### 高优先级
 
-- [x] **后台会话 E2E 验证**（2026-09-14 深夜 Windows 机通过）：web 下发 background 任务，前台 TUI 无任务文本；plugin.log 见 `background mode (new session)` 无 `resume ses_`；opencode 日志见独立会话 A2A-<id>。曾因 Windows spawn ENOENT 失败一单（M9xmrEpK），resolveBin 修复后 KSzac7ekUvg7A8LqN7w8S5 全链路走通
-- [ ] **后台会话续聊 E2E**：同 caller（如 nexus-web）连发两个任务，验证第二个任务复用 `.agent-swarm-sessions.json` 里记录的会话（plugin.log 应见 `resume ses_`），且对话上下文延续
+- [ ] **后台会话续聊 E2E（opencode 侧）**：同 caller（如 nexus-web）连发两个任务，验证第二个任务复用 `.agent-swarm-sessions.json` 里记录的会话（plugin.log 应见 `resume ses_`），且对话上下文延续
 - [ ] **前端 web 的 A2A 与后台会话展示未更新**（用户原话："前端的a2a和后台会话还没有更新"）：后台任务独立会话（A2A-xxx）在中枢页无区分展示；task 的 session_id 上报后工作区表"当前会话"列刷新未验证；后台事件（metadata.background=true）前端未特殊渲染
-- [ ] **claude 后台会话未做**（用户：claude 前台会话做不了，只做后台）：给 claude 做 headless 执行通道，方向参考 opencode `background.ts`，claude 对应 `claude -p --output-format stream-json` 流式解析（Windows 适配可直接抄 resolveBin/taskkill 思路）；A2A 网关需放开对 claude 工作区的拒绝（server/nexus_a2a.py）。相关旧决策：claude 权限中继（Bash/Write 远程 approve 走 claude/channel/permission）用户确认要做，排 v3
-- [ ] 真实 opencode 前台注入 E2E：web 下发 → TUI 前台注入 → 权限应答 → artifact 回传 全链路（前台路径今天只验了任务文本能进来，权限/提问/input-required 未验）
+- [ ] 真实 opencode 前台注入 E2E：web 下发 → TUI 前台注入 → 权限应答 → artifact 回传 全链路（前台路径已验证：928f289 前台锚点修复后 GJh7qg2n 任务注入正确会话并完成 git commit+push；权限/提问/input-required 未验）
+- [ ] 文档页「命令」章节 claude 支持表格已更新（后台 ✅），但 claude 后台会话修复后需复核表述与实际行为一致
 
 ### 备忘
 
@@ -121,10 +143,11 @@ cd plugins/opencode && npm run typecheck   # tsc --noEmit
 # 3. 重启 opencode（必须，运行中的会话持有旧插件代码）
 ```
 
-- 本机 serverUrl：`http://127.0.0.1:8700`，apikey 在 `~/.config/opencode/agent-swarm.json`（全局，TUI 插件读这个）与 `~/.config/opencode/plugins/agent-swarm/config.json`（server 插件兜底，两处应一致）
-- 插件日志：`~/.config/opencode/plugins/agent-swarm/plugin.log`（server/TUI 插件共用，TUI 行带 `[tui]` 前缀）
+- 本机 serverUrl：`http://127.0.0.1:8700`，apikey 在 `~/.config/opencode/agent-swarm.json`（全局，TUI 插件读这个）与 `~/.config/opencode/plugins/agent-swarm/config.json`（server 插件兜底，两处应一致）；claude 侧在 `~/.claude/agent-swarm/config.json`
+- opencode 插件日志：`~/.config/opencode/plugins/agent-swarm/plugin.log`（server/TUI 插件共用，TUI 行带 `[tui]` 前缀）
+- claude 插件日志：`~/.claude/agent-swarm/keepalive.log`（含 A2A 任务/spawn/顶号日志，排查 claude 后台问题先看这里）
 - opencode 运行日志：`~/.local/share/opencode/log/opencode.log`（TUI 插件加载报错看这里）
 - 心跳 30s，90s 超时判离线；**时间戳全是 UTC**，用户在 UTC+8，别拿本地时钟肉眼对比心跳新鲜度（反复踩过，AGENTS.md 有记载）
-- ⚠️ 改 plugins/opencode/src/ 后：同步 + 重打 tarball + 重启 opencode 才生效
+- ⚠️ 改 plugins/opencode/src/ 后：同步 + 重打 tarball + 重启 opencode 才生效；改 plugins/claude/*.mjs 后：同步到 `~\.claude\agent-swarm\` + 重打 tarball + 重启 claude（keepalive 是 claude spawn 的子进程）
 - ⚠️ 含中文的 ps1 安装脚本必须 UTF-8 with BOM
-- 快捷排查：`Select-String -Path "$env:USERPROFILE\.config\opencode\plugins\agent-swarm\plugin.log" -Pattern "background|a2a" | Select-Object -Last 20`
+- 快捷排查：`Select-String -Path "$env:USERPROFILE\.config\opencode\plugins\agent-swarm\plugin.log" -Pattern "background|a2a" | Select-Object -Last 20`；claude 侧 `Get-Content "$env:USERPROFILE\.claude\agent-swarm\keepalive.log" -Tail 40`

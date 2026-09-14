@@ -48,6 +48,8 @@ $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 # 1. 复制插件文件到安装目录 + 写配置（keepalive.mjs 读取）
 New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
 Copy-Item -Path (Join-Path $Src "keepalive.mjs") -Destination $InstallDir -Force -ErrorAction SilentlyContinue
+Copy-Item -Path (Join-Path $Src "nexus_a2a.mjs") -Destination $InstallDir -Force -ErrorAction SilentlyContinue
+Copy-Item -Path (Join-Path $Src "background.mjs") -Destination $InstallDir -Force -ErrorAction SilentlyContinue
 $cfg = @{ serverUrl = $Server; apiKey = $ApiKey } | ConvertTo-Json
 [IO.File]::WriteAllText((Join-Path $InstallDir "config.json"), $cfg, $utf8NoBom)
 

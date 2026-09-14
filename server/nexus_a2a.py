@@ -491,8 +491,6 @@ async def a2a_rpc(workspace_id: str, request: Request):
         ws = session.get(models.Workspace, workspace_id)
         if ws is None or ws.user_id != user.id:
             return JSONResponse(_err(-32002, "workspace not found or not visible"), status_code=404)
-        if (ws.agent_type or "").strip().lower() == "claude":
-            return JSONResponse(_err(-32003, "claude workspace does not support task execution yet"))
         if ws.status == "disabled" or not ws_online(workspace_id):
             return JSONResponse(_err(-32004, "workspace plugin is not online"), status_code=409)
 
@@ -772,8 +770,6 @@ async def nexus_send(workspace_id: str, request: Request):
         ws = session.get(models.Workspace, workspace_id)
         if ws is None or ws.user_id != user.id:
             raise HTTPException(404, "workspace not found")
-        if (ws.agent_type or "").strip().lower() == "claude":
-            raise HTTPException(409, "claude workspace does not support task execution yet")
         if ws.status == "disabled":
             raise HTTPException(409, "workspace is disabled")
         # 在线判定以插件 WS 为准（WS 在线即证明工作区可用；心跳 90s 超时只影响展示态）
