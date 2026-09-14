@@ -1850,7 +1850,6 @@ function WorkspacesPage({ toast }: { toast: (m: string) => void }) {
         <thead>
           <tr>
             <th style={{ width: 60 }}></th>
-            <th>ID</th>
             <th>名称</th>
             <th>状态</th>
             <th>路径</th>
@@ -1863,7 +1862,6 @@ function WorkspacesPage({ toast }: { toast: (m: string) => void }) {
           {filtered.map((w) => (
             <tr key={w.id}>
               <td><Switch on={w.status !== "disabled"} onClick={() => toggle(w)} /></td>
-              <td style={{ color: "var(--text-weak)", fontSize: 12, fontFamily: "var(--font-mono)" }}>{w.id}</td>
               <td className="strong">
                 <AgentTypeIcon type={w.agent_type} />
                 <a className="link" onClick={() => setDetail(w)}>{w.name}</a>
@@ -1919,8 +1917,10 @@ function WorkspacesPage({ toast }: { toast: (m: string) => void }) {
       )}
 
       {detail && (
-        <Modal title={detail.name} onClose={() => setDetail(null)}>
+        <Modal wide title={detail.name} onClose={() => setDetail(null)}>
           <dl className="dl">
+            <dt>ID</dt>
+            <dd style={{ fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--text-weak)", wordBreak: "break-all" }}>{detail.id}</dd>
             <dt>状态</dt><dd><StatusDot status={detail.status} /></dd>
             <dt>路径</dt><dd>{detail.path}</dd>
             <dt>agent</dt>
