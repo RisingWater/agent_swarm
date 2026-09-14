@@ -62,5 +62,6 @@ There is **no committed pytest suite** and no maintained E2E suite (user decided
 
 ## Conventions
 - Comments and handoff notes are in Chinese; keep new ones consistent (TODO.md is the running handoff doc — read it before starting work).
+- **Timestamps are UTC everywhere** (DB `created_at`/`last_heartbeat`, server logs, plugin.log ISO strings) while the user is in Beijing time (UTC+8) — a "fresh" timestamp looks ~8h stale at a glance. Do NOT judge heartbeat freshness by eyeballing vs local clock; compare against `now - 90s` in UTC or just trust `ws_online` (see Online status below). This trap has caused repeated misdiagnosis (2026-09-14).
 - Revise files with the edit tool directly; never edit files via ad-hoc scripts (PowerShell regex pipelines, `python -c` rewrites). Scripts for file mutation are hard to review and have caused broken edits here.
 - No CI, no pre-commit hooks, no codegen.
