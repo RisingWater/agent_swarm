@@ -1928,18 +1928,11 @@ function WorkspacesPage({ toast }: { toast: (m: string) => void }) {
 
 // ---------------- 调用记录 ----------------
 
-/** 发起方显示：渠道标注转友好文案。已知渠道映射，未知渠道（未来 nexus-*）原样展示 */
-const CALLER_CHANNEL_LABELS: Record<string, string> = {
-  "nexus-web": "网页中枢",
-  "nexus-feishu": "飞书中枢",
-  "nexus-wechat": "微信中枢",
-  "agent": "工作区 agent",
-}
-
+/** 发起方显示：渠道标注原样展示（nexus-web / nexus-feishu / ...），互调标 agent */
 function callerLabel(r: { caller: { name: string; path: string } | null; external_url?: string | null }): string {
   const c = r.caller
   if (!c?.name) return "-"
-  return CALLER_CHANNEL_LABELS[c.name] ?? c.name
+  return c.name
 }
 
 function CallsPage({ toast }: { toast: (m: string) => void }) {
