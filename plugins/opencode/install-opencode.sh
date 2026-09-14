@@ -165,9 +165,10 @@ fs.writeFileSync(cfgPath, out)
 console.log(`==> 已写入 mcp.agent-swarm 到 ${cfgPath}`)
 NODE
 
-# 插件（file:// 指向入口）负责心跳保活
-PLUGIN_REF="file://$INSTALL_DIR/src/index.ts"
-node - "$OC_CONFIG" "$PLUGIN_REF" <<'NODE'
+# 插件注册（file:// 指向入口）：src/index.ts = server 插件（心跳/任务执行）
+#                              src/tui.ts   = TUI 插件（/swarm-* 原生命令）
+register_plugin() {
+node - "$OC_CONFIG" "$1" <<'NODE'
 const fs = require("fs")
 const [cfgPath, pluginRef] = process.argv.slice(2)
 let text = fs.existsSync(cfgPath) ? fs.readFileSync(cfgPath, "utf-8") : "{}\n"
@@ -218,25 +219,20 @@ if (m) {
     out = text.replace(/^\s*\{/, () => "{\n  \"plugin\": [\n    \"" + pluginRef + "\"\n  ],\n")
 }
 fs.writeFileSync(cfgPath, out)
-console.log(`==> 已注册插件到 ${cfgPath}`)
+console.log(`==> 已注册插件 ${pluginRef}`)
 NODE
+}
+register_plugin "file://$INSTALL_DIR/src/index.ts"
+register_plugin "file://$INSTALL_DIR/src/tui.ts"
 
-# 5. 注册自定义命令（markdown 源文件在 commands/，拷贝即安装）
+# 5. 清理旧 md 命令（/swarm-* 已改为 TUI 原生命令，见 src/tui.ts；/swarm-register 已废弃）
 CMD_DIR="$HOME/.config/opencode/commands"
-mkdir -p "$CMD_DIR"
-
-# 旧版命令文件清理（已被 /swarm-* 取代）
-for old in swarm-note swarm-desc swarm-resummarize swarm_register swarm; do
+for old in swarm-note swarm-desc swarm-resummarize swarm_register swarm-add swarm-remove \
+           swarm-enable swarm-disable swarm-register swarm-mode; do
     if [ -f "$CMD_DIR/$old.md" ]; then
         rm -f "$CMD_DIR/$old.md"
         echo "    已移除旧命令 /$old"
     fi
 done
 
-for f in "$INSTALL_DIR"/commands/swarm-*.md; do
-    [ -f "$f" ] || continue
-    cp -f "$f" "$CMD_DIR/"
-    echo "    已注册命令 /$(basename "$f" .md)"
-done
-
-echo "✅ [opencode] 安装完成！重启 opencode 后：MCP 工具可用，插件自动心跳保活。"
+echo "✅ [opencode] 安装完成！重启 opencode 后：MCP 工具可用，插件自动心跳保活，/swarm-* 原生命令就绪。"

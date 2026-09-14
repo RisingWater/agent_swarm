@@ -65,6 +65,57 @@ def list_workspaces(
     return out
 
 
+@router.post("")
+def create_workspace(
+    body: dict,
+    user: models.User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+):
+    """注册工作区（TUI /swarm-add 用；与 MCP workspace_add 同语义）。
+
+    body: {path, name?, purpose?}
+    """
+    import shortuuid
+
+    path = str(body.get("path", "")).strip().rstrip("/") or "/"
+    if not path:
+        raise HTTPException(422, "path is required")
+    existing = session.exec(
+        select(models.Workspace).where(
+            models.Workspace.user_id == user.id,
+            models.Workspace.path == path,
+        )
+    ).first()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    if existing is None:
+        ws = models.Workspace(
+            id=shortuuid.uuid(),
+            user_id=user.id,
+            name=str(body.get("name") or path.split("/")[-1] or path),
+            path=path,
+        )
+        created = True
+    else:
+        ws = existing
+        created = False
+    purpose = str(body.get("purpose") or "").strip()
+    if purpose:
+        ws.purpose = purpose
+    ws.agent_type = "opencode"
+    ws.status = "online"
+    ws.last_heartbeat = now
+    ws.updated_at = now
+    session.add(ws)
+    session.commit()
+    return {
+        "workspace_id": ws.id,
+        "created": created,
+        "name": ws.name,
+        "purpose": ws.purpose,
+        "status": ws.status,
+    }
+
+
 @router.post("/{workspace_id}/disable")
 def disable_workspace(
     workspace_id: str,
