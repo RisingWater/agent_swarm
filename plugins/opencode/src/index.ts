@@ -95,13 +95,14 @@ const plugin: Plugin = async (input) => {
   /** SSE 事件回调注册表：taskId → handler（event hook 里分发） */
   const a2aEventHandlers = new Map<string, (evt: any) => void>()
 
-  /** event hook 没跟踪到会话时，从 session.list 挑最近活跃的作为前台候选 */
+  /** event hook 没跟踪到会话时，从 session.list 挑最近活跃的作为前台候选。
+   *  排除 A2A-* 标题的后台任务会话（后台模式专用，前台注入绝不能落进去）。 */
   async function pickRecentSession(): Promise<string> {
     try {
       const rsp: any = await client.session.list()
       const list: any[] = Array.isArray(rsp?.data) ? rsp.data : []
       const best = list
-        .filter((s) => s?.id && !s?.parentID)
+        .filter((s) => s?.id && !s?.parentID && !/^A2A-/.test(String(s?.title ?? "")))
         .sort((a, b) => (b?.time?.updated ?? 0) - (a?.time?.updated ?? 0))[0]
       return best?.id ?? ""
     } catch {
@@ -208,12 +209,18 @@ const plugin: Plugin = async (input) => {
       if (result.sessionId) writeSessionEntry(directory, caller, result.sessionId)
       return result.ok ? (result.sessionId ?? "background") : null
     }
-    return executeTaskForeground(task, text, caller)
+    return executeTaskForeground(task, text, caller, serverSessionId)
   }
 
-  /** 前台注入执行（原 executeTask 主体） */
-  async function executeTaskForeground(task: A2aTaskRef, text: string, caller: string): Promise<string | null> {
-    let sessionId = currentSessionId || (await pickRecentSession())
+  /**
+   * 前台注入执行（原 executeTask 主体）。
+   * 会话锚点以服务端派发的 metadata.session_id（= heartbeat 上报的工作区当前会话）为准：
+   * 服务端视角的"前台会话"才是用户盯着的那个；本地 event hook 跟踪值仅作兜底
+   * （heartbeat 可能还没把新会话报上去）。冷启动兜底 pickRecentSession 最后用，
+   * 避免 TUI 刚起、服务端锚点还空时落到后台任务会话上。
+   */
+  async function executeTaskForeground(task: A2aTaskRef, text: string, caller: string, serverSessionId = ""): Promise<string | null> {
+    let sessionId = serverSessionId || currentSessionId || (await pickRecentSession())
     if (!sessionId) {
       const created: any = await client.session.create({
         body: { title: `A2A-${task.taskId.slice(0, 8)}` },
