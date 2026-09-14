@@ -38,9 +38,11 @@ export function loadConfig(): ExtendedSwarmConfig | null {
     apiKey: globalCfg.apiKey ?? localCfg.apiKey ?? process.env.AGENT_SWARM_API_KEY ?? "",
     heartbeatIntervalMs: globalCfg.heartbeatIntervalMs ?? localCfg.heartbeatIntervalMs ?? 30_000,
     executionMode:
-      globalCfg.executionMode === "background" || localCfg.executionMode === "background"
-        ? "background"
-        : "foreground",
+      globalCfg.executionMode === "background" || globalCfg.executionMode === "foreground"
+        ? globalCfg.executionMode // 全局配置显式设置了就以其为准
+        : localCfg.executionMode === "background"
+          ? "background"
+          : "foreground",
     backgroundCommand:
       (globalCfg.backgroundCommand as string) ?? (localCfg.backgroundCommand as string) ?? process.env.AGENT_SWARM_BG_CMD ?? "auto",
   }

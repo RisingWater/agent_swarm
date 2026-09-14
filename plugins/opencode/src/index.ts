@@ -184,7 +184,9 @@ const plugin: Plugin = async (input) => {
    * 按配置分流：foreground=注入当前 TUI 前台会话；background=spawn headless 进程。
    */
   async function executeTask(task: A2aTaskRef, text: string, caller: string, serverSessionId = ""): Promise<string | null> {
-    if (config.executionMode === "background") {
+    // 每次收任务重读配置：/swarm-mode 切换执行模式无需重启 opencode
+    const liveCfg = loadConfig() ?? config
+    if (liveCfg.executionMode === "background") {
       // 后台模式：headless 进程执行（不碰前台会话状态；--auto 全自动批准权限）
       // 会话锚点 = 服务端派发的 session_id（heartbeat 上报的工作区当前会话）
       log(`a2a ${task.taskId.slice(0, 8)}: background mode${serverSessionId ? ` session=${serverSessionId.slice(0, 12)}` : " (new session)"}`)
@@ -192,7 +194,7 @@ const plugin: Plugin = async (input) => {
         task,
         text,
         caller,
-        { cwd: directory, opencodeBin: config.backgroundCommand === "auto" ? "opencode" : config.backgroundCommand, sessionId: serverSessionId },
+        { cwd: directory, opencodeBin: liveCfg.backgroundCommand === "auto" ? "opencode" : liveCfg.backgroundCommand, sessionId: serverSessionId },
         { emit: a2aEmit, log },
       )
       return result.ok ? (result.sessionId ?? "background") : null
