@@ -2,7 +2,7 @@
 
 > 更新时间: 2026-09-14 深夜 · Windows 机（D:\wangxu\work\agent_swarm，workspace ID 4g8rHi43MHaWurH9XYsGNH）
 > 服务已跑在 :8700（.\deploy\start.ps1 前台运行）· 前端构建产物由 8700 静态托管
-> 已推送 origin/dev（HEAD = 48fbbbe）；工作区另有未提交改动：后台会话按 caller 续聊 + Windows 适配（见已完成第 1 节）
+> 已推送 origin/dev（HEAD = 0a5e46e，含后台会话按 caller 续聊 + Windows 适配，见已完成第 1 节）
 
 ## 项目一句话
 
@@ -23,9 +23,9 @@
 - ~~视频走 git lfs~~（放弃：mp4 39MB 普通 blob 已推送成功，用户接受仓库变大）
 - ~~e2e 测试脚本~~（用户 2026-09-12 决定放弃，scripts/test_plugin_smoke.ts 是死代码可删可留）
 
-## 已完成（除注明"未提交"外均已进 git）
+## 已完成（除注明外均已进 git）
 
-### 后台会话按 caller 续聊 + Windows 适配（2026-09-14 深夜，未提交，E2E 首单已验证）
+### 后台会话按 caller 续聊 + Windows 适配（2026-09-14 深夜，0a5e46e 已提交推送，E2E 首单已验证）
 
 - ✅ **`plugins/opencode/src/sessions.ts`（新文件）**：后台会话映射表 `.agent-swarm-sessions.json`（工作区根目录，已进 .gitignore），键 = caller（nexus-web / 调用方工作区 ID / 外部 A2A URL），值 = opencode 会话 ID；同一来源的任务复用同一后台会话保证对话连续性，成功失败都回写
 - ✅ **background.ts 重构**：拆出 `spawnOnce`（单次 spawn 到退出）+ `runBackgroundTask` 编排；新增 `--pure`（子进程不加载插件，避免同 WORKSPACE_ID 二连顶掉 TUI 的 /ws/plugin 连接）、`--thinking`（stdout 输出 reasoning 事件实时回传 web）；`--session` 被拒（非零退出且无任何 stdout 事件）自动去锚点用新会话重试一次
@@ -95,7 +95,6 @@
 - [ ] **前端 web 的 A2A 与后台会话展示未更新**（用户原话："前端的a2a和后台会话还没有更新"）：后台任务独立会话（A2A-xxx）在中枢页无区分展示；task 的 session_id 上报后工作区表"当前会话"列刷新未验证；后台事件（metadata.background=true）前端未特殊渲染
 - [ ] **claude 后台会话未做**（用户：claude 前台会话做不了，只做后台）：给 claude 做 headless 执行通道，方向参考 opencode `background.ts`，claude 对应 `claude -p --output-format stream-json` 流式解析（Windows 适配可直接抄 resolveBin/taskkill 思路）；A2A 网关需放开对 claude 工作区的拒绝（server/nexus_a2a.py）。相关旧决策：claude 权限中继（Bash/Write 远程 approve 走 claude/channel/permission）用户确认要做，排 v3
 - [ ] 真实 opencode 前台注入 E2E：web 下发 → TUI 前台注入 → 权限应答 → artifact 回传 全链路（前台路径今天只验了任务文本能进来，权限/提问/input-required 未验）
-- [ ] 本机（Windows）未提交改动收尾：sessions.ts/background.ts/index.ts + .gitignore + .agent-swarm.md（WORKSPACE_ID 换成 4g8rHi43MHaWurH9XYsGNH）待提交；提交前把安装目录 `%USERPROFILE%\.config\opencode\plugins\agent-swarm\` 与仓库确认同步（2026-09-14 深夜已比对一致，含 sessions.ts）
 
 ### 备忘
 
