@@ -258,14 +258,18 @@ if (-not (Test-Path $tuiCfg)) {
     }
 }
 
-# 5. 清理旧 md 命令（/swarm-* 已改为 TUI 原生命令，见 src/tui.ts；/swarm-register 已废弃）
+# 5. 安装 md 命令（/swarm-add：前台会话由 agent 生成 purpose 后调 MCP 工具）
 $cmdDir = Join-Path $HOME ".config\opencode\commands"
 New-Item -ItemType Directory -Force -Path $cmdDir | Out-Null
 
+Copy-Item (Join-Path $Src "commands\swarm-add.md") (Join-Path $cmdDir "swarm-add.md") -Force
+Write-Host "==> 已安装 /swarm-add 命令"
+
+# 6. 清理已废弃的 md 命令（/swarm-* 其余为 TUI 原生命令，见 src/tui.ts；swarm-register 已废弃）
 foreach ($old in @("swarm-note", "swarm-desc", "swarm-resummarize", "swarm_register", "swarm",
-                   "swarm-add", "swarm-remove", "swarm-enable", "swarm-disable", "swarm-register", "swarm-mode")) {
+                   "swarm-remove", "swarm-enable", "swarm-disable", "swarm-register", "swarm-mode")) {
     $f = Join-Path $cmdDir "$old.md"
     if (Test-Path $f) { Remove-Item $f -Force; Write-Host "    已移除旧命令 /$old" }
 }
 
-Write-Host "✅ [opencode] 安装完成！重启 opencode 后：MCP 工具可用，插件自动心跳保活，/swarm-* 原生命令就绪。"
+Write-Host "✅ [opencode] 安装完成！重启 opencode 后：MCP 工具可用，插件自动心跳保活，/swarm-* 命令就绪。"

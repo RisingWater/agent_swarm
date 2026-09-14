@@ -73,7 +73,7 @@ def create_workspace(
 ):
     """注册工作区（TUI /swarm-add 用；与 MCP workspace_add 同语义）。
 
-    body: {path, name?, purpose?}
+    body: {path, name?, purpose?, capabilities?}
     """
     import shortuuid
 
@@ -101,6 +101,9 @@ def create_workspace(
     purpose = str(body.get("purpose") or "").strip()
     if purpose:
         ws.purpose = purpose
+    capabilities = str(body.get("capabilities") or "").strip()
+    if capabilities:
+        ws.capabilities = capabilities
     ws.agent_type = "opencode"
     ws.status = "online"
     ws.last_heartbeat = now

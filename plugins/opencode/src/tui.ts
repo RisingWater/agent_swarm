@@ -5,8 +5,8 @@
  *
  * 命令：
  *   /swarm-mode     弹窗选择 foreground / background
- *   /swarm-add      自动注册当前目录 → 写 .agent-swarm.md；随后 spawn headless opencode
- *                   （挂载当前会话）总结项目用途并回传
+ *   /swarm-add      md 命令（commands/swarm-add.md，前台会话由 agent 生成 purpose 后调
+ *                   MCP workspace_add/update_info），不在此处注册
  *   /swarm-remove   自动删除工作区（仅离线可删）→ 清 WORKSPACE_ID（不弹窗）
  *   /swarm-enable   自动启用
  *   /swarm-disable  自动禁用
@@ -16,7 +16,6 @@
  */
 
 import type { TuiPlugin } from "@opencode-ai/plugin/tui"
-import { spawn } from "node:child_process"
 
 const CFG_PATH = (() => {
   const home = process.env.HOME || process.env.USERPROFILE || ""
@@ -132,75 +131,6 @@ function swarmFile(worktree: string) {
   return { path, read, setLine, getLine, ensure }
 }
 
-/** 拉起 headless opencode（挂载当前会话）总结项目用途，返回总结文本。120s 超时。
- * 注意：挂载当前会话时若该会话 busy，opencode run --session 会等待其空闲，超时需放宽。
- */
-function summarizePurpose(worktree: string, currentSessionId: string, timeoutMs = 120_000): Promise<string | null> {
-  return new Promise((resolve) => {
-    const bin = process.env.OPENCODE_BIN || "opencode"
-    const prompt = [
-      "请快速浏览当前工作区的代码与文档（README/AGENTS.md/package.json 等）。",
-      "用一句简短中文概括这个项目的用途（是什么、用于什么场景）。",
-      "只输出这一句概括，不要输出任何其他内容。",
-    ].join("\n")
-    const args = ["run", prompt, "--format", "json", "--auto", "--title", "swarm-purpose"]
-    if (currentSessionId) args.push("--session", currentSessionId)
-
-    tuiLog(`summarizePurpose start worktree=${worktree} session=${currentSessionId || "(none)"} timeout=${timeoutMs}ms`)
-    let proc
-    try {
-      proc = spawn(bin, args, { cwd: worktree, stdio: ["ignore", "pipe", "pipe"] })
-    } catch (e) {
-      tuiLog(`summarizePurpose spawn failed: ${e}`)
-      resolve(null)
-      return
-    }
-
-    let buf = ""
-    let lastText = ""
-    let stderrTail = ""
-    let settled = false
-    const settle = (res: string | null, why: string) => {
-      if (settled) return
-      settled = true
-      clearTimeout(timer)
-      tuiLog(`summarizePurpose settle ${why} text="${(lastText || "").slice(0, 40)}" stderr_tail="${stderrTail.slice(-100)}"`)
-      resolve(res)
-    }
-    const timer = setTimeout(() => {
-      tuiLog(`summarizePurpose timeout after ${timeoutMs}ms, killing`)
-      if (proc.pid) {
-        try { process.kill(-proc.pid, "SIGKILL") } catch { proc.kill("SIGKILL") }
-      }
-      settle(lastText || null, "timeout")
-    }, timeoutMs)
-
-    proc.stdout!.on("data", (chunk: Buffer) => {
-      buf += chunk.toString()
-      let idx: number
-      while ((idx = buf.indexOf("\n")) >= 0) {
-        const line = buf.slice(0, idx).trim()
-        buf = buf.slice(idx + 1)
-        if (!line) continue
-        try {
-          const evt = JSON.parse(line)
-          const part = evt.part ?? {}
-          if (part.type === "text" && !part.synthetic && typeof part.text === "string" && part.text.trim()) {
-            lastText = part.text.trim()
-          }
-        } catch {
-          /* 非 JSON 行忽略 */
-        }
-      }
-    })
-    proc.stderr!.on("data", (chunk: Buffer) => {
-      stderrTail += chunk.toString()
-    })
-    proc.on("error", (e) => settle(lastText || null, `error ${e}`))
-    proc.on("close", (code) => settle(lastText || null, `close code=${code}`))
-  })
-}
-
 const MODE_LABEL: Record<string, string> = {
   foreground: "前台（注入当前 TUI 会话）",
   background: "后台（独立 headless 进程执行）",
@@ -209,10 +139,6 @@ const MODE_LABEL: Record<string, string> = {
 const tui: TuiPlugin = async (api) => {
   const worktree = api.state.path.worktree
   const file = swarmFile(worktree)
-  const currentSessionId =
-    api.route.current.name === "session"
-      ? String((api.route.current as any).params?.sessionID ?? "")
-      : ""
 
   const toastErr = (e: string) => api.ui.toast({ variant: "error", message: e, duration: 6000 })
 
@@ -255,47 +181,6 @@ const tui: TuiPlugin = async (api) => {
             },
           }),
         )
-      },
-    },
-    {
-      title: "Swarm: Add Workspace",
-      value: "swarm.add",
-      description: "注册当前目录为 agent_swarm 工作区并总结用途",
-      slash: { name: "swarm-add" },
-      onSelect: async (dialog) => {
-        dialog?.clear()
-        const rsp = await swarmApi<{ workspace_id: string; created: boolean; name: string }>("/api/workspaces", "POST", {
-          path: worktree,
-        })
-        if (!rsp.ok || !rsp.data) {
-          toastErr(`注册失败: ${rsp.error}`)
-          return
-        }
-        // 写 .agent-swarm.md：模板创建（PURPOSE/CAPABILITIES/WORKSPACE_ID 行）并更新 ID
-        file.ensure(rsp.data.workspace_id)
-        file.setLine("WORKSPACE_ID", rsp.data.workspace_id)
-        api.ui.toast({
-          variant: "success",
-          message: `已注册 ${rsp.data.workspace_id}，正在总结用途…`,
-          duration: 4000,
-        })
-        // headless opencode 总结项目用途（挂当前会话），成功后上传 server 并写入 .agent-swarm.md
-        const purpose = await summarizePurpose(worktree, currentSessionId)
-        if (purpose) {
-          await swarmApi("/api/workspaces", "POST", { path: worktree, purpose })
-          file.setLine("PURPOSE", purpose)
-          api.ui.toast({
-            variant: "success",
-            message: `用途已更新: ${purpose.slice(0, 60)}${purpose.length > 60 ? "…" : ""}`,
-            duration: 6000,
-          })
-        } else {
-          api.ui.toast({
-            variant: "info",
-            message: "用途总结未生成（进程无输出/超时），可后续用 /swarm-note 补充",
-            duration: 5000,
-          })
-        }
       },
     },
     {
