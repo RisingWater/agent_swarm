@@ -216,19 +216,56 @@ if ($text.Contains($pluginRef)) {
     Write-Host "==> 已注册插件到 $ocConfig"
 }
 
-# 5. 注册自定义命令（markdown 源文件在 commands/，拷贝即安装）
+# TUI 插件注册到 ~/.config/opencode/tui.jsonc（v1 TUI 插件与 server 插件分开注册）
+$tuiCfg = Join-Path $HOME ".config\opencode\tui.jsonc"
+$tuiRef = "file:///" + ($InstallDir -replace "\\", "/") + "/src/tui.ts"
+if (-not (Test-Path $tuiCfg)) {
+    [IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($tuiCfg)) | Out-Null
+    $tuiText = @"
+{
+  `"$schema`": `"https://opencode.ai/tui.json`",
+  `"plugin`": [
+    `"$tuiRef`"
+  ]
+}
+"@
+    [IO.File]::WriteAllText($tuiCfg, $tuiText, $utf8NoBom)
+    Write-Host "==> 已创建并注册 TUI 插件到 $tuiCfg"
+} else {
+    $tuiText = [IO.File]::ReadAllText($tuiCfg)
+    if ($tuiText.Contains($tuiRef)) {
+        Write-Host "==> TUI 插件已在 tui.jsonc 中，跳过注册"
+    } else {
+        $tm = [regex]::Match($tuiText, '(?s)("plugin"\s*:\s*\[)(.*?)(\])')
+        if ($tm.Success) {
+            $inner = $tm.Groups[2].Value
+            $stripped = (Remove-JsoncComment -Text $inner).Trim()
+            $needComma = ($stripped.Length -gt 0) -and (-not $stripped.EndsWith(","))
+            if ($needComma) {
+                $newInner = $inner.TrimEnd() + ",`n    `"$tuiRef`"`n  "
+            } else {
+                $newInner = $inner + "`n    `"$tuiRef`"`n  "
+            }
+            $tuiText = $tuiText.Remove($tm.Index, $tm.Length).Insert($tm.Index, $tm.Groups[1].Value + $newInner + $tm.Groups[3].Value)
+        } else {
+            $insert = "{`n  `"plugin`": [`n    `"$tuiRef`"`n  ],`n"
+            $rx = New-Object System.Text.RegularExpressions.Regex("(?m)^\s*\{")
+            $newText = $rx.Replace($tuiText, $insert, 1)
+            $tuiText = if ($newText -eq $tuiText) { $insert + $tuiText } else { $newText }
+        }
+        [IO.File]::WriteAllText($tuiCfg, $tuiText, $utf8NoBom)
+        Write-Host "==> 已注册 TUI 插件到 $tuiCfg"
+    }
+}
+
+# 5. 清理旧 md 命令（/swarm-* 已改为 TUI 原生命令，见 src/tui.ts；/swarm-register 已废弃）
 $cmdDir = Join-Path $HOME ".config\opencode\commands"
 New-Item -ItemType Directory -Force -Path $cmdDir | Out-Null
 
-# 旧版命令文件清理（已被 /swarm-* 取代）
-foreach ($old in @("swarm-note", "swarm-desc", "swarm-resummarize", "swarm_register", "swarm")) {
+foreach ($old in @("swarm-note", "swarm-desc", "swarm-resummarize", "swarm_register", "swarm",
+                   "swarm-add", "swarm-remove", "swarm-enable", "swarm-disable", "swarm-register", "swarm-mode")) {
     $f = Join-Path $cmdDir "$old.md"
     if (Test-Path $f) { Remove-Item $f -Force; Write-Host "    已移除旧命令 /$old" }
 }
 
-Get-ChildItem (Join-Path $InstallDir "commands") -Filter "swarm-*.md" -ErrorAction SilentlyContinue | ForEach-Object {
-    Copy-Item $_.FullName (Join-Path $cmdDir $_.Name) -Force
-    Write-Host "    已注册命令 /$($_.BaseName)"
-}
-
-Write-Host "✅ [opencode] 安装完成！重启 opencode 后：MCP 工具可用，插件自动心跳保活。"
+Write-Host "✅ [opencode] 安装完成！重启 opencode 后：MCP 工具可用，插件自动心跳保活，/swarm-* 原生命令就绪。"

@@ -166,9 +166,8 @@ console.log(`==> 已写入 mcp.agent-swarm 到 ${cfgPath}`)
 NODE
 
 # 插件注册（file:// 指向入口）：src/index.ts = server 插件（心跳/任务执行）
-#                              src/tui.ts   = TUI 插件（/swarm-* 原生命令）
 register_plugin() {
-node - "$OC_CONFIG" "$1" <<'NODE'
+node - "$1" "$2" <<'NODE'
 const fs = require("fs")
 const [cfgPath, pluginRef] = process.argv.slice(2)
 let text = fs.existsSync(cfgPath) ? fs.readFileSync(cfgPath, "utf-8") : "{}\n"
@@ -222,8 +221,25 @@ fs.writeFileSync(cfgPath, out)
 console.log(`==> 已注册插件 ${pluginRef}`)
 NODE
 }
-register_plugin "file://$INSTALL_DIR/src/index.ts"
-register_plugin "file://$INSTALL_DIR/src/tui.ts"
+register_plugin "$OC_CONFIG" "file://$INSTALL_DIR/src/index.ts"
+
+# TUI 插件注册到 ~/.config/opencode/tui.jsonc（v1 TUI 插件与 server 插件分开注册）
+TUI_CFG="$HOME/.config/opencode/tui.jsonc"
+TUI_REF="file://$INSTALL_DIR/src/tui.ts"
+if [ ! -f "$TUI_CFG" ]; then
+    mkdir -p "$(dirname "$TUI_CFG")"
+    cat > "$TUI_CFG" <<EOF
+{
+  "\$schema": "https://opencode.ai/tui.json",
+  "plugin": [
+    "${TUI_REF}"
+  ]
+}
+EOF
+    echo "==> 已创建并注册 TUI 插件到 ${TUI_CFG}"
+else
+    register_plugin "$TUI_CFG" "$TUI_REF"
+fi
 
 # 5. 清理旧 md 命令（/swarm-* 已改为 TUI 原生命令，见 src/tui.ts；/swarm-register 已废弃）
 CMD_DIR="$HOME/.config/opencode/commands"
