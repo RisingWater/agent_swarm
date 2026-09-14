@@ -969,7 +969,7 @@ function DocsPage() {
           <h3>开始协作</h3>
           <p>注册完成后，在 agent 对话里让它派发任务即可：</p>
           <pre><code>{`你: 调用 nas_brain 工作区，查看它最新一次 git 提交
-agent: (workspace_call) → 对方 TUI 实时出现任务 → 执行 → 结果自动回传`}</code></pre>
+agent: (a2a_call) → 对方 TUI 实时出现任务 → 执行 → 结果自动回传`}</code></pre>
         </section>
 
         <section id="doc-concepts" className="docs-section">
@@ -1006,11 +1006,11 @@ agent: (workspace_call) → 对方 TUI 实时出现任务 → 执行 → 结果�
               <tr><td><code>workspace_add</code></td><td>注册当前目录为工作区，返回 ID 并写入 .agent-swarm.md</td></tr>
               <tr><td><code>workspace_remove</code></td><td>移除自己的工作区（仅离线可删）</td></tr>
               <tr><td><code>workspace_enable</code> / <code>workspace_disable</code></td><td>启用 / 禁用工作区</td></tr>
-              <tr><td><code>heartbeat</code></td><td>心跳保活，响应捎带待执行任务（插件自动调用）</td></tr>
+              <tr><td><code>heartbeat</code></td><td>心跳保活，上报当前会话信息（插件自动调用）</td></tr>
               <tr><td><code>update_info</code> / <code>update_notes</code></td><td>更新用途/能力描述、备注</td></tr>
               <tr><td><code>list_workspaces</code></td><td>列出可见工作区（默认仅在线）</td></tr>
-              <tr><td><code>workspace_call</code></td><td>跨 agent 任务派发（异步，返回 call_id）</td></tr>
-              <tr><td><code>workspace_call_status</code></td><td>轮询调用结果</td></tr>
+              <tr><td><code>a2a_call</code></td><td>A2A 协议给其他 agent 发任务（支持内部工作区与外部 A2A agent 端点）</td></tr>
+              <tr><td><code>a2a_task</code></td><td>查询 A2A 任务状态与结果</td></tr>
             </tbody>
           </table>
           <p>
@@ -1082,43 +1082,33 @@ agent: (workspace_call) → 对方 TUI 实时出现任务 → 执行 → 结果�
   )
 }
 
-// ---------------- 中枢（nexus） ----------------
+// ---------------- 中枢（nexus，A2A 协议） ----------------
 
-/** timeline 事件（WS 从服务端转发） */
-type TimelineEvent =
-  | { kind: "run-started"; req_id: string; session_id: string; text: string; time: number }
-  | { kind: "text-updated"; req_id: string; part_id: string; text: string; time: number }
-  | { kind: "reasoning-updated"; req_id: string; part_id: string; text: string; time: number }
-  | {
-      kind: "tool-state-changed"
-      req_id: string
-      call_id: string
-      tool: string
-      state: "running" | "completed" | "error"
-      input?: Record<string, unknown>
-      output?: string
-      time: number
-    }
-  | {
-      kind: "permission-requested"
-      req_id: string
-      request_id: string
-      session_id: string
-      permission: string
-      title: string
-      time: number
-    }
-  | {
-      kind: "question-requested"
-      req_id: string
-      request_id: string
-      session_id: string
-      question: string
-      options: Array<{ label: string; value: string }>
-      time: number
-    }
-  | { kind: "session-idle"; req_id: string; session_id: string; time: number }
-  | { kind: "run-error"; req_id: string; error: string; time: number }
+/** 服务端 WS 推来的 A2A 事件（status-update / artifact-update，camelCase） */
+type A2aEvent = {
+  taskId: string
+  contextId: string
+  kind: "status-update" | "artifact-update"
+  status?: {
+    state: string
+    message?: A2aMessage | null
+  }
+  artifact?: {
+    artifactId: string
+    name?: string
+    parts: Array<{ kind: string; text?: string; data?: Record<string, unknown> }>
+  }
+  lastChunk?: boolean
+  metadata?: Record<string, unknown>
+}
+
+type A2aMessage = {
+  role: string
+  parts: Array<{ kind: string; text?: string; data?: Record<string, unknown> }>
+  messageId?: string
+  taskId?: string
+  contextId?: string
+}
 
 /** 渲染用 timeline 条目 */
 interface TimelineItem {
@@ -1129,6 +1119,8 @@ interface TimelineItem {
   state?: string
   output?: string
   request_id?: string
+  /** 权限/提问所属的 A2A 任务 ID（应答回传用） */
+  task_id?: string
   permission?: string
   options?: Array<{ label: string; value: string }>
   answered?: string
@@ -1217,7 +1209,8 @@ function NexusPage({ toast }: { toast: (m: string) => void }) {
   const [busy, setBusy] = useState(false)
   const wsRef = useRef<WebSocket | null>(null)
   const timelineRef = useRef<HTMLDivElement>(null)
-  const reqSeq = useRef(0)
+  /** 任务状态表：taskId → 最新状态（completed/input-required 等判定用） */
+  const taskStates = useRef<Map<string, string>>(new Map())
 
   const refresh = useCallback(async () => {
     try { setList(await api.workspaces()) } catch { /* 静默 */ }
@@ -1230,6 +1223,7 @@ function NexusPage({ toast }: { toast: (m: string) => void }) {
   useEffect(() => {
     setItems([])
     setPluginOnline(false)
+    taskStates.current.clear()
     if (!selected) return
     const token = localStorage.getItem("swarm_token") ?? ""
     const proto = location.protocol === "https:" ? "wss:" : "ws:"
@@ -1251,20 +1245,22 @@ function NexusPage({ toast }: { toast: (m: string) => void }) {
           break
         case "subscribed":
           setPluginOnline(!!msg.plugin_online)
-          // 服务端回放历史 timeline
+          // 服务端回放历史事件（A2A 形状）
           if (Array.isArray(msg.history) && msg.history.length) {
             setItems([])
-            for (const evt of msg.history as TimelineEvent[]) applyTimelineEvent(evt)
+            for (const evt of msg.history as A2aEvent[]) applyA2aEvent(evt)
           }
           break
-        case "cleared":
-          setItems([])
-          break
         case "event":
-          applyTimelineEvent(msg.event as TimelineEvent)
+          applyA2aEvent(msg.payload as A2aEvent)
           break
-        case "result":
-          if (msg.ok === false) toast(`指令失败: ${msg.result}`)
+        case "task":
+          // 任务快照：更新状态表（artifact 已随事件渲染）
+          {
+            const t = msg.task as { id: string; status: string }
+            if (t?.id) taskStates.current.set(t.id, t.status)
+            if (t?.status === "completed" || t?.status === "failed" || t?.status === "canceled") setBusy(false)
+          }
           break
       }
     }
@@ -1274,78 +1270,139 @@ function NexusPage({ toast }: { toast: (m: string) => void }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selected])
 
-  // timeline 事件 → 渲染条目（合并同 part_id 的流式更新）
-  function applyTimelineEvent(evt: TimelineEvent) {
-    setItems((prev) => {
-      const next = [...prev]
-      const mergeByKey = (key: string, text: string) => {
+  /** metadata.nexus 标注的 opencode 细节事件 */
+  function nxMeta(evt: A2aEvent): Record<string, unknown> {
+    return evt.metadata?.nexus ? (evt.metadata as Record<string, unknown>) : {}
+  }
+
+  /** A2A 事件 → 渲染条目（合并同 part_id / call_id 的流式更新） */
+  function applyA2aEvent(evt: A2aEvent) {
+    if (evt.kind === "artifact-update") {
+      const text = (evt.artifact?.parts ?? []).map((p) => p.text ?? "").join("\n")
+      if (!text) return
+      setItems((prev) => {
+        const next = [...prev]
+        const key = `art-${evt.artifact?.artifactId ?? evt.taskId}`
         const i = next.findIndex((it) => it.key === key)
-        if (i >= 0) next[i] = { ...next[i], text, time: evt.time ?? Date.now() }
-        else next.push({ key, kind: "text", text, time: evt.time ?? Date.now() })
+        const entry: TimelineItem = { key, kind: "text", text, time: Date.now() }
+        if (i >= 0) next[i] = entry
+        else next.push(entry)
+        return next
+      })
+      return
+    }
+    const state = evt.status?.state ?? ""
+    taskStates.current.set(evt.taskId, state)
+    const meta = nxMeta(evt)
+    if (meta.nexus === "tool") {
+      const key = `tool-${meta.call_id}`
+      const cmd = toolCommand(meta.input as Record<string, unknown> | undefined)
+      const entry: TimelineItem = {
+        key,
+        kind: "tool",
+        text: cmd,
+        tool: String(meta.tool ?? ""),
+        state: String(meta.tool_state ?? "running"),
+        output: typeof meta.output === "string" ? meta.output : undefined,
+        time: Date.now(),
       }
-      switch (evt.kind) {
-        case "run-started":
-          next.push({ key: `u-${evt.req_id}`, kind: "user", text: evt.text, time: evt.time })
-          break
-        case "reasoning-updated":
-          mergeByKey(`r-${evt.part_id}`, evt.text)
-          // reasoning 条目 kind 单独标
-          {
-            const i = next.findIndex((it) => it.key === `r-${evt.part_id}`)
-            if (i >= 0) next[i].kind = "reasoning"
-          }
-          break
-        case "text-updated":
-          mergeByKey(`t-${evt.part_id}`, evt.text)
-          break
-        case "tool-state-changed": {
-          const key = `tool-${evt.call_id}`
-          const i = next.findIndex((it) => it.key === key)
-          const cmd = toolCommand(evt.input)
-          const entry: TimelineItem = { key, kind: "tool", text: cmd, tool: evt.tool, state: evt.state, output: evt.output, time: evt.time }
-          if (i >= 0) next[i] = entry
-          else next.push(entry)
-          break
-        }
-        case "session-idle":
-          next.push({ key: `idle-${evt.req_id}`, kind: "idle", text: "已完成", time: evt.time })
-          setBusy(false)
-          break
-        case "permission-requested": {
-          const key = `perm-${evt.request_id}`
-          const i = next.findIndex((it) => it.key === key)
-          const entry: TimelineItem = {
-            key,
-            kind: "permission",
-            text: evt.title || evt.permission,
-            permission: evt.permission,
-            request_id: evt.request_id,
-            time: evt.time,
-          }
-          if (i < 0) next.push(entry)
-          break
-        }
-        case "question-requested": {
-          const key = `ques-${evt.request_id}`
-          const i = next.findIndex((it) => it.key === key)
-          const entry: TimelineItem = {
-            key,
-            kind: "question",
-            text: evt.question,
-            options: evt.options,
-            request_id: evt.request_id,
-            time: evt.time,
-          }
-          if (i < 0) next.push(entry)
-          break
-        }
-        case "run-error":
-          next.push({ key: `err-${evt.req_id}-${next.length}`, kind: "error", text: evt.error, time: evt.time })
-          setBusy(false)
-          break
+      setItems((prev) => {
+        const next = [...prev]
+        const i = next.findIndex((it) => it.key === key)
+        if (i >= 0) next[i] = entry
+        else next.push(entry)
+        return next
+      })
+      return
+    }
+    if (meta.nexus === "text" || meta.nexus === "reasoning") {
+      const partId = String(meta.part_id ?? "")
+      const key = `${meta.nexus === "reasoning" ? "r" : "t"}-${partId}`
+      const kind = meta.nexus === "reasoning" ? "reasoning" : "text"
+      setItems((prev) => {
+        const next = [...prev]
+        const i = next.findIndex((it) => it.key === key)
+        if (i >= 0) next[i] = { ...next[i], text: String(meta.text ?? ""), time: Date.now() }
+        else next.push({ key, kind, text: String(meta.text ?? ""), time: Date.now() })
+        return next
+      })
+      return
+    }
+    // input-required：权限/提问（status.message.parts[0].data）
+    if (state === "input-required") {
+      const data = evt.status?.message?.parts?.find((p) => p.kind === "data")?.data as Record<string, unknown> | undefined
+      const type = String(data?.type ?? "")
+      const requestId = String(data?.requestId ?? "")
+      if (type === "permission" && requestId) {
+        const key = `perm-${requestId}`
+        setItems((prev) => {
+          if (prev.some((it) => it.key === key)) return prev
+          return [
+            ...prev,
+            {
+              key,
+              kind: "permission",
+              text: String(data?.title ?? ""),
+              permission: String(data?.permission ?? "unknown"),
+              request_id: requestId,
+              task_id: evt.taskId,
+              time: Date.now(),
+            },
+          ]
+        })
+        return
       }
-      return next
-    })
+      if (type === "question" && requestId) {
+        const key = `ques-${requestId}`
+        const options = (Array.isArray(data?.options) ? data.options : []) as Array<{ label: string; value: string }>
+        setItems((prev) => {
+          if (prev.some((it) => it.key === key)) return prev
+          return [
+            ...prev,
+            {
+              key,
+              kind: "question",
+              text: String(data?.question ?? "请选择"),
+              options,
+              request_id: requestId,
+              task_id: evt.taskId,
+              time: Date.now(),
+            },
+          ]
+        })
+        return
+      }
+    }
+    if (state === "completed") {
+      setBusy(false)
+      setItems((prev) => [
+        ...prev,
+        { key: `idle-${evt.taskId}-${prev.length}`, kind: "idle", text: "已完成", time: Date.now() },
+      ])
+      return
+    }
+    if (state === "failed" || state === "canceled") {
+      setBusy(false)
+      const errText = evt.status?.message?.parts?.find((p) => p.kind === "text")?.text ?? state
+      setItems((prev) => [
+        ...prev,
+        { key: `err-${evt.taskId}-${prev.length}`, kind: "error", text: errText, time: Date.now() },
+      ])
+      return
+    }
+    // working + status.message(role=user)：任务指令回显（历史回放时补用户消息）
+    if (state === "working" && evt.status?.message?.role === "user") {
+      const text = evt.status.message.parts?.find((p) => p.kind === "text")?.text ?? ""
+      const meta2 = evt.metadata as Record<string, unknown> | undefined
+      if (text) {
+        setItems((prev) => {
+          const key = `u-${evt.taskId}`
+          if (prev.some((it) => it.key === key)) return prev
+          return [...prev, { key, kind: "user", text, time: Date.now() }]
+        })
+        if (meta2?.replied === undefined) setBusy(true)
+      }
+    }
   }
 
   // 自动滚到底部
@@ -1357,19 +1414,29 @@ function NexusPage({ toast }: { toast: (m: string) => void }) {
     const text = input.trim()
     if (!text || !selected || busy) return
     if (!pluginOnline) { toast("目标工作区插件不在线"); return }
-    const reqId = `nexus-${Date.now()}-${++reqSeq.current}`
     setBusy(true)
     setInput("")
-    wsRef.current?.send(JSON.stringify({ type: "command", workspace_id: selected, text, req_id: reqId, source: "nexus-web" }))
+    // 本地先回显用户消息（服务端 working 事件里也会带，去重 key 一致）
+    setItems((prev) => prev.some((it) => it.key === `u-pending-${prev.length}`) ? prev : [
+      ...prev,
+      { key: `u-local-${Date.now()}`, kind: "user", text, time: Date.now() },
+    ])
+    api.sendTask(selected, text)
+      .then(() => {
+        // 用户消息以服务端事件为准（key: u-<taskId>），本地回显在收到首个事件后由去重逻辑保留
+      })
+      .catch((e: Error) => {
+        toast(`下发失败: ${e.message}`)
+        setBusy(false)
+      })
   }
 
   const clearHistory = () => {
     if (!selected) return
     setItems([])
-    wsRef.current?.send(JSON.stringify({ type: "clear", workspace_id: selected }))
+    api.clearWorkspaceHistory(selected).catch((e: Error) => toast(`清空失败: ${e.message}`))
   }
 
-  /** 标记权限/问答条目已答复（按钮替换为结果文字） */
   const markAnswered = (key: string, answer: string) => {
     setItems((prev) => prev.map((it) => (it.key === key ? { ...it, answered: answer } : it)))
   }
@@ -1416,11 +1483,13 @@ function NexusPage({ toast }: { toast: (m: string) => void }) {
                 item={it}
                 agentType={current?.agent_type}
                 onPermissionReply={(reqId, reply) => {
-                  wsRef.current?.send(JSON.stringify({ type: "permission_reply", workspace_id: selected, request_id: reqId, reply }))
+                  api.replyTask(selected, it.task_id ?? "", { type: "permission", request_id: reqId, reply })
+                    .catch((e: Error) => toast(`应答失败: ${e.message}`))
                   markAnswered(it.key, reply === "once" ? "一次" : reply === "always" ? "始终" : "拒绝")
                 }}
                 onQuestionReply={(reqId, answers) => {
-                  wsRef.current?.send(JSON.stringify({ type: "question_reply", workspace_id: selected, request_id: reqId, answers }))
+                  api.replyTask(selected, it.task_id ?? "", { type: "question", request_id: reqId, answers })
+                    .catch((e: Error) => toast(`应答失败: ${e.message}`))
                   markAnswered(it.key, answers[0]?.[0] ?? "已选择")
                 }}
               />
@@ -1878,7 +1947,7 @@ function CallsPage({ toast }: { toast: (m: string) => void }) {
   return (
     <>
       <h1 className="page-title">调用记录</h1>
-      <p className="page-sub">agent 之间的 workspace_call 调用历史。</p>
+      <p className="page-sub">agent 之间的 A2A 任务调用历史。</p>
       <SearchBox value={query} onChange={setQuery} placeholder="搜索发起方 / 目标 / 指令 / 状态…" />
       <table className="grid">
         <thead>
@@ -1906,10 +1975,10 @@ function CallsPage({ toast }: { toast: (m: string) => void }) {
               <td style={{ color: "var(--text-weak)", fontSize: 12 }}>{fmtTime(r.created_at, "datetime")}</td>
               <td>{r.caller?.name ?? "-"}</td>
               <td>{r.target?.name ?? "-"}</td>
-              <td><span className={`status-pill ${r.status === "running" ? "accepted" : r.status}`}>{r.status}</span></td>
+              <td><span className={`status-pill ${r.status === "working" || r.status === "queued" ? "accepted" : r.status}`}>{r.status}</span></td>
               <td><a className="link" onClick={() => setDetail(r)}>{r.instruction}</a></td>
               <td>
-                {(r.status === "done" || r.status === "failed") && (
+                {(r.status === "completed" || r.status === "failed" || r.status === "canceled") && (
                   <Btn
                     variant="icon"
                     size="sm"

@@ -9,7 +9,7 @@ from server.db import init_db
 from server.api import auth, me, workspaces, calls
 from server.download import routes as download_routes
 from server.mcp_endpoint import build_mcp_asgi_app, mcp_lifespan
-from server.nexus import router as nexus_router
+from server.nexus_a2a import router as nexus_a2a_router
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
@@ -36,7 +36,7 @@ def create_app() -> FastAPI:
     app.include_router(me.router)
     app.include_router(workspaces.router)
     app.include_router(calls.router)
-    app.include_router(nexus_router)
+    app.include_router(nexus_a2a_router)
 
     # 插件分发（免鉴权）
     for r in download_routes:

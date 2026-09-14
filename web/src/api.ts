@@ -40,16 +40,20 @@ export interface Workspace {
   agent_type: string | null
   owner: { id: string; username: string } | null
   last_heartbeat: string | null
+  session_id: string | null
+  session_title: string | null
   created_at: string
 }
 
 /** 安装命令用：当前页面 origin（vite dev 时代理到后端，生产同域） */
 export const pageOrigin = window.location.origin
 
+/** A2A 任务（调用记录页 / a2a_call 历史） */
 export interface WorkspaceCall {
   id: string
   caller: { id: string; name: string; path: string } | null
   target: { id: string; name: string; path: string } | null
+  external_url?: string | null
   instruction: string
   status: string
   result: string | null
@@ -98,4 +102,22 @@ export const api = {
 
   calls: () => request("/api/calls") as Promise<WorkspaceCall[]>,
   deleteCall: (id: string) => request(`/api/calls/${id}`, { method: "DELETE" }),
+
+  /** web 中枢：以用户身份向工作区下发 A2A 任务（非流式下发，事件走 /ws/nexus 订阅） */
+  sendTask: (workspaceId: string, text: string, taskId: string = "") =>
+    request(`/api/nexus/${workspaceId}/message:send`, {
+      method: "POST",
+      body: JSON.stringify({ text, task_id: taskId }),
+    }) as Promise<{ task_id: string; context_id: string; status: string }>,
+
+  /** web 中枢：应答 input-required 任务（权限/提问），走 A2A message/send 续聊 */
+  replyTask: (workspaceId: string, taskId: string, payload: Record<string, unknown>) =>
+    request(`/api/nexus/${workspaceId}/reply`, {
+      method: "POST",
+      body: JSON.stringify({ task_id: taskId, ...payload }),
+    }) as Promise<{ ok: boolean; status: string }>,
+
+  /** 清空工作区任务历史（事件+任务记录） */
+  clearWorkspaceHistory: (workspaceId: string) =>
+    request(`/api/nexus/${workspaceId}/history`, { method: "DELETE" }) as Promise<{ ok: boolean }>,
 }

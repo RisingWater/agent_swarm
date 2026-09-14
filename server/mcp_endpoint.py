@@ -7,6 +7,8 @@ import contextvars
 import os
 from datetime import datetime, timezone
 
+import shortuuid
+
 from mcp.server.fastmcp import FastMCP
 from sqlmodel import select
 from starlette.requests import Request
@@ -216,12 +218,18 @@ def workspace_disable(workspace_id: str) -> dict:
 
 
 @mcp.tool()
-def heartbeat(workspace_id: str, session_id: str = "", agent_type: str = "") -> dict:
+def heartbeat(
+    workspace_id: str,
+    session_id: str = "",
+    session_title: str = "",
+    agent_type: str = "",
+) -> dict:
     """工作区心跳，保持在线状态。由插件定时调用。
 
     Args:
         workspace_id: 注册时返回的工作区 ID
         session_id: 当前 opencode 会话 ID（可选，前台任务注入需要）
+        session_title: 当前会话标题（可选，web 展示用）
         agent_type: agent 工具类型（可选，如 opencode；重复上报会更新）
     """
     user = get_user()
@@ -234,33 +242,15 @@ def heartbeat(workspace_id: str, session_id: str = "", agent_type: str = "") -> 
         ws.last_heartbeat = utcnow()
         if session_id:
             ws.session_id = session_id
+        if session_title:
+            ws.session_title = session_title[:200]
         if agent_type:
             ws.agent_type = agent_type.strip().lower()
         session.add(ws)
         session.commit()
-        # 捎带派发：领取指向本工作区的待处理调用任务
-        calls = []
-        for call in session.exec(
-            select(models.WorkspaceCall).where(
-                models.WorkspaceCall.target_ws_id == ws.id,
-                models.WorkspaceCall.status == "pending",
-            )
-        ).all():
-            src = session.get(models.Workspace, call.caller_ws_id)
-            calls.append(
-                {
-                    "call_id": call.id,
-                    "instruction": call.instruction,
-                    "caller": {
-                        "workspace_id": src.id,
-                        "name": src.name,
-                        "path": src.path,
-                    }
-                    if src
-                    else None,
-                }
-            )
-        return {"ok": True, "status": "online", "calls": calls}
+        # 任务派发已改走 nexus_a2a WS 链路（message/send → 插件实时推送 + 上线补推），
+        # heartbeat 只负责保活，不再捎带任务
+        return {"ok": True, "status": "online"}
     finally:
         session.close()
 
@@ -379,156 +369,129 @@ def list_workspaces(include_offline: bool = False) -> dict:
         session.close()
 
 
-# ---------------------------------------------------------------- workspace_call
+# ---------------------------------------------------------------- a2a_call / a2a_task
 
 
 CALL_TIMEOUT_SECONDS = int(os.environ.get("AGENT_SWARM_CALL_TIMEOUT", "3600"))
 
 
 @mcp.tool()
-def workspace_call(target_workspace_id: str, instruction: str) -> dict:
-    """调用另一个在线工作区的 agent 执行任务（异步，立即返回 call_id）。
+async def a2a_call(target: str, message: str, context_id: str = "") -> dict:
+    """通过 A2A 协议给另一个 agent 发任务（支持内部工作区与外部 A2A agent）。
 
-    先用 list_workspaces 找到目标工作区，再用本工具发起调用，
-    之后用 workspace_call_status 轮询结果。
+    用 list_workspaces 找内部工作区（传 workspace ID），或直接传外部 agent 的
+    A2A 端点 URL（如 https://host/a2a/agent-id）。返回 task_id，用 a2a_task 轮询结果。
 
     Args:
-        target_workspace_id: 目标工作区 ID（从 list_workspaces 获取）
-        instruction: 要目标 agent 执行的任务指令，尽量具体（涉及文件写绝对路径）
-
-    注意：允许调用自身工作区（自测试用），生产中请调用其他工作区。
+        target: 内部工作区 ID，或外部 A2A agent 端点 URL
+        message: 任务指令，尽量具体（涉及文件写绝对路径）
+        context_id: 可选，延续之前的会话上下文（多轮任务）
     """
+    from server.nexus_a2a import call_external
+
     user = get_user()
     session = next(get_session())
     try:
-        src = session.exec(
-            select(models.Workspace).where(models.Workspace.user_id == user.id)
-        ).all()
-        # 调用方必须也有一个自己的工作区（发起调用的主体）
-        caller = next((w for w in src if w.id != target_workspace_id), None)
-        if caller is None:
-            raise ValueError("you need your own workspace to make calls (workspace_add first)")
-        tgt = session.get(models.Workspace, target_workspace_id)
+        if target.startswith("http://") or target.startswith("https://"):
+            # 外部 A2A agent：message/send 非流式，等终态返回
+            task_id, ctx, status = await call_external(target, message, context_id=context_id)
+            task = models.A2aTask(
+                id=task_id or shortuuid.uuid(),
+                context_id=ctx,
+                external_url=target,
+                caller="agent",
+                message=message,
+                status=status if status in ("queued", "working", "input-required", "completed", "failed", "canceled") else "working",
+            )
+            if task.status in ("completed", "failed", "canceled"):
+                task.done_at = utcnow()
+            session.add(task)
+            session.commit()
+            return {
+                "task_id": task.id,
+                "context_id": task.context_id,
+                "status": task.status,
+                "target": target,
+                "note": "external A2A agent; poll with a2a_task",
+            }
+        # 内部工作区：落 queued 任务，WS 实时推给目标插件
+        tgt = session.get(models.Workspace, target)
         if tgt is None or tgt.user_id != user.id:
-            raise ValueError(f"target workspace {target_workspace_id} not found or not visible to you")
+            raise ValueError(f"target workspace {target!r} not found or not visible to you")
         if (tgt.agent_type or "").strip().lower() == "claude":
             raise ValueError("claude workspace does not support task execution yet (keepalive only)")
-        if not ws_is_online(tgt) or tgt.status == "disabled":
+        if tgt.status == "disabled":
+            raise ValueError("target workspace is disabled")
+        from server.nexus_a2a import ws_online as _ws_plugin_online
+
+        online = _ws_plugin_online(tgt.id)
+        if not online and not ws_is_online(tgt):
             raise ValueError("target workspace is not online")
-
-        import shortuuid
-
-        call = models.WorkspaceCall(
+        task = models.A2aTask(
             id=shortuuid.uuid(),
-            caller_ws_id=caller.id,
-            target_ws_id=tgt.id,
-            instruction=instruction,
+            context_id=context_id or shortuuid.uuid(),
+            workspace_id=tgt.id,
+            caller="agent",
+            message=message,
+            status="queued",
         )
-        session.add(call)
+        session.add(task)
         session.commit()
+        if online:
+            # 插件 WS 在线：立即派发（离线则等插件重连时补推）
+            import asyncio
+
+            from server.nexus_a2a import dispatch_queued_for
+
+            asyncio.ensure_future(dispatch_queued_for(tgt.id))
         return {
-            "call_id": call.id,
-            "status": call.status,
+            "task_id": task.id,
+            "context_id": task.context_id,
+            "status": task.status,
             "target": {"id": tgt.id, "name": tgt.name},
+            "note": "poll with a2a_task",
         }
     finally:
         session.close()
 
 
 @mcp.tool()
-def workspace_call_status(call_id: str) -> dict:
-    """查询 workspace_call 的状态与结果（轮询用）。
+def a2a_task(task_id: str) -> dict:
+    """查询 A2A 任务的状态与结果（a2a_call 后轮询用）。
 
     Args:
-        call_id: workspace_call 返回的调用 ID
+        task_id: a2a_call 返回的任务 ID
     """
     user = get_user()
     session = next(get_session())
     try:
-        call = session.get(models.WorkspaceCall, call_id)
-        if call is None:
-            raise ValueError(f"workspace call {call_id} not found")
-        caller = session.get(models.Workspace, call.caller_ws_id)
-        if caller is None or caller.user_id != user.id:
-            raise ValueError("not your call")
-        # 超时兜底：running 超时标记 failed
-        if call.status == "running" and call.accepted_at:
-            accepted = call.accepted_at if call.accepted_at.tzinfo else call.accepted_at.replace(tzinfo=timezone.utc)
-            if (datetime.now(timezone.utc) - accepted).total_seconds() > CALL_TIMEOUT_SECONDS:
-                call.status = "failed"
-                call.error = f"timeout after {CALL_TIMEOUT_SECONDS}s"
-                call.done_at = utcnow()
-                session.add(call)
+        task = session.get(models.A2aTask, task_id)
+        if task is None:
+            raise ValueError(f"task {task_id} not found")
+        # 归属校验：内部任务看工作区属主；外部任务记录创建人（简化：caller + 外部不校验属主，MCP 层已按用户隔离）
+        if task.workspace_id:
+            ws = session.get(models.Workspace, task.workspace_id)
+            if ws is None or ws.user_id != user.id:
+                raise ValueError("not your task")
+        # 超时兜底：working/queued 超时标记 failed
+        if task.status in ("queued", "working") and task.created_at:
+            created = task.created_at if task.created_at.tzinfo else task.created_at.replace(tzinfo=timezone.utc)
+            if (datetime.now(timezone.utc) - created).total_seconds() > CALL_TIMEOUT_SECONDS:
+                task.status = "failed"
+                task.error = f"timeout after {CALL_TIMEOUT_SECONDS}s"
+                task.done_at = utcnow()
+                session.add(task)
                 session.commit()
-        return {
-            "call_id": call.id,
-            "status": call.status,
-            "result": call.result,
-            "error": call.error,
+        out = {
+            "task_id": task.id,
+            "context_id": task.context_id,
+            "status": task.status,
+            "result": task.artifact,
+            "error": task.error,
         }
-    finally:
-        session.close()
-
-
-@mcp.tool()
-def workspace_call_ack(call_id: str, session_id: str = "") -> dict:
-    """确认领取调用任务（插件内部用，agent 不要调用）。
-
-    Args:
-        call_id: 调用 ID（heartbeat 响应的 calls 里获得）
-        session_id: 执行该任务的 opencode 会话 ID
-    """
-    user = get_user()
-    session = next(get_session())
-    try:
-        call = session.get(models.WorkspaceCall, call_id)
-        if call is None:
-            raise ValueError(f"workspace call {call_id} not found")
-        tgt = session.get(models.Workspace, call.target_ws_id)
-        if tgt is None or tgt.user_id != user.id:
-            raise ValueError("not your task to ack")
-        if call.status != "pending":
-            return {"ok": True, "status": call.status, "message": "already taken"}
-        call.status = "running"
-        call.accepted_at = utcnow()
-        if session_id:
-            call.session_id = session_id
-        session.add(call)
-        session.commit()
-        return {"ok": True, "status": "running"}
-    finally:
-        session.close()
-
-
-@mcp.tool()
-def workspace_call_result(call_id: str, ok: bool, result: str = "") -> dict:
-    """提交调用任务的执行结果（插件内部用，agent 不要调用）。
-
-    Args:
-        call_id: 调用 ID
-        ok: 是否成功完成
-        result: 结果内容（成功时的答复；失败时的原因）
-    """
-    user = get_user()
-    session = next(get_session())
-    try:
-        call = session.get(models.WorkspaceCall, call_id)
-        if call is None:
-            raise ValueError(f"workspace call {call_id} not found")
-        tgt = session.get(models.Workspace, call.target_ws_id)
-        if tgt is None or tgt.user_id != user.id:
-            raise ValueError("not your task to submit")
-        if call.status in ("done", "failed"):
-            return {"ok": True, "status": call.status, "message": "already submitted"}
-        call.status = "done" if ok else "failed"
-        if ok:
-            call.result = result
-        else:
-            call.error = result
-        call.done_at = utcnow()
-        session.add(call)
-        session.commit()
-        return {"ok": True, "status": call.status}
+        if task.status == "input-required":
+            out["note"] = "task needs input (permission/question); reply via web nexus page"
+        return out
     finally:
         session.close()
 

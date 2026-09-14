@@ -83,33 +83,41 @@ class Workspace(SQLModel, table=True):
     agent_type: str = Field(default="")  # agent 工具类型（opencode / claude code / ...）
     last_heartbeat: Optional[datetime] = None
     session_id: Optional[str] = None
+    session_title: Optional[str] = None  # 当前会话标题（心跳上报，web 展示用）
     created_at: datetime = Field(default_factory=utcnow)
     updated_at: datetime = Field(default_factory=utcnow)
 
 
-class WorkspaceCall(SQLModel, table=True):
-    __tablename__ = "workspace_calls"
+class A2aTask(SQLModel, table=True):
+    """A2A Task 持久化（内部工作区互调 + web 中枢下发 + 外部 A2A agent 共用一张表）。
+
+    status 对齐 A2A TaskState：queued / working / input-required / completed / failed / canceled
+    外部任务（external_url 非空）：workspace_id 为空，id 用远端返回的 task id。
+    """
+    __tablename__ = "a2a_tasks"
 
     id: str = Field(primary_key=True)
-    caller_ws_id: str = Field(foreign_key="workspaces.id", index=True)
-    target_ws_id: str = Field(foreign_key="workspaces.id", index=True)
-    instruction: str = Field(sa_column=Column(Text))
-    status: str = Field(default="pending", index=True)  # pending/running/done/failed
+    context_id: str = Field(index=True)  # A2A contextId（同一会话链多轮任务共享）
+    workspace_id: str = Field(default="", index=True)  # 执行方工作区（内部任务）
+    external_url: str = Field(default="")  # 外部 A2A agent 端点（外部任务）
+    caller: str = Field(default="")  # 调用方标注（agent / nexus-web / nexus-feishu / ...）
+    message: str = Field(default="", sa_column=Column(Text))  # 初始指令文本
+    status: str = Field(default="queued", index=True)
     session_id: Optional[str] = None  # 目标端执行该任务的 opencode 会话
-    result: Optional[str] = Field(default=None, sa_column=Column(Text))
+    artifact: Optional[str] = Field(default=None, sa_column=Column(Text))  # 最终结果（markdown）
     error: Optional[str] = Field(default=None, sa_column=Column(Text))
     created_at: datetime = Field(default_factory=utcnow)
     accepted_at: Optional[datetime] = None
     done_at: Optional[datetime] = None
 
 
-class NexusEvent(SQLModel, table=True):
-    """中枢 timeline 事件持久化（web 刷新后回放，手动清空才删除）。"""
-    __tablename__ = "nexus_events"
+class A2aEvent(SQLModel, table=True):
+    """A2A 任务事件持久化（StatusUpdate / ArtifactUpdate，web 刷新后回放）。"""
+    __tablename__ = "a2a_events"
 
     id: Optional[int] = Field(default=None, primary_key=True)
-    workspace_id: str = Field(foreign_key="workspaces.id", index=True)
-    req_id: str = Field(index=True)  # 所属指令轮次
-    kind: str  # run-started / text-updated / reasoning-updated / tool-state-changed / session-idle / run-error
-    payload: str = Field(default="{}", sa_column=Column(Text))  # 事件 JSON（kind 特有字段）
+    task_id: str = Field(index=True)
+    workspace_id: str = Field(default="", index=True)  # 内部任务才有（外部任务为空串）
+    kind: str  # status / artifact（A2A 事件判别符）
+    payload: str = Field(default="{}", sa_column=Column(Text))  # 事件 JSON（camelCase，原样存储）
     created_at: datetime = Field(default_factory=utcnow)

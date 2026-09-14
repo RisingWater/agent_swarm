@@ -5,68 +5,46 @@
 
 ## 项目一句话
 
-多 agent 协作平台（虫群）：FastAPI 单服务（管理 API + MCP 端点 + 插件分发）+ 多 agent 插件（plugins/ 下 opencode / claude）+ 纯 React 前端。面向 agent 的操作全部走服务端 MCP 工具（任何 MCP 客户端可用），插件负责心跳保活；opencode 插件额外负责任务接收执行（前台注入优先）与中枢直连。
+多 agent 协作平台（虫群）：FastAPI 单服务（管理 API + MCP 端点 + A2A 网关 + 插件分发）+ 多 agent 插件（plugins/ 下 opencode / claude）+ 纯 React 前端。面向 agent 的操作全部走服务端 MCP 工具；工作区互调 / web 中枢 / 外部 agent 统一走 A2A 协议（`server/nexus_a2a.py` 手写子集）；插件负责心跳保活 + A2A 任务接收执行。
 
 ## 已完成（全部已提交，git log 可查）
 
-### claude code 接入（2026-09-13 新增）
+### A2A 协议改造（2026-09-14，替换 nexus 自定义协议 + workspace_call）
 
-- **目录重构**：`plugin/` → `plugins/opencode/`；新增 `plugins/claude/`；安装器改造为「分发器（deploy/install.sh|.ps1）+ 各插件子脚本（install-<name>.sh|.ps1）」结构，一条命令装所有 agent（--only/-Only 可挑选）；tarball 打包整个 plugins/ 树
-- **claude 接入 v1**（注册管理 + 保活，不含任务执行）：
-  - `keepalive.mjs`：零依赖本地 stdio MCP server（手写 JSON-RPC：initialize/ping/tools:list），claude spawn 它即开始 30s 心跳（agent_type=claude），每轮重读 `cwd/.agent-swarm.md`；stdin close + ppid 轮询双保险退出 → 工作区 90s 后离线
-  - install-claude：`claude mcp add` 两条（remote agent-swarm 工具 + 本地 keepalive）+ 拷 5 个 `/swarm-*` 命令到 `~/.claude/commands/`（工具名 `mcp__agent-swarm__*`）+ 写 `~/.claude/agent-swarm/config.json`
-  - 服务端 `workspace_call` 拒绝 claude 目标（明确报错）；web 首页 claude 瓦片点亮
-- **E2E 已实测**：claude -p 会话启动 → keepalive 心跳上线（status=online, agent_type=claude）→ 会话退出 → 90s 后可删除；分发器一键装 opencode+claude 双插件幂等回归通过
-- **关键 gotcha**：含中文的 ps1（子安装脚本）必须 UTF-8 with BOM（PS 5.1 本地执行按 ANSI 读，无 BOM 时中文吃引号破坏语法，实测失败）；分发器靠 /download/install.ps1 的 utf-8-sig 剥 BOM 保持 irm|iex 兼容
+- **服务端 `server/nexus_a2a.py`**（手写 A2A 0.3.x 子集，无官方 SDK）：
+  - HTTP 入站：`GET /.well-known/agent-card.json`（中枢卡）+ `GET/POST /a2a/{workspace_id}`（工作区卡 + `message/send`、`message/stream` SSE、`tasks/get`、`tasks/cancel`），apikey 鉴权，对象 camelCase 规范形状
+  - WS 内部链路：`/ws/plugin`（rpc 下发/应答 + event 流）、`/ws/nexus`（web 订阅）；离线任务 hello 时补推（不再靠 heartbeat 捎带）
+  - 进程内事件总线 `_task_queues`：SSE / 同步等待纯推送无轮询；事件落 `a2a_events`（web 回放上限 800）
+  - REST：`POST /api/nexus/{wid}/message:send`（web 下发）、`POST /api/nexus/{wid}/reply`（input-required 应答，转 DataPart 续聊）、`GET/DELETE /api/nexus/{wid}/history`
+- **MCP 工具 13→11**：删 workspace_call/status/ack/result，新增 `a2a_call`（工作区 ID 或外部 URL）+ `a2a_task`；外部任务落同一张 `a2a_tasks` 表（external_url 标记）
+- **插件**：`nexus_a2a.ts`（JSON-RPC 分发 + A2A 事件构造）+ `index.ts` `executeTask`：opencode SSE → `metadata.nexus`（text/reasoning/tool）事件、权限/提问 → `input-required` DataPart、idle → artifact（全量文本 lastChunk）+ completed；input-required 应答走 `onReply` 路由回 opencode API
+- **心跳增强**：heartbeat 新增 `session_title` 参数（workspaces 表加列，db.py 自动迁移），插件会话变化时拉一次标题随心跳上报
+- **web**：中枢页改 A2A 事件渲染（WS 载荷直转 TimelineItem，taskId 随权限/提问条目存储供应答）；调用记录页状态对齐 TaskState（queued/working/completed/failed/canceled）
+- **E2E 已实测**（Linux，:8700）：a2a_call 互调全链路（rpc 下发→事件流→artifact→completed→a2a_task 轮询到结果）、外部 message/send 入站、message/stream SSE（快照→流式进度→artifact→final）、web 中枢 WS 订阅+REST 下发+清空历史，全部通过
 
-### workspace_call 跨 agent 调用（核心功能，已上线并实测）
+### claude code 接入（2026-09-13）
 
-- **服务端**：`workspace_calls` 表（pending/running/done/failed，旧 help_requests 已 DROP）；4 个 MCP 工具 workspace_call / status / ack / result；heartbeat 捎带 pending 任务；REST `/api/calls` + 删除接口（仅 done/failed 可删）
-- **插件前台注入**：event hook 跟踪当前会话，冷启动用 session.list 挑最近活跃会话 + tui.showToast 通知；fgBusy 排队（10min 上限）+ session.status busy 检查；无会话才退后台会话；idle 残留清理；已实测「前台可见 + 结果回传」全链路 ✅
+- `plugins/claude/keepalive.mjs` 零依赖 stdio MCP 保活 + install-claude 脚本 + `/swarm-*` 命令；claude 工作区仅注册/保活，A2A 网关侧拒绝执行
+- 含中文 ps1 必须 UTF-8 with BOM（详见 AGENTS.md）
 
-### 服务端 (server/)
+### 服务端 / 前端 / 基建（此前已有）
 
-- ✅ REST：注册/登录、apikey 明文可见+重置、**修改密码**（POST /api/me/password，校验原密码）、工作区 CRUD、调用记录列表+删除
-- ✅ 12 个 MCP 工具（求助类 4 个已删，workspace_call 4 个替代）
-- ✅ 插件分发 /download/*（tar.gz + install.sh/ps1，Host 动态注入地址）
-
-### opencode 插件 (plugins/opencode/)
-
-- ✅ 心跳 + 任务执行全链路（见上）；已重装部署到 ~/.config/opencode/plugins/agent-swarm/
-
-### 前端 (web/) —— 已打磨
-
-- ✅ **虫群品牌**：favicon/logo（六椭圆个体环绕 AI 核，黑白）+ logo-48/128/512/1024.png（Pillow 生成）
-- ✅ **首页**：左对齐 hero → 马上安装（登录/未登录两种态；**agent 工具图标组**：opencode + claude code 已支持高亮，deepseek harness/pi/更多 灰显待支持）→ **演示视频**（agent_swarm.mp4，39MB，进视口自动静音播放一次、停末帧、无控件、右下角声音切换）→ 什么是 agent_swarm（4 特性卡黑白线性图标）→ 它可以做什么 → 阅读文档 CTA
-- ✅ **登录弹窗化**：未登录可见 首页/文档；工作区、调用记录、账号菜单隐藏；"登录/注册"弹覆盖弹窗
-- ✅ **账号页**（点用户名进入）：左侧二级菜单 API Key | 修改密码，右侧内容
-- ✅ **文档页**：左目录右内容滚动定位，6 章（介绍/安装插件/注册工作区/核心概念/MCP 工具/FAQ）——纯用户视角，无服务器部署内容；安装章节已覆盖 opencode + claude 双插件
-- ✅ 工作区/调用记录页：中文表头、搜索框、时间列完整日期、markdown 渲染结果弹窗（react-markdown+remark-gfm）、垃圾桶删除；工作区离线时间改为 hover tip（online 不显示）
-- ✅ 中枢页：上次选中工作区记 cookie（30 天），下次打开自动回填
-
-### 中枢 nexus
-
-<<<<<<< HEAD
-- ✅ **服务端**：`server/nexus.py` WebSocket hub（`/ws/nexus`，JWT 鉴权）；订阅工作区时间线 + 下发指令；`nexus_events` 表持久化；指令落调用记录，来源标注 `nexus-web`
-- ✅ **插件**：`plugins/opencode/src/nexus.ts` —— 接收网页指令、回传会话事件流
-- ✅ **前端**：「中枢」页——选在线工作区下发指令，时间线实时滚动；权限请求/提问直接在页面点选应答；终端风格 UI
-- ✅ 文档同步：README「中枢」章节 + 首页特性 + 文档页 web-admin 小节
-
-### 基建
-
-- ✅ docker/（Dockerfile 多阶段：node 构建前端 → python 运行时；compose.yaml；.dockerignore；deploy/build_docker.sh）——**已实测构建通过**（详见下方待办）
-- ✅ README.md（架构图、快速开始、MCP 工具表、Docker 部署、配置表、开发指南、中枢）
-- ✅ AGENTS.md 刷新（13 工具清单、任务派发机制、前端坑、安装器结构、claude keepalive 生命周期、ps1 BOM gotcha）
+- ✅ REST：注册/登录、apikey 明文可见+重置、修改密码、工作区 CRUD、调用记录列表+删除（状态已对齐 A2A TaskState）
+- ✅ 11 个 MCP 工具（见上）；插件分发 /download/*
+- ✅ 前端：品牌/首页/登录弹窗化/账号页/文档页/工作区/调用记录/中枢（cookie 记忆选中工作区）
+- ✅ docker/ 已实测构建通过（agent-swarm:latest 286MB，已推 10.17.17.19:8082）
 
 ## 🟡 未完成 / 待办
 
 ### 高优先级
 
-- [ ] claude 接入 v2：任务执行 / 中枢指令下发 / timeline（用户在研究 claude 的限制：headless stream-json、hooks、channel API 等方案待定）
+- [ ] **插件重装 + opencode 重启**（本机）：A2A 改造改了 plugins/opencode/src/，必须走 web 首页安装命令重装并重启所有 opencode 会话才生效（plugin.log 可验证版本）
+- [ ] 真实 opencode 会话 E2E：上面的 E2E 是 fake plugin（websockets 模拟），需用真实插件跑一轮「web 中枢下发 → TUI 前台注入 → 权限应答 → artifact 回传」
+- [ ] claude 接入 v2：任务执行 / A2A 通道接入（用户在研究 headless stream-json、hooks、channel API 等方案）
 
 ### 备忘
 
-- [x] **Docker 构建实测**（2026-09-14 ✅）：`./deploy/build_docker.sh` 构建成功（agent-swarm:latest，286MB，已推私有仓库 10.17.17.19:8082/agent-swarm）。踩坑记录：镜像内置旧 pip（25.0.1）在 fastapi/pydantic/starlette 交叉约束上 resolver 回溯死循环 → Dockerfile 已修（装依赖前先 upgrade pip）。本地 8700 被 dev 服务占用，docker 起之前先 ./deploy/stop.sh 或换端口映射
+- [ ] a2a-inspector 互操作验证（规范符合性快检，可选）
 - [ ] nas_brain 工作区重新注册后 ID 变了（XYaR4TdtGqdqoAEW9vNn8g），注意旧的 nDZDDucfudwSPmN5Nec3GU 已失效
 
 ## 环境/常用操作

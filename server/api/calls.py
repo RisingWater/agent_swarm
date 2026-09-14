@@ -9,16 +9,16 @@ from server.db import get_session
 router = APIRouter(prefix="/api/calls", tags=["calls"])
 
 
-def call_out(call: models.WorkspaceCall, session: Session) -> dict:
-    src_ws = session.get(models.Workspace, call.caller_ws_id)
-    tgt_ws = session.get(models.Workspace, call.target_ws_id)
+def call_out(call: models.A2aTask, session: Session) -> dict:
+    tgt_ws = session.get(models.Workspace, call.workspace_id) if call.workspace_id else None
     return {
         "id": call.id,
-        "caller": {"id": src_ws.id, "name": src_ws.name, "path": src_ws.path} if src_ws else None,
+        "caller": None,
         "target": {"id": tgt_ws.id, "name": tgt_ws.name, "path": tgt_ws.path} if tgt_ws else None,
-        "instruction": call.instruction,
+        "external_url": call.external_url or None,
+        "instruction": call.message,
         "status": call.status,
-        "result": call.result,
+        "result": call.artifact,
         "error": call.error,
         "created_at": call.created_at.isoformat() + "Z",
         "accepted_at": call.accepted_at.isoformat() + "Z" if call.accepted_at else None,
@@ -34,8 +34,8 @@ def list_calls(
     ws_ids = visible_workspace_ids(user, session)
     from sqlmodel import select as _select
 
-    rows = session.exec(_select(models.WorkspaceCall)).all()
-    out = [call_out(c, session) for c in rows if c.caller_ws_id in ws_ids or c.target_ws_id in ws_ids]
+    rows = session.exec(_select(models.A2aTask)).all()
+    out = [call_out(c, session) for c in rows if c.workspace_id in ws_ids or c.external_url]
     out.sort(key=lambda x: x["created_at"], reverse=True)
     return out
 
@@ -46,13 +46,14 @@ def delete_call(
     user: models.User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ):
-    call = session.get(models.WorkspaceCall, call_id)
+    call = session.get(models.A2aTask, call_id)
     if call is None:
         raise HTTPException(404, "call not found")
-    if call.caller_ws_id not in visible_workspace_ids(user, session):
+    owned = call.workspace_id in visible_workspace_ids(user, session) if call.workspace_id else bool(call.external_url)
+    if not owned:
         raise HTTPException(403, "not your call")
-    if call.status not in ("done", "failed"):
-        raise HTTPException(409, "only done/failed calls can be deleted")
+    if call.status not in ("completed", "failed", "canceled"):
+        raise HTTPException(409, "only finished tasks can be deleted")
     session.delete(call)
     session.commit()
     return {"ok": True}

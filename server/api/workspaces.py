@@ -38,6 +38,7 @@ def ws_out(ws: models.Workspace, session: Session) -> dict:
         "owner": {"id": owner.id, "username": owner.username} if owner else None,
         "last_heartbeat": ws.last_heartbeat.isoformat() + "Z" if ws.last_heartbeat else None,
         "session_id": ws.session_id,
+        "session_title": ws.session_title,
         "created_at": ws.created_at.isoformat() + "Z",
     }
 

@@ -25,14 +25,18 @@ def _migrate() -> None:
 
     con = sqlite3.connect(DB_PATH)
     try:
-        # 旧 help_requests 机制已废弃（workspace_call 取代），直接清掉
-        con.execute("DROP TABLE IF EXISTS help_requests")
+        # 旧机制表已废弃：help_requests（第一代求助）、workspace_calls/nexus_events（自定义协议，
+        # 已被 A2A 协议取代），直接清掉
+        for legacy in ("help_requests", "workspace_calls", "nexus_events"):
+            con.execute(f"DROP TABLE IF EXISTS {legacy}")
         cols = {r[1] for r in con.execute("PRAGMA table_info(users)")}
         if "api_key" not in cols:
             con.execute("ALTER TABLE users ADD COLUMN api_key TEXT DEFAULT ''")
         ws_cols = {r[1] for r in con.execute("PRAGMA table_info(workspaces)")}
         if "agent_type" not in ws_cols:
             con.execute("ALTER TABLE workspaces ADD COLUMN agent_type TEXT DEFAULT ''")
+        if "session_title" not in ws_cols:
+            con.execute("ALTER TABLE workspaces ADD COLUMN session_title TEXT DEFAULT ''")
         # 旧用户没有明文（哈希不可逆）：补发新 key，旧 key 立即失效
         from server import models
 

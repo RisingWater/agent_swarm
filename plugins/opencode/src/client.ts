@@ -88,30 +88,27 @@ export class SwarmClient {
 
   // ---------------- 心跳保活 + 任务领取 ----------------
 
-  heartbeat(workspaceId: string, sessionId?: string, agentType?: string): Promise<{
+  heartbeat(
+    workspaceId: string,
+    sessionId?: string,
+    agentType?: string,
+    sessionTitle?: string,
+  ): Promise<{
     ok: boolean
     status: string
-    calls?: SwarmCall[]
   }> {
     return this.callTool("heartbeat", {
       workspace_id: workspaceId,
       session_id: sessionId ?? "",
+      session_title: sessionTitle ?? "",
       agent_type: agentType ?? "",
     })
   }
 
-  // ---------------- workspace_call 任务回传 ----------------
-
-  ackCall(callId: string, sessionId: string) {
-    return this.callTool("workspace_call_ack", { call_id: callId, session_id: sessionId })
-  }
-
-  submitCallResult(callId: string, ok: boolean, result: string) {
-    return this.callTool("workspace_call_result", { call_id: callId, ok, result })
-  }
+  // ---------------- workspace_call 任务回传（已被 A2A 取代，保留占位） ----------------
 }
 
-/** heartbeat 响应捎带的待执行调用任务 */
+/** heartbeat 响应捎带的待执行调用任务（A2A 改造后已废弃，任务走 nexus_a2a WS） */
 export interface SwarmCall {
   call_id: string
   instruction: string
