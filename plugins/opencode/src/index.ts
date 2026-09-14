@@ -187,14 +187,15 @@ const plugin: Plugin = async (input) => {
     // 每次收任务重读配置：/swarm-mode 切换执行模式无需重启 opencode
     const liveCfg = loadConfig() ?? config
     if (liveCfg.executionMode === "background") {
-      // 后台模式：headless 进程执行（不碰前台会话状态；--auto 全自动批准权限）
-      // 会话锚点 = 服务端派发的 session_id（heartbeat 上报的工作区当前会话）
-      log(`a2a ${task.taskId.slice(0, 8)}: background mode${serverSessionId ? ` session=${serverSessionId.slice(0, 12)}` : " (new session)"}`)
+      // 后台模式：headless 进程执行（不碰前台会话状态；--auto 全自动批准权限）。
+      // 不携带服务端会话锚点：锚点是 heartbeat 上报的当前 TUI 会话，resume 它等于
+      // 把任务 prompt 注回前台会话。后台任务一律新开会话（标题 A2A-<taskId>）。
+      log(`a2a ${task.taskId.slice(0, 8)}: background mode (new session)`)
       const result = await runBackgroundTask(
         task,
         text,
         caller,
-        { cwd: directory, opencodeBin: liveCfg.backgroundCommand === "auto" ? "opencode" : liveCfg.backgroundCommand, sessionId: serverSessionId },
+        { cwd: directory, opencodeBin: liveCfg.backgroundCommand === "auto" ? "opencode" : liveCfg.backgroundCommand },
         { emit: a2aEmit, log },
       )
       return result.ok ? (result.sessionId ?? "background") : null
