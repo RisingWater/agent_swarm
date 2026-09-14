@@ -75,6 +75,8 @@ if [ ! -d "$INSTALL_DIR/node_modules/@opencode-ai" ]; then
 fi
 
 # 3. 写入本机插件配置（server + apikey）
+#    两处都写：loadConfig() 读 ~/.config/opencode/agent-swarm.json（全局），
+#    INSTALL_DIR/config.json 保留作向后兼容/排查用
 cat > "$INSTALL_DIR/config.json" <<EOF
 {
   "serverUrl": "$SERVER",
@@ -82,6 +84,15 @@ cat > "$INSTALL_DIR/config.json" <<EOF
 }
 EOF
 chmod 600 "$INSTALL_DIR/config.json"
+GLOBAL_CFG="$HOME/.config/opencode/agent-swarm.json"
+cat > "$GLOBAL_CFG" <<EOF
+{
+  "serverUrl": "$SERVER",
+  "apiKey": "$API_KEY"
+}
+EOF
+chmod 600 "$GLOBAL_CFG"
+echo "    已写入插件配置: $GLOBAL_CFG"
 
 # 4. 注册：a) mcp.agent-swarm 配置（工具直连 MCP）b) 插件（心跳保活）
 MCP_BLOCK=$(cat <<EOF
