@@ -31,8 +31,10 @@ FROM python:3.12-slim
 WORKDIR /app
 
 # 依赖先行复制，充分利用构建缓存
+# 先升级 pip：镜像内置的旧版 pip 解析器在 fastapi/pydantic/starlette 交叉约束上会回溯死循环
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --upgrade pip \
+    && pip install --no-cache-dir -r requirements.txt
 
 # 服务端源码 + 安装脚本（/download/install.* 端点读取 deploy/ 下的脚本）
 COPY server/ ./server/

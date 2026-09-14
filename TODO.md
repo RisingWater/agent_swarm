@@ -1,6 +1,6 @@
 # agent_swarm 开发进度 TODO
 
-> 更新时间: 2026-09-13 · 交接给下一个 agent
+> 更新时间: 2026-09-14 · 交接给下一个 agent
 > 项目路径: D:\wangxu\work\agent_swarm · 服务已跑在 :8700 · 前端构建产物由 8700 静态托管
 
 ## 项目一句话
@@ -46,6 +46,7 @@
 
 ### 中枢 nexus
 
+<<<<<<< HEAD
 - ✅ **服务端**：`server/nexus.py` WebSocket hub（`/ws/nexus`，JWT 鉴权）；订阅工作区时间线 + 下发指令；`nexus_events` 表持久化；指令落调用记录，来源标注 `nexus-web`
 - ✅ **插件**：`plugins/opencode/src/nexus.ts` —— 接收网页指令、回传会话事件流
 - ✅ **前端**：「中枢」页——选在线工作区下发指令，时间线实时滚动；权限请求/提问直接在页面点选应答；终端风格 UI
@@ -53,19 +54,19 @@
 
 ### 基建
 
-- ✅ docker/（Dockerfile 多阶段）——**未实测，用户计划下周一在公司验证**
-- ✅ README.md（架构图、快速开始、MCP 工具表、Docker 部署、配置表、开发指南）
-- ✅ AGENTS.md 刷新（plugins/ 结构、安装器结构、claude keepalive 生命周期、ps1 BOM gotcha）
+- ✅ docker/（Dockerfile 多阶段：node 构建前端 → python 运行时；compose.yaml；.dockerignore；deploy/build_docker.sh）——**已实测构建通过**（详见下方待办）
+- ✅ README.md（架构图、快速开始、MCP 工具表、Docker 部署、配置表、开发指南、中枢）
+- ✅ AGENTS.md 刷新（13 工具清单、任务派发机制、前端坑、安装器结构、claude keepalive 生命周期、ps1 BOM gotcha）
 
 ## 🟡 未完成 / 待办
 
 ### 高优先级
 
-- [ ] **Docker 构建实测**（用户下周一去公司测试）：Dockerfile/compose.yaml 已写好但未跑过，首次 build 可能在 npm ci（alpine 平台二进制）出问题，待验证；注意 Dockerfile 里 plugin 打包路径若引用 `plugin/` 需同步改成 `plugins/`
 - [ ] claude 接入 v2：任务执行 / 中枢指令下发 / timeline（用户在研究 claude 的限制：headless stream-json、hooks、channel API 等方案待定）
 
 ### 备忘
 
+- [x] **Docker 构建实测**（2026-09-14 ✅）：`./deploy/build_docker.sh` 构建成功（agent-swarm:latest，286MB，已推私有仓库 10.17.17.19:8082/agent-swarm）。踩坑记录：镜像内置旧 pip（25.0.1）在 fastapi/pydantic/starlette 交叉约束上 resolver 回溯死循环 → Dockerfile 已修（装依赖前先 upgrade pip）。本地 8700 被 dev 服务占用，docker 起之前先 ./deploy/stop.sh 或换端口映射
 - [ ] nas_brain 工作区重新注册后 ID 变了（XYaR4TdtGqdqoAEW9vNn8g），注意旧的 nDZDDucfudwSPmN5Nec3GU 已失效
 
 ## 环境/常用操作
