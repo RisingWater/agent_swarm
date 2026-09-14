@@ -1255,6 +1255,17 @@ a.link:hover {
   font-weight: 600;
 }
 
+.nexus-head-session {
+  font-size: 12px;
+  font-style: italic;
+  color: var(--text-weak);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 320px;
+}
+.nexus-terminal.tui .nexus-head-session { color: #6f9b6f; }
+
 .nexus-head-status.on { color: #2e7d32; }
 .nexus-head-status.off { color: var(--text-weak); }
 
@@ -1910,6 +1921,12 @@ textarea.nexus-input {
    —— 用途列 450px 固定，展开折行只在列内进行，其他列不受影响 */
 table.grid.ws-grid {
   table-layout: auto;
+}
+
+/* 行内所有单元格垂直居中：用途列展开多行时，开关/名称/状态/会话等列保持居中不偏上 */
+table.ws-grid td,
+table.ws-grid th {
+  vertical-align: middle;
 }
 
 /* 路径/用途单元格：超长文本省略，不撑列 */

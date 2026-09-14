@@ -1473,6 +1473,9 @@ function NexusPage({ toast }: { toast: (m: string) => void }) {
           <div className="nexus-terminal-head">
             <AgentTypeIcon type={current?.agent_type} inherit />
             <span className="nexus-head-title">{current?.name ?? selected}</span>
+            {current?.session_title && (
+              <span className="nexus-head-session" title={current.session_title}>{current.session_title}</span>
+            )}
             <span className={`nexus-head-status ${pluginOnline ? "on" : "off"}`}>{pluginOnline ? "● online" : "○ offline"}</span>
             <span style={{ flex: 1 }} />
             <button className="nexus-head-clear" title="清空历史记录（服务端持久化数据一并删除）" onClick={clearHistory}>
