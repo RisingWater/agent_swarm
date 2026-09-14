@@ -1298,6 +1298,12 @@ a.link:hover {
   white-space: nowrap;
 }
 
+.nexus-footer-session {
+  font-style: italic;
+  color: #6f9b6f;
+}
+.nexus-terminal.tui .nexus-footer-session { color: #5f8f5f; }
+
 .nexus-footer-main {
   display: flex;
   gap: 6px;

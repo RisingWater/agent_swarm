@@ -1536,7 +1536,15 @@ function NexusPage({ toast }: { toast: (m: string) => void }) {
             <button className="nexus-send" onClick={send} disabled={!pluginOnline || busy || !input.trim()}>send ⏎</button>
           </div>
           <div className="nexus-footer">
-            <div className="nexus-footer-path">{current?.path ?? selected}</div>
+            <div className="nexus-footer-path" title={current?.session_title ? `会话: ${current.session_title}` : undefined}>
+              {current?.path ?? selected}
+              {current?.session_title && (
+                <>
+                  <span className="nexus-footer-dim"> · </span>
+                  <span className="nexus-footer-session">{current.session_title}</span>
+                </>
+              )}
+            </div>
             <div className="nexus-footer-main">
               <span className="nexus-footer-key">nexus-web</span>
               <span className="nexus-footer-dim">·</span>
@@ -1843,6 +1851,7 @@ function WorkspacesPage({ toast }: { toast: (m: string) => void }) {
             <th>名称</th>
             <th>状态</th>
             <th>路径</th>
+            <th style={{ width: 180 }}>会话</th>
             <th style={{ width: 450 }}>用途</th>
             <th style={{ width: 110 }}></th>
           </tr>
@@ -1864,6 +1873,9 @@ function WorkspacesPage({ toast }: { toast: (m: string) => void }) {
                 </span>
               </td>
               <td title={w.path} style={{ color: "var(--text-weak)", fontSize: 12 }}>{w.path}</td>
+              <td title={w.session_title ?? ""} style={{ color: "var(--text-weak)", fontSize: 12, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {w.session_title ? `${w.session_title}` : "-"}
+              </td>
               <td className="purpose-td">
                 <div className={`purpose-cell ${expanded.has(w.id) ? "open" : ""}`}>
                   <span className="purpose-text">{w.purpose}</span>
@@ -1917,6 +1929,7 @@ function WorkspacesPage({ toast }: { toast: (m: string) => void }) {
             <dt>能力</dt><dd>{detail.capabilities || "-"}</dd>
             <dt>备注</dt><dd>{detail.notes || "-"}</dd>
             <dt>所有者</dt><dd>{detail.owner?.username ?? "-"}</dd>
+            <dt>当前会话</dt><dd>{detail.session_title || "-"}</dd>
             <dt>最后心跳</dt>
             <dd>{fmtTime(detail.last_heartbeat, "datetime")}</dd>
           </dl>
