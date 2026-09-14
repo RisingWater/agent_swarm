@@ -34,6 +34,18 @@ interface SwarmCfg {
 
 const loader = () => process.getBuiltinModule?.("node:fs")
 
+/** 追加到插件日志（与 server 插件共用 plugin.log），便于排查 */
+function tuiLog(msg: string) {
+  try {
+    const fs = loader()!
+    const home = process.env.HOME || process.env.USERPROFILE || ""
+    const logf = `${home}/.config/opencode/plugins/agent-swarm/plugin.log`
+    fs.appendFileSync(logf, `${new Date().toISOString()} [tui] ${msg}\n`)
+  } catch {
+    /* 日志失败不致命 */
+  }
+}
+
 function readCfg(): SwarmCfg {
   try {
     return JSON.parse(loader()!.readFileSync(CFG_PATH, "utf8"))
@@ -120,8 +132,10 @@ function swarmFile(worktree: string) {
   return { path, read, setLine, getLine, ensure }
 }
 
-/** 拉起 headless opencode（挂载当前会话）总结项目用途，返回总结文本。30s 超时。 */
-function summarizePurpose(worktree: string, currentSessionId: string, timeoutMs = 30_000): Promise<string | null> {
+/** 拉起 headless opencode（挂载当前会话）总结项目用途，返回总结文本。120s 超时。
+ * 注意：挂载当前会话时若该会话 busy，opencode run --session 会等待其空闲，超时需放宽。
+ */
+function summarizePurpose(worktree: string, currentSessionId: string, timeoutMs = 120_000): Promise<string | null> {
   return new Promise((resolve) => {
     const bin = process.env.OPENCODE_BIN || "opencode"
     const prompt = [
@@ -132,28 +146,33 @@ function summarizePurpose(worktree: string, currentSessionId: string, timeoutMs 
     const args = ["run", prompt, "--format", "json", "--auto", "--title", "swarm-purpose"]
     if (currentSessionId) args.push("--session", currentSessionId)
 
+    tuiLog(`summarizePurpose start worktree=${worktree} session=${currentSessionId || "(none)"} timeout=${timeoutMs}ms`)
     let proc
     try {
       proc = spawn(bin, args, { cwd: worktree, stdio: ["ignore", "pipe", "pipe"] })
     } catch (e) {
+      tuiLog(`summarizePurpose spawn failed: ${e}`)
       resolve(null)
       return
     }
 
     let buf = ""
     let lastText = ""
+    let stderrTail = ""
     let settled = false
-    const settle = (res: string | null) => {
+    const settle = (res: string | null, why: string) => {
       if (settled) return
       settled = true
       clearTimeout(timer)
+      tuiLog(`summarizePurpose settle ${why} text="${(lastText || "").slice(0, 40)}" stderr_tail="${stderrTail.slice(-100)}"`)
       resolve(res)
     }
     const timer = setTimeout(() => {
+      tuiLog(`summarizePurpose timeout after ${timeoutMs}ms, killing`)
       if (proc.pid) {
         try { process.kill(-proc.pid, "SIGKILL") } catch { proc.kill("SIGKILL") }
       }
-      settle(lastText || null)
+      settle(lastText || null, "timeout")
     }, timeoutMs)
 
     proc.stdout!.on("data", (chunk: Buffer) => {
@@ -174,9 +193,11 @@ function summarizePurpose(worktree: string, currentSessionId: string, timeoutMs 
         }
       }
     })
-    proc.stderr!.on("data", () => { /* 忽略 stderr */ })
-    proc.on("error", () => settle(lastText || null))
-    proc.on("close", () => settle(lastText || null))
+    proc.stderr!.on("data", (chunk: Buffer) => {
+      stderrTail += chunk.toString()
+    })
+    proc.on("error", (e) => settle(lastText || null, `error ${e}`))
+    proc.on("close", (code) => settle(lastText || null, `close code=${code}`))
   })
 }
 
