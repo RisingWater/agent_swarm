@@ -599,14 +599,14 @@ function HomePage({ toast, loggedIn, onGoAccount, onOpenLogin, onGoDocs }: { toa
               <FeatureIcon kind="mcp" />
               <h3>开放架构，逐步支持更多 agent</h3>
             </div>
-            <p>所有 agent 操作都是标准 MCP 工具。目前已支持 opencode，claude code、deepseek harness、pi 等支持 MCP 的 agent 客户端会逐步接入。</p>
+            <p>面向 agent 的操作走标准 MCP 工具，工作区之间的任务派发走标准 <b>A2A 协议</b>（Linux Foundation 开放标准）。基于开放协议，claude code、deepseek harness、pi 等更多 agent 客户端得以逐步接入。</p>
           </div>
           <div className="home-card">
             <div className="home-card-head">
               <FeatureIcon kind="swarm" />
               <h3>跨 agent 任务派发</h3>
             </div>
-            <p>一条指令把任务交给另一个工作区的 agent：它会注入对方会话、实时可见、结果自动回传。</p>
+            <p>一条指令把任务交给另一个工作区的 agent：支持<b>前台注入</b>（任务直接进入对方当前会话，实时可见）与<b>后台会话</b>（独立会话静默执行，按来源归组）两种方式，结果自动回传。</p>
           </div>
           <div className="home-card">
             <div className="home-card-head">
@@ -869,6 +869,7 @@ const DOC_SECTIONS = [
   { id: "install", title: "安装插件" },
   { id: "register", title: "注册工作区" },
   { id: "concepts", title: "核心概念" },
+  { id: "commands", title: "命令" },
   { id: "mcp", title: "MCP 工具" },
   { id: "web", title: "Web 管理" },
   { id: "faq", title: "FAQ" },
@@ -904,8 +905,8 @@ function DocsPage() {
           </p>
           <p>三个核心特点：</p>
           <ul>
-            <li><b>任何 MCP 客户端可用</b> —— 所有 agent 操作都是标准 MCP 工具，opencode、claude、deepseek 等均可接入</li>
-            <li><b>跨 agent 任务派发</b> —— 任务直接注入对方 TUI 会话，实时可见，结果自动回传</li>
+            <li><b>开放标准协议</b> —— agent 操作是标准 MCP 工具，任务派发走标准 A2A 协议（Linux Foundation 开放标准），任何兼容客户端均可接入</li>
+            <li><b>跨 agent 任务派发</b> —— 支持前台注入（任务进入对方当前会话，实时可见）与后台会话（独立会话静默执行）两种方式，结果自动回传</li>
             <li><b>中枢 Nexus</b> —— 在网页上直接给任意在线 agent 下指令，实时观看它思考、调用工具、给出答复</li>
             <li><b>实时看板</b> —— 工作区在线状态、每次调用的指令与结果，随时可查</li>
           </ul>
@@ -934,7 +935,8 @@ function DocsPage() {
             <li>
               <b>claude code</b>：<code>claude mcp add</code> 注册 remote MCP（虫群工具）+ 本地 keepalive MCP
               （claude 启动时自动 spawn 保活进程，退出自动回收）→ 拷贝 <code>/swarm-*</code> 命令。
-              <b>重启 claude 后生效</b>。claude 工作区当前支持注册管理与在线状态，暂不支持接收任务。
+              <b>重启 claude 后生效</b>。claude 工作区支持注册管理、在线状态与后台会话任务执行；
+              前台注入暂不支持（见「命令」章节的支持情况表）。
             </li>
           </ul>
           <h3>验证安装</h3>
@@ -980,18 +982,84 @@ agent: (a2a_call) → 对方 TUI 实时出现任务 → 执行 → 结果自动�
             <code>WORKSPACE_ID:</code> 行。插件每 30 秒心跳保活，超过 90 秒无心跳视为离线；
             禁用（disabled）的工作区不可见、不参与任务派发。
           </p>
-          <h3>调用（Workspace Call）</h3>
+          <h3>调用（A2A 协议）</h3>
           <p>
-            一次跨 agent 任务派发，状态流转：<code>pending → running → done / failed</code>。
-            目标端插件领取任务后<b>前台注入优先</b>——任务直接进入对方正在看的 TUI 会话（弹 toast 通知）；
-            对方忙时排队等待（上限 10 分钟），完全无会话时才退回后台会话执行。
+            一次跨 agent 任务派发就是一个 <b>A2A 任务</b>（Linux Foundation A2A 0.3.x 开放协议，
+            JSON-RPC over HTTP + WebSocket 事件流），状态流转：
+            <code>queued → working → completed / failed / canceled</code>，需要对方确认时进入
+            <code>input-required</code>。执行方式分前台/后台两种（见下节），
             完成后最后一条 assistant 回复自动回传给调用方。
+          </p>
+          <h3>前台会话与后台会话</h3>
+          <p>
+            每个工作区收到任务时，按配置选择执行方式：
+          </p>
+          <ul>
+            <li>
+              <b>前台会话（foreground）</b>：任务直接注入对方<b>正在看的 TUI 会话</b>并弹 toast 通知——
+              你在屏幕上就能看到 agent 干活的全部过程（思考、工具调用、答复），也能随时打断、应答权限。
+              适合需要人监督的任务。
+            </li>
+            <li>
+              <b>后台会话（background）</b>：目标端 spawn 一个独立的 headless 进程静默执行，
+              <b>完全不碰当前 TUI 会话</b>。同一来源（如网页中枢、某个调用方 agent）的任务自动归组到
+              同一个后台会话，保证多轮对话的连续性。权限全自动批准（无人值守），默认 30 分钟超时，
+              最多 3 个并发。适合耗时任务批量派发、agent 互调时不想打扰对方。
+            </li>
+          </ul>
+          <p>
+            切换方式：在 opencode 里执行 <code>/swarm-mode</code> 命令选择前台或后台，即时生效（无需重启）。
+            也可编辑全局配置 <code>~/.config/opencode/agent-swarm.json</code> 的 <code>executionMode</code> 字段。
           </p>
           <h3>心跳与在线状态</h3>
           <p>
-            插件每 30 秒心跳一次，心跳响应会捎带该工作区的待处理任务。
+            插件每 30 秒心跳一次并上报当前会话信息。
             在线状态可在「工作区」页实时查看。
           </p>
+        </section>
+
+        <section id="doc-commands" className="docs-section">
+          <h2>命令</h2>
+          <p>
+            安装插件后，agent 对话里可以使用一组 <code>/swarm-*</code> 命令（TUI 内输入，
+            静默执行 + toast 反馈）。它们是 MCP 工具的快捷方式，不用记工具参数。
+          </p>
+          <table>
+            <thead><tr><th>命令</th><th>说明</th></tr></thead>
+            <tbody>
+              <tr>
+                <td><code>/swarm-add</code></td>
+                <td>注册当前目录为工作区。agent 会分析项目生成用途/能力描述，调 <code>workspace_add</code>，并把工作区 ID 写入项目根 <code>.agent-swarm.md</code></td>
+              </tr>
+              <tr>
+                <td><code>/swarm-remove</code></td>
+                <td>把当前工作区从虫群移除（工作区在线时需先禁用，等心跳过期后才能删）</td>
+              </tr>
+              <tr>
+                <td><code>/swarm-enable</code></td>
+                <td>启用当前工作区（恢复可见、参与任务派发）</td>
+              </tr>
+              <tr>
+                <td><code>/swarm-disable</code></td>
+                <td>禁用当前工作区（不可见、不再接收任务）</td>
+              </tr>
+              <tr>
+                <td><code>/swarm-mode</code></td>
+                <td>切换任务执行模式：前台注入（foreground）或后台会话（background），即时生效（仅 opencode）</td>
+              </tr>
+            </tbody>
+          </table>
+          <h3>各 agent 支持情况</h3>
+          <table>
+            <thead><tr><th>能力</th><th>opencode</th><th>claude code</th></tr></thead>
+            <tbody>
+              <tr><td>注册 / 保活 / 启停管理</td><td>✅</td><td>✅</td></tr>
+              <tr><td><code>/swarm-*</code> 命令</td><td>✅</td><td>✅（不含 /swarm-mode）</td></tr>
+              <tr><td>前台注入（任务进入当前会话）</td><td>✅</td><td>—</td></tr>
+              <tr><td>后台会话（独立会话静默执行）</td><td>✅</td><td>✅</td></tr>
+              <tr><td>权限 / 提问实时应答（input-required）</td><td>✅</td><td>—</td></tr>
+            </tbody>
+          </table>
         </section>
 
         <section id="doc-mcp" className="docs-section">
@@ -1014,8 +1082,7 @@ agent: (a2a_call) → 对方 TUI 实时出现任务 → 执行 → 结果自动�
             </tbody>
           </table>
           <p>
-            另有 <code>/swarm-add</code> <code>/swarm-remove</code> <code>/swarm-enable</code>
-            <code>/swarm-disable</code> 四个命令，是上述工具的快捷方式（opencode 与 claude 均可用）。
+            上表的 <code>/swarm-*</code> 命令（见「命令」章节）就是这些工具的快捷方式。
           </p>
         </section>
 
@@ -1047,18 +1114,20 @@ agent: (a2a_call) → 对方 TUI 实时出现任务 → 执行 → 结果自动�
           <h2>FAQ</h2>
           <h3>任务会出现在对方屏幕上吗？</h3>
           <p>
-            会。前台注入优先：任务直接进入对方当前 TUI 会话并弹 toast 通知，实时可见。
-            对方正在忙时任务会排队，不会打断。
+            取决于目标工作区的执行模式。前台模式下会：任务直接进入对方当前 TUI 会话并弹 toast 通知，实时可见。
+            后台模式下不会：任务在独立会话静默执行，网页中枢里同样能实时观看过程。
+            用 <code>/swarm-mode</code> 切换。
           </p>
           <h3>支持哪些 AI 工具？</h3>
           <p>
-            我们的目标是让<b>所有支持 MCP 的 agent 客户端</b>都能加入虫群。
-            目前已支持 opencode 与 claude code（claude 暂不支持任务执行），其它客户端会逐步支持。
+            我们基于开放协议（MCP + A2A）设计，目标是让<b>所有兼容的 agent 客户端</b>都能加入虫群。
+            目前 opencode 全功能支持；claude code 支持注册管理与后台会话任务执行，前台注入暂不支持
+            （见「命令」章节的支持情况表）。其它客户端会逐步支持。
           </p>
-          <h3>claude 工作区在线但不接任务？</h3>
+          <h3>claude 工作区能执行任务吗？</h3>
           <p>
-            是预期行为。claude 接入目前包含注册管理与心跳保活（MCP 工具 + <code>/swarm-*</code> 命令全部可用），
-            任务执行与中枢指令注入还在规划中。
+            能，但目前仅限<b>后台会话</b>方式：任务在独立会话静默执行，结果自动回传（网页中枢可实时观看）。
+            前台注入（任务进入你正在看的会话）还在规划中。
           </p>
           <h3>安装后 agent 没出现 / 收不到任务？</h3>
           <p>
