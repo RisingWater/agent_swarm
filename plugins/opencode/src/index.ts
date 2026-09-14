@@ -18,6 +18,7 @@ import { appendFileSync, existsSync, readFileSync, statSync, truncateSync } from
 import { homedir } from "node:os"
 import { join } from "node:path"
 import { readWorkspaceId } from "./wsfile"
+import { readSessionMap, writeSessionEntry } from "./sessions"
 import { SwarmClient } from "./client"
 import { loadConfig } from "./config"
 import {
@@ -187,17 +188,24 @@ const plugin: Plugin = async (input) => {
     // 每次收任务重读配置：/swarm-mode 切换执行模式无需重启 opencode
     const liveCfg = loadConfig() ?? config
     if (liveCfg.executionMode === "background") {
-      // 后台模式：headless 进程执行（不碰前台会话状态；--auto 全自动批准权限）。
-      // 不携带服务端会话锚点：锚点是 heartbeat 上报的当前 TUI 会话，resume 它等于
-      // 把任务 prompt 注回前台会话。后台任务一律新开会话（标题 A2A-<taskId>）。
-      log(`a2a ${task.taskId.slice(0, 8)}: background mode (new session)`)
+      // 后台模式：headless 进程执行（不碰前台会话状态；--pure 不加载插件；--auto 全自动批准）。
+      // 会话按来源映射表（.agent-swarm-sessions.json）路由：同一 caller 的任务复用同一
+      // 后台会话（对话连续性）；不携带服务端会话锚点（那是前台 TUI 会话，resume 它等于
+      // 把任务注回前台）。任务结束后把实际 sessionId 回写映射表（成功失败都写）。
+      const resume = readSessionMap(directory)[caller] ?? ""
+      log(`a2a ${task.taskId.slice(0, 8)}: background mode${resume ? ` (resume ${resume.slice(0, 12)})` : " (new session)"} caller=${caller}`)
       const result = await runBackgroundTask(
         task,
         text,
         caller,
-        { cwd: directory, opencodeBin: liveCfg.backgroundCommand === "auto" ? "opencode" : liveCfg.backgroundCommand },
+        {
+          cwd: directory,
+          opencodeBin: liveCfg.backgroundCommand === "auto" ? "opencode" : liveCfg.backgroundCommand,
+          resumeSessionId: resume,
+        },
         { emit: a2aEmit, log },
       )
+      if (result.sessionId) writeSessionEntry(directory, caller, result.sessionId)
       return result.ok ? (result.sessionId ?? "background") : null
     }
     return executeTaskForeground(task, text, caller)

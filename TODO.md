@@ -1,8 +1,8 @@
 # agent_swarm 开发进度 TODO
 
-> 更新时间: 2026-09-14 晚 · 交接给下一个 agent（Linux 机 /home/wangxu/workdir/agent_swarm）
-> 服务已跑在 :8700（日志 /tmp/opencode/swarm-start.log）· 前端构建产物由 8700 静态托管
-> 全部代码已提交并推送 origin/dev（HEAD = 02e1d2d）
+> 更新时间: 2026-09-14 深夜 · Windows 机（D:\wangxu\work\agent_swarm，workspace ID 4g8rHi43MHaWurH9XYsGNH）
+> 服务已跑在 :8700（.\deploy\start.ps1 前台运行）· 前端构建产物由 8700 静态托管
+> 已推送 origin/dev（HEAD = 48fbbbe）；工作区另有未提交改动：后台会话按 caller 续聊 + Windows 适配（见已完成第 1 节）
 
 ## 项目一句话
 
@@ -23,7 +23,15 @@
 - ~~视频走 git lfs~~（放弃：mp4 39MB 普通 blob 已推送成功，用户接受仓库变大）
 - ~~e2e 测试脚本~~（用户 2026-09-12 决定放弃，scripts/test_plugin_smoke.ts 是死代码可删可留）
 
-## 已完成（全部已提交，git log 可查）
+## 已完成（除注明"未提交"外均已进 git）
+
+### 后台会话按 caller 续聊 + Windows 适配（2026-09-14 深夜，未提交，E2E 首单已验证）
+
+- ✅ **`plugins/opencode/src/sessions.ts`（新文件）**：后台会话映射表 `.agent-swarm-sessions.json`（工作区根目录，已进 .gitignore），键 = caller（nexus-web / 调用方工作区 ID / 外部 A2A URL），值 = opencode 会话 ID；同一来源的任务复用同一后台会话保证对话连续性，成功失败都回写
+- ✅ **background.ts 重构**：拆出 `spawnOnce`（单次 spawn 到退出）+ `runBackgroundTask` 编排；新增 `--pure`（子进程不加载插件，避免同 WORKSPACE_ID 二连顶掉 TUI 的 /ws/plugin 连接）、`--thinking`（stdout 输出 reasoning 事件实时回传 web）；`--session` 被拒（非零退出且无任何 stdout 事件）自动去锚点用新会话重试一次
+- ✅ **Windows 适配**：spawn "opencode" 在 Windows 会 ENOENT（npm 全局命令是 .cmd shim）→ `resolveBin` 解析到 `%APPDATA%\npm\node_modules\opencode-ai\bin\opencode.exe`；杀进程树 Windows 无进程组语义 → `taskkill /PID <pid> /T /F`（POSIX 仍用负 PID 信号）
+- ✅ **E2E 首单已通过**（Windows 机）：nexus-web 下发 → 后台独立会话（ses_f5fb6ecc…，run=f5748d48，前台 TUI 无任务文本）→ 真实执行并回传。之前一单 M9xmrEpK 因 ENOENT 失败，正是 resolveBin 修复的触发点
+- ⚠️ Linux 侧注意：`process.kill(-pid)` 负 PID 仅对 detached 进程组有效；resolveBin 只找 Windows 路径，Linux 下仍裸用 "opencode"（PATH 命中）
 
 ### /swarm-* 命令：TUI 化 + /swarm-add 回退 md 命令（2026-09-14）
 
@@ -36,11 +44,11 @@
 - ✅ **config 合并优先级修正**：全局 `~/.config/opencode/agent-swarm.json` 显式设置时优先（老逻辑"任一来源为 background 就 background"，全局切不回 foreground）
 - 用户本机 apikey 曾出现尾部多 `~` 的脏数据（agent-swarm.json），已修；来源未知，再见到先查这里
 
-### 后台执行模式（2026-09-14，骨架完成，E2E 未验证 → 见待办）
+### 后台执行模式（2026-09-14，骨架完成 + Windows E2E 首单通过）
 
-- ✅ `plugins/opencode/src/background.ts`：spawn `opencode run --format json --auto --title A2A-<id>` headless 进程；stdout JSON 事件流（text/tool_use）归一化为 A2A 事件（与前台同通道上报）；exit code + finalText 决定 completed/failed；30min 超时 kill 进程树、并发上限 3、cancel 支持
+- ✅ `plugins/opencode/src/background.ts`：spawn `opencode run --format json --auto --title A2A-<id>` headless 进程；stdout JSON 事件流（text/reasoning/tool_use）归一化为 A2A 事件（与前台同通道上报）；exit code + finalText 决定 completed/failed；30min 超时 kill 进程树、并发上限 3、cancel 支持
 - ✅ `config.ts` `executionMode`: foreground / background，`backgroundCommand: auto`
-- ✅ 修复：后台任务不再携带服务端会话锚点（锚点=心跳上报的当前 TUI 会话，resume 它等于把任务注回前台）——后台一律新开会话（标题 A2A-<id>）
+- ✅ 修复：后台任务不再携带服务端会话锚点（锚点=心跳上报的当前 TUI 会话，resume 它等于把任务注回前台）——后台会话改为按 caller 映射表路由（见最上一节）
 
 ### A2A 协议改造（2026-09-14，替换 nexus 自定义协议 + workspace_call）
 
@@ -82,19 +90,17 @@
 
 ### 高优先级
 
-- [ ] **后台会话 E2E 验证（最重要）**：骨架已齐但还没跑通验证过。症状复盘：web 下发 background 任务，任务文本曾出现在前台 TUI 会话（已修两轮：c345e3b 去锚点、每任务重读配置）。验证步骤：
-  1. 用户重启 opencode（运行中会话持有旧插件代码）
-  2. web 中枢对该工作区发任务
-  3. 前台 TUI **不应**出现任务文本
-  4. `tail -f ~/.config/opencode/plugins/agent-swarm/plugin.log` 应见 `background mode (new session)` 且无 `resume ses_`；web 中枢应看到 A2A-xxxx 标题的独立会话
-  5. 若仍进前台：查 plugin.log 该任务走的是 `background mode` 还是前台日志格式 `session ses_xxx`；再查安装目录插件文件 mtime 是否最新
+- [x] **后台会话 E2E 验证**（2026-09-14 深夜 Windows 机通过）：web 下发 background 任务，前台 TUI 无任务文本；plugin.log 见 `background mode (new session)` 无 `resume ses_`；opencode 日志见独立会话 A2A-<id>。曾因 Windows spawn ENOENT 失败一单（M9xmrEpK），resolveBin 修复后 KSzac7ekUvg7A8LqN7w8S5 全链路走通
+- [ ] **后台会话续聊 E2E**：同 caller（如 nexus-web）连发两个任务，验证第二个任务复用 `.agent-swarm-sessions.json` 里记录的会话（plugin.log 应见 `resume ses_`），且对话上下文延续
 - [ ] **前端 web 的 A2A 与后台会话展示未更新**（用户原话："前端的a2a和后台会话还没有更新"）：后台任务独立会话（A2A-xxx）在中枢页无区分展示；task 的 session_id 上报后工作区表"当前会话"列刷新未验证；后台事件（metadata.background=true）前端未特殊渲染
-- [ ] **claude 后台会话未做**（用户：claude 前台会话做不了，只做后台）：给 claude 做 headless 执行通道，方向参考 opencode `background.ts`，claude 对应 `claude -p --output-format stream-json` 流式解析；A2A 网关需放开对 claude 工作区的拒绝（server/nexus_a2a.py）。相关旧决策：claude 权限中继（Bash/Write 远程 approve 走 claude/channel/permission）用户确认要做，排 v3
+- [ ] **claude 后台会话未做**（用户：claude 前台会话做不了，只做后台）：给 claude 做 headless 执行通道，方向参考 opencode `background.ts`，claude 对应 `claude -p --output-format stream-json` 流式解析（Windows 适配可直接抄 resolveBin/taskkill 思路）；A2A 网关需放开对 claude 工作区的拒绝（server/nexus_a2a.py）。相关旧决策：claude 权限中继（Bash/Write 远程 approve 走 claude/channel/permission）用户确认要做，排 v3
 - [ ] 真实 opencode 前台注入 E2E：web 下发 → TUI 前台注入 → 权限应答 → artifact 回传 全链路（前台路径今天只验了任务文本能进来，权限/提问/input-required 未验）
+- [ ] 本机（Windows）未提交改动收尾：sessions.ts/background.ts/index.ts + .gitignore + .agent-swarm.md（WORKSPACE_ID 换成 4g8rHi43MHaWurH9XYsGNH）待提交；提交前把安装目录 `%USERPROFILE%\.config\opencode\plugins\agent-swarm\` 与仓库确认同步（2026-09-14 深夜已比对一致，含 sessions.ts）
 
 ### 备忘
 
 - [ ] a2a-inspector 互操作验证（规范符合性快检，可选）
+- [ ] Windows 机本仓库工作区 ID：4g8rHi43MHaWurH9XYsGNH（2026-09-14 深夜重注册；旧 anKN3nc88cJnVND3cnjcmn 在本地库里不存在，已随 .agent-swarm.md 更新）
 - [ ] nas_brain 工作区 ID：XYaR4TdtGqdqoAEW9vNn8g（旧 nDZDDucfudwSPmN5Nec3GU 已失效）
 - [ ] DB 里可能残留脏 purpose 的工作区（2026-09-14 上午 headless 方案上传过对话屁话；agent_swarm 本仓库那条已用 update_info 覆盖，其他机器如有同类问题同样处理）
 - [ ] npm install 慢（~40s）：可把 @opencode-ai/* 设为 peerDependencies
@@ -102,25 +108,24 @@
 - [ ] 文档页可补：任务派发权限交互（permission.asked 目标端 TUI 响应）还没写进 FAQ
 - [ ] 前端 lint 有一个既存 warning（WorkspacesPage set-state-in-effect），非阻塞
 
-## 环境/常用操作（Linux 本机）
+## 环境/常用操作（Windows 本机）
 
-```bash
-./deploy/start.sh [port]     # 服务 :8700（幂等；日志 /tmp/opencode/swarm-start.log）
-./deploy/stop.sh [port]
+```powershell
+.\deploy\start.ps1           # 服务 :8700（前台运行，Ctrl-C 停止；幂等，已在跑则退出）
+.\deploy\stop.ps1            # 注意：start.ps1 是前台运行，通常直接关窗口/Ctrl-C
 cd web && npm run build      # 产物由 8700 托管，无需重启服务
 cd web && npm run dev        # dev :8701
-cd plugins/opencode && ./node_modules/.bin/tsc --noEmit   # typecheck
+cd plugins/opencode && npm run typecheck   # tsc --noEmit
 # 改了 plugins/opencode/src/ 后本机生效三步：
-cp src/xxx.ts ~/.config/opencode/plugins/agent-swarm/src/  # 1. 同步安装目录
-tar -czf data/agent-swarm-plugin.tar.gz -C . --exclude=node_modules --exclude=types --exclude='*.tsbuildinfo' plugins  # 2. 重打包
+# 1. 同步到安装目录 %USERPROFILE%\.config\opencode\plugins\agent-swarm\src\
+# 2. tar -czf data\agent-swarm-plugin.tar.gz -C . --exclude=node_modules --exclude=types --exclude="*.tsbuildinfo" plugins
 # 3. 重启 opencode（必须，运行中的会话持有旧插件代码）
 ```
 
-- 用户 apikey（两处应一致）：`~/.config/opencode/agent-swarm.json`（全局，TUI 插件读这个）与 `~/.config/opencode/plugins/agent-swarm/config.json`（server 插件兜底）。claude 侧在 ~/.claude/agent-swarm/config.json。当前值 as_4wq5J2YGkdNXRymv_x4gCMTpoFHXbM0WS5UidSDEkyE
+- 本机 serverUrl：`http://127.0.0.1:8700`，apikey 在 `~/.config/opencode/agent-swarm.json`（全局，TUI 插件读这个）与 `~/.config/opencode/plugins/agent-swarm/config.json`（server 插件兜底，两处应一致）
 - 插件日志：`~/.config/opencode/plugins/agent-swarm/plugin.log`（server/TUI 插件共用，TUI 行带 `[tui]` 前缀）
 - opencode 运行日志：`~/.local/share/opencode/log/opencode.log`（TUI 插件加载报错看这里）
 - 心跳 30s，90s 超时判离线；**时间戳全是 UTC**，用户在 UTC+8，别拿本地时钟肉眼对比心跳新鲜度（反复踩过，AGENTS.md 有记载）
-- JWT_SECRET 未设环境变量（dev 默认），生产部署前要改
 - ⚠️ 改 plugins/opencode/src/ 后：同步 + 重打 tarball + 重启 opencode 才生效
 - ⚠️ 含中文的 ps1 安装脚本必须 UTF-8 with BOM
-- 快捷排查：`grep "background\|a2a" ~/.config/opencode/plugins/agent-swarm/plugin.log | tail`
+- 快捷排查：`Select-String -Path "$env:USERPROFILE\.config\opencode\plugins\agent-swarm\plugin.log" -Pattern "background|a2a" | Select-Object -Last 20`
