@@ -1,6 +1,6 @@
 # agent_swarm 开发进度 TODO
 
-> 更新时间: 2026-09-13 · 交接给下一个 agent
+> 更新时间: 2026-09-14 · 交接给下一个 agent
 > 项目路径: D:\wangxu\work\agent_swarm · 服务已跑在 :8700 · 前端构建产物由 8700 静态托管
 
 ## 项目一句话
@@ -36,7 +36,7 @@
 
 ### 基建
 
-- ✅ docker/（Dockerfile 多阶段：node 构建前端 → python 运行时；compose.yaml；.dockerignore）——**未实测，用户计划下周一在公司验证**
+- ✅ docker/（Dockerfile 多阶段：node 构建前端 → python 运行时；compose.yaml；.dockerignore；deploy/build_docker.sh）——**已实测构建通过**
 - ✅ README.md（架构图、快速开始、MCP 工具表、Docker 部署、配置表、开发指南）
 - ✅ AGENTS.md 刷新（12 工具清单、任务派发机制、前端坑，与 README 去重：产品文档归 README/文档页，AGENTS 只放架构决策与 gotcha）
 
@@ -51,7 +51,7 @@
 
 ### 高优先级
 
-- [ ] **Docker 构建实测**（用户下周一去公司测试）：Dockerfile/compose.yaml 已写好但未跑过，首次 build 可能在 npm ci（alpine 平台二进制）出问题，待验证
+- [x] **Docker 构建实测**（2026-09-14 ✅）：`./deploy/build_docker.sh` 构建成功（agent-swarm:latest，286MB，已推私有仓库 10.17.17.19:8082/agent-swarm）。踩坑记录：镜像内置旧 pip（25.0.1）在 fastapi/pydantic/starlette 交叉约束上 resolver 回溯死循环 → Dockerfile 已修（装依赖前先 upgrade pip）。本地 8700 被 dev 服务占用，docker 起之前先 ./deploy/stop.sh 或换端口映射
 - [ ] nas_brain 工作区重新注册后 ID 变了（XYaR4TdtGqdqoAEW9vNn8g），注意旧的 nDZDDucfudwSPmN5Nec3GU 已失效
 
 ## 环境/常用操作
