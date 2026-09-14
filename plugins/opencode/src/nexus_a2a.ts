@@ -26,8 +26,9 @@ export interface A2aOptions {
   url: string
   apiKey: string
   workspaceId: () => string
-  /** 收到 message/send：注入会话执行。返回 sessionId（服务端记录 task.session_id） */
-  onTask: (task: A2aTaskRef, text: string, caller: string) => Promise<string | null>
+  /** 收到 message/send：注入会话执行。返回 sessionId（服务端记录 task.session_id）。
+   *  serverSessionId = 服务端派发的会话锚点（heartbeat 上报的工作区当前会话），后台执行时作 --session 续聊 */
+  onTask: (task: A2aTaskRef, text: string, caller: string, serverSessionId?: string) => Promise<string | null>
   /** 收到 input-required 续聊应答（权限/提问），由服务端转成 message/send DataPart */
   onReply: (task: A2aTaskRef, data: { type: string; requestId: string; reply?: string; answers?: string[][] }) => Promise<void>
   /** 权限请求答复（A2A input-required 续聊，data.type=permission） */
@@ -286,7 +287,8 @@ export function startNexusA2AClient(options: A2aOptions): NexusA2AClient {
             return
           }
           log(`a2a task ${task.taskId.slice(0, 8)} (caller=${caller})`)
-          onTask(task, text, caller)
+          const serverSessionId = String(metadata.session_id ?? "")
+          onTask(task, text, caller, serverSessionId)
             .then((sid) => {
               if (sid === null) {
                 send({

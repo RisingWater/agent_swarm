@@ -109,13 +109,30 @@ if (-not (Test-Path (Join-Path $InstallDir "node_modules\@opencode-ai"))) {
     try { & npm install --no-audit --no-fund --loglevel=error } finally { Pop-Location }
 }
 
-# 3. 写入本机插件配置（server + apikey）
+# 3. 写入本机插件配置（server + apikey + 执行模式）
 #    plugins/agent-swarm/config.json 与 loadConfig() 实际读取的
-#    ~/.config/opencode/agent-swarm.json 都写，避免路径不一致导致插件拿不到 key
-$cfg = @{ serverUrl = $Server; apiKey = $ApiKey } | ConvertTo-Json
+#    ~/.config/opencode/agent-swarm.json 都写，避免路径不一致导致插件拿不到 key。
+#    executionMode 已有人工设置时不覆盖（幂等重装保留用户选择）
 $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
-[IO.File]::WriteAllText((Join-Path $InstallDir "config.json"), $cfg, $utf8NoBom)
-[IO.File]::WriteAllText((Join-Path $HOME ".config\opencode\agent-swarm.json"), $cfg, $utf8NoBom)
+function Write-PluginConfig {
+    param([string]$Path)
+    if ((Test-Path $Path) -and ((Get-Content $Path -Raw) -match '"executionMode"')) {
+        $cfg = Get-Content $Path -Raw | ConvertFrom-Json
+        $cfg.serverUrl = $Server
+        $cfg.apiKey = $ApiKey
+        [IO.File]::WriteAllText($Path, ($cfg | ConvertTo-Json), $utf8NoBom)
+    } else {
+        $cfg = @{
+            serverUrl = $Server
+            apiKey = $ApiKey
+            executionMode = "foreground"
+            backgroundCommand = "auto"
+        } | ConvertTo-Json
+        [IO.File]::WriteAllText($Path, $cfg, $utf8NoBom)
+    }
+}
+Write-PluginConfig (Join-Path $InstallDir "config.json")
+Write-PluginConfig (Join-Path $HOME ".config\opencode\agent-swarm.json")
 
 # 4. 注册：a) mcp.agent-swarm 配置（工具直连 MCP）b) 插件（心跳保活）
 $mcpBlock = @"

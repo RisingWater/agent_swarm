@@ -74,23 +74,30 @@ if [ ! -d "$INSTALL_DIR/node_modules/@opencode-ai" ]; then
     (cd "$INSTALL_DIR" && "$NPM" install --no-audit --no-fund --loglevel=error)
 fi
 
-# 3. 写入本机插件配置（server + apikey）
+# 3. 写入本机插件配置（server + apikey + 执行模式）
 #    两处都写：loadConfig() 读 ~/.config/opencode/agent-swarm.json（全局），
-#    INSTALL_DIR/config.json 保留作向后兼容/排查用
-cat > "$INSTALL_DIR/config.json" <<EOF
-{
-  "serverUrl": "$SERVER",
-  "apiKey": "$API_KEY"
+#    INSTALL_DIR/config.json 保留作向后兼容/排查用。
+#    executionMode 已有人工设置时不覆盖（幂等重装保留用户选择）
+write_cfg() {
+    local dest="$1"
+    if [ -f "$dest" ] && grep -q '"executionMode"' "$dest" 2>/dev/null; then
+        # 保留现有 executionMode，仅更新 server/apiKey
+        node - "$dest" "$SERVER" "$API_KEY" <<'NODE'
+const fs = require("fs")
+const [p, server, key] = process.argv.slice(2)
+const cfg = JSON.parse(fs.readFileSync(p, "utf-8"))
+cfg.serverUrl = server
+cfg.apiKey = key
+fs.writeFileSync(p, JSON.stringify(cfg, null, 2) + "\n")
+NODE
+    else
+        printf '{\n  "serverUrl": "%s",\n  "apiKey": "%s",\n  "executionMode": "foreground",\n  "backgroundCommand": "auto"\n}\n' "$SERVER" "$API_KEY" > "$dest"
+    fi
 }
-EOF
+write_cfg "$INSTALL_DIR/config.json"
 chmod 600 "$INSTALL_DIR/config.json"
 GLOBAL_CFG="$HOME/.config/opencode/agent-swarm.json"
-cat > "$GLOBAL_CFG" <<EOF
-{
-  "serverUrl": "$SERVER",
-  "apiKey": "$API_KEY"
-}
-EOF
+write_cfg "$GLOBAL_CFG"
 chmod 600 "$GLOBAL_CFG"
 echo "    已写入插件配置: $GLOBAL_CFG"
 

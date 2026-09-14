@@ -432,13 +432,17 @@ async def _dispatch_to_plugin_plain(task_snap: dict, message_text: str, caller: 
     conn = plugins.get(task_snap["workspace_id"])
     if conn is None:
         return
+    # 附带工作区当前会话 id（heartbeat 上报）：插件以此为执行/续聊锚点
+    with Session(engine) as session:
+        ws = session.get(models.Workspace, task_snap["workspace_id"])
+        session_id = (ws.session_id if ws else "") or ""
     req = {
         "jsonrpc": "2.0",
         "id": f"srv-{task_snap['id']}",
         "method": "message/send",
         "params": {
             "message": user_message(message_text, task_id=task_snap["id"], context_id=task_snap["context_id"]),
-            "metadata": {"caller": caller},
+            "metadata": {"caller": caller, "session_id": session_id},
         },
     }
     fut: asyncio.Future = asyncio.get_running_loop().create_future()
@@ -982,6 +986,13 @@ async def _flush_queued(workspace_id: str, conn: PluginConn) -> None:
     await dispatch_queued_for(workspace_id)
 
 
+def _ws_session_id(workspace_id: str) -> str:
+    """工作区当前会话 id（heartbeat 上报）；无则空串。"""
+    with Session(engine) as session:
+        ws = session.get(models.Workspace, workspace_id)
+        return (ws.session_id if ws else "") or ""
+
+
 async def dispatch_queued_for(workspace_id: str) -> int:
     """把某工作区的 queued 任务推给在线插件（a2a_call / 插件上线共用）。返回派发数。"""
     conn = plugins.get(workspace_id)
@@ -1010,7 +1021,10 @@ async def dispatch_queued_for(workspace_id: str) -> int:
             "jsonrpc": "2.0",
             "id": f"srv-{tid}",
             "method": "message/send",
-            "params": {"message": user_message(text, task_id=tid, context_id=""), "metadata": {"caller": caller or "agent"}},
+            "params": {
+                "message": user_message(text, task_id=tid, context_id=""),
+                "metadata": {"caller": caller or "agent", "session_id": _ws_session_id(workspace_id)},
+            },
         }
         fut: asyncio.Future = asyncio.get_running_loop().create_future()
         conn.pending[req["id"]] = fut

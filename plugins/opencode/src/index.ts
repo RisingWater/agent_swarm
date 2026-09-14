@@ -21,6 +21,10 @@ import { readWorkspaceId } from "./wsfile"
 import { SwarmClient } from "./client"
 import { loadConfig } from "./config"
 import {
+  runBackgroundTask,
+  cancelBackgroundTask,
+} from "./background"
+import {
   startNexusA2AClient,
   type NexusA2AClient,
   type A2aTaskRef,
@@ -56,6 +60,7 @@ const plugin: Plugin = async (input) => {
     log("no apiKey config; plugin disabled")
     return {}
   }
+  const config = cfg // 闭包内使用（TS 收窄在嵌套函数里失效，固定非空引用）
   const heartbeatMs = cfg.heartbeatIntervalMs ?? 30_000
   const swarm = new SwarmClient(cfg)
   const AGENT_TYPE = "opencode" // 本插件跑在 opencode 里，心跳固定上报
@@ -174,11 +179,29 @@ const plugin: Plugin = async (input) => {
   }
 
   /**
-   * 执行 A2A 任务（message/send）：与旧 workspace_call 不同，所有进展走流式事件
-   * 上报（web 中枢实时可见），完成时发 completed + Artifact。
-   * 前台注入优先；权限/提问触发 input-required 状态。
+   * 执行 A2A 任务（message/send）：所有进展走流式事件上报（web 中枢实时可见），
+   * 完成时发 completed + Artifact。
+   * 按配置分流：foreground=注入当前 TUI 前台会话；background=spawn headless 进程。
    */
-  async function executeTask(task: A2aTaskRef, text: string, caller: string): Promise<string | null> {
+  async function executeTask(task: A2aTaskRef, text: string, caller: string, serverSessionId = ""): Promise<string | null> {
+    if (config.executionMode === "background") {
+      // 后台模式：headless 进程执行（不碰前台会话状态；--auto 全自动批准权限）
+      // 会话锚点 = 服务端派发的 session_id（heartbeat 上报的工作区当前会话）
+      log(`a2a ${task.taskId.slice(0, 8)}: background mode${serverSessionId ? ` session=${serverSessionId.slice(0, 12)}` : " (new session)"}`)
+      const result = await runBackgroundTask(
+        task,
+        text,
+        caller,
+        { cwd: directory, opencodeBin: config.backgroundCommand === "auto" ? "opencode" : config.backgroundCommand, sessionId: serverSessionId },
+        { emit: a2aEmit, log },
+      )
+      return result.ok ? (result.sessionId ?? "background") : null
+    }
+    return executeTaskForeground(task, text, caller)
+  }
+
+  /** 前台注入执行（原 executeTask 主体） */
+  async function executeTaskForeground(task: A2aTaskRef, text: string, caller: string): Promise<string | null> {
     let sessionId = currentSessionId || (await pickRecentSession())
     if (!sessionId) {
       const created: any = await client.session.create({
@@ -393,7 +416,11 @@ const plugin: Plugin = async (input) => {
       await onQuestionReplyImpl("", requestId, answers)
     },
     onTaskCancel: (taskId) => {
-      // 取消：尽力而为——任务标记 canceled 事件（已注入的 opencode 会话无法中断）
+      // 取消：后台任务 kill 进程树；前台任务标记 canceled（已注入的 opencode 会话无法中断）
+      if (cancelBackgroundTask(taskId)) {
+        log(`a2a ${taskId.slice(0, 8)}: background process killed`)
+        return // 进程 close 回调会上报 canceled/failed 终态
+      }
       const sessionId = a2aRuns.get(taskId)
       const task: A2aTaskRef = { taskId, contextId: taskId }
       a2aEmit(
