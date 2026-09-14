@@ -1928,6 +1928,15 @@ function WorkspacesPage({ toast }: { toast: (m: string) => void }) {
 
 // ---------------- 调用记录 ----------------
 
+/** 发起方显示：渠道标注转友好文案，互调带目标工作区名 */
+function callerLabel(r: { caller: { name: string; path: string } | null; external_url?: string | null }): string {
+  const c = r.caller
+  if (!c?.name) return "-"
+  if (c.name === "nexus-web") return "网页中枢"
+  if (c.name === "agent") return "工作区 agent"
+  return c.name
+}
+
 function CallsPage({ toast }: { toast: (m: string) => void }) {
   const [list, setList] = useState<WorkspaceCall[]>([])
   const [detail, setDetail] = useState<WorkspaceCall | null>(null)
@@ -1984,7 +1993,7 @@ function CallsPage({ toast }: { toast: (m: string) => void }) {
             .map((r) => (
             <tr key={r.id}>
               <td style={{ color: "var(--text-weak)", fontSize: 12 }}>{fmtTime(r.created_at, "datetime")}</td>
-              <td>{r.caller?.name ?? "-"}</td>
+              <td>{callerLabel(r)}</td>
               <td>{r.target?.name ?? "-"}</td>
               <td><span className={`status-pill ${r.status === "working" || r.status === "queued" ? "accepted" : r.status}`}>{r.status}</span></td>
               <td><a className="link" onClick={() => setDetail(r)}>{r.instruction}</a></td>
@@ -2032,7 +2041,7 @@ function CallsPage({ toast }: { toast: (m: string) => void }) {
       {detail && (
         <Modal wide title={`调用 ${detail.id.slice(0, 8)}`} onClose={() => setDetail(null)}>
           <dl className="dl">
-            <dt>发起方</dt><dd>{detail.caller?.name} ({detail.caller?.path})</dd>
+            <dt>发起方</dt><dd>{callerLabel(detail)}{detail.external_url ? ` (${detail.external_url})` : ""}</dd>
             <dt>目标</dt><dd>{detail.target?.name} ({detail.target?.path})</dd>
             <dt>状态</dt><dd>{detail.status}</dd>
             <dt>发起时间</dt><dd>{fmtTime(detail.created_at, "datetime")}</dd>

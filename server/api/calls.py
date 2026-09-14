@@ -11,9 +11,17 @@ router = APIRouter(prefix="/api/calls", tags=["calls"])
 
 def call_out(call: models.A2aTask, session: Session) -> dict:
     tgt_ws = session.get(models.Workspace, call.workspace_id) if call.workspace_id else None
+    # 发起方：内部互调 = 目标工作区自身（agent 在该工作区里发起 a2a_call）；
+    # web 中枢/外部 URL = caller 渠道标注（nexus-web / agent / ...）
+    if call.workspace_id and call.caller in ("", "agent"):
+        caller_name = f"{tgt_ws.name} (agent)" if tgt_ws else "agent"
+        caller_path = tgt_ws.path if tgt_ws else ""
+    else:
+        caller_name = call.caller or "a2a-client"
+        caller_path = call.external_url or ""
     return {
         "id": call.id,
-        "caller": None,
+        "caller": {"id": call.workspace_id or "", "name": caller_name, "path": caller_path},
         "target": {"id": tgt_ws.id, "name": tgt_ws.name, "path": tgt_ws.path} if tgt_ws else None,
         "external_url": call.external_url or None,
         "instruction": call.message,
