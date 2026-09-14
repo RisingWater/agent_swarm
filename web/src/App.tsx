@@ -312,6 +312,7 @@ function LoginPage({ onLogin, onClose }: { onLogin: (token: string) => void; onC
   const [password, setPassword] = useState("")
   const [loading, setLoading] = useState(false)
   const [apiKeyShow, setApiKeyShow] = useState<string | null>(null)
+  const [pendingToken, setPendingToken] = useState("")
   const [err, setErr] = useState("")
 
   const submit = async () => {
@@ -324,6 +325,8 @@ function LoginPage({ onLogin, onClose }: { onLogin: (token: string) => void; onC
         onLogin(r.token)
       } else {
         const r = await api.register(username, password)
+        localStorage.setItem("swarm_user", r.user.username)
+        setPendingToken(r.token)
         setApiKeyShow(r.api_key)
       }
     } catch (e: any) {
@@ -357,7 +360,7 @@ function LoginPage({ onLogin, onClose }: { onLogin: (token: string) => void; onC
         </div>
       </div>
       {apiKeyShow && (
-        <Modal title="你的 API Key" onClose={() => { setApiKeyShow(null); onLogin("registered") }}>
+        <Modal title="你的 API Key" onClose={() => { setApiKeyShow(null); onLogin(pendingToken) }}>
           <p style={{ fontSize: 13, color: "var(--text-weak)", marginTop: 0 }}>
             key 可以随时在「账号 → API Key」查看，但请妥善保管：
           </p>
@@ -365,7 +368,7 @@ function LoginPage({ onLogin, onClose }: { onLogin: (token: string) => void; onC
             {apiKeyShow}
           </div>
           <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 16 }}>
-            <Btn variant="primary" onClick={() => { setApiKeyShow(null); onLogin("registered") }}>我已保存</Btn>
+            <Btn variant="primary" onClick={() => { setApiKeyShow(null); onLogin(pendingToken) }}>我已保存</Btn>
           </div>
         </Modal>
       )}
