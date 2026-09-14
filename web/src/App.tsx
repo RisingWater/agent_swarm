@@ -1281,13 +1281,15 @@ function NexusPage({ toast }: { toast: (m: string) => void }) {
       const text = (evt.artifact?.parts ?? []).map((p) => p.text ?? "").join("\n")
       if (!text) return
       setItems((prev) => {
-        const next = [...prev]
+        // 去重：artifact 即最终 assistant 文本，与流式最后一条 text 条目内容相同，
+        // 保留流式条目即可，不再重复渲染 artifact 条目
+        if (prev.some((it) => it.kind === "text" && it.text === text)) return prev
         const key = `art-${evt.artifact?.artifactId ?? evt.taskId}`
-        const i = next.findIndex((it) => it.key === key)
+        const i = prev.findIndex((it) => it.key === key)
         const entry: TimelineItem = { key, kind: "text", text, time: Date.now() }
-        if (i >= 0) next[i] = entry
-        else next.push(entry)
-        return next
+        if (i >= 0) prev[i] = entry
+        else prev.push(entry)
+        return [...prev]
       })
       return
     }
@@ -1398,7 +1400,16 @@ function NexusPage({ toast }: { toast: (m: string) => void }) {
         setItems((prev) => {
           const key = `u-${evt.taskId}`
           if (prev.some((it) => it.key === key)) return prev
-          return [...prev, { key, kind: "user", text, time: Date.now() }]
+          // 去重：send() 本地回显已插过同内容条目（u-local-*）→ 收到服务端事件时
+          // 删掉本地条目、替换为以 taskId 为 key 的正式条目
+          const localIdx = prev.findIndex((it) => it.kind === "user" && it.text === text && it.key.startsWith("u-local-"))
+          const entry: TimelineItem = { key, kind: "user", text, time: Date.now() }
+          if (localIdx >= 0) {
+            const next = [...prev]
+            next[localIdx] = entry
+            return next
+          }
+          return [...prev, entry]
         })
         if (meta2?.replied === undefined) setBusy(true)
       }
