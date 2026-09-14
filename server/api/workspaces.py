@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlmodel import Session, select
 
 from server import models
-from server.auth import get_current_user
+from server.auth import get_current_user, get_user_either
 from server.db import get_session, engine
 
 router = APIRouter(prefix="/api/workspaces", tags=["workspaces"])
@@ -68,7 +68,7 @@ def list_workspaces(
 @router.post("")
 def create_workspace(
     body: dict,
-    user: models.User = Depends(get_current_user),
+    user: models.User = Depends(get_user_either),
     session: Session = Depends(get_session),
 ):
     """注册工作区（TUI /swarm-add 用；与 MCP workspace_add 同语义）。
@@ -119,7 +119,7 @@ def create_workspace(
 @router.post("/{workspace_id}/disable")
 def disable_workspace(
     workspace_id: str,
-    user: models.User = Depends(get_current_user),
+    user: models.User = Depends(get_user_either),
     session: Session = Depends(get_session),
 ):
     ws = _get_ws_with_perm(workspace_id, user, session)
@@ -133,7 +133,7 @@ def disable_workspace(
 @router.post("/{workspace_id}/enable")
 def enable_workspace(
     workspace_id: str,
-    user: models.User = Depends(get_current_user),
+    user: models.User = Depends(get_user_either),
     session: Session = Depends(get_session),
 ):
     ws = _get_ws_with_perm(workspace_id, user, session)
@@ -147,7 +147,7 @@ def enable_workspace(
 @router.delete("/{workspace_id}")
 def delete_workspace(
     workspace_id: str,
-    user: models.User = Depends(get_current_user),
+    user: models.User = Depends(get_user_either),
     session: Session = Depends(get_session),
 ):
     ws = _get_ws_with_perm(workspace_id, user, session)

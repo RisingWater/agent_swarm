@@ -49,3 +49,25 @@ def authenticate_api_key(request: Request, session: Session = Depends(get_sessio
     if not user or not hmac.compare_digest(user.api_key_hash, key_hash):
         raise HTTPException(401, "invalid api key")
     return user
+
+
+def get_user_either(request: Request, session: Session = Depends(get_session)) -> models.User:
+    """JWT 或 apikey 任一通过即可（web 用 JWT，插件/TUI 用 apikey）。"""
+    auth = request.headers.get("Authorization", "")
+    if not auth.startswith("Bearer "):
+        raise HTTPException(401, "missing bearer token")
+    token = auth.removeprefix("Bearer ").strip()
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
+        user = session.get(models.User, payload.get("sub"))
+        if user:
+            return user
+    except jwt.PyJWTError:
+        pass
+    key_hash = models.hash_api_key(token)
+    user = session.exec(
+        select(models.User).where(models.User.api_key_hash == key_hash)
+    ).first()
+    if not user or not hmac.compare_digest(user.api_key_hash, key_hash):
+        raise HTTPException(401, "invalid or expired token")
+    return user
