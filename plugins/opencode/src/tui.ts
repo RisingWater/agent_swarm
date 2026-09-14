@@ -5,10 +5,10 @@
  *
  * 命令：
  *   /swarm-mode     弹窗选择 foreground / background
- *   /swarm-add      输入 purpose → 调 server REST 注册 → 写 .agent-swarm.md
- *   /swarm-remove   确认后删除工作区（仅离线可删）→ 清 .agent-swarm.md 的 WORKSPACE_ID
- *   /swarm-enable   启用
- *   /swarm-disable  禁用
+ *   /swarm-add      自动注册当前目录 → 写 .agent-swarm.md（不弹窗）
+ *   /swarm-remove   自动删除工作区（仅离线可删）→ 清 WORKSPACE_ID（不弹窗）
+ *   /swarm-enable   自动启用
+ *   /swarm-disable  自动禁用
  *
  * server 地址与 apikey 读 ~/.config/opencode/agent-swarm.json（与 server 插件共用配置）；
  * workspace ID 读/写项目根（api.state.path.worktree）的 .agent-swarm.md。
@@ -30,11 +30,11 @@ interface SwarmCfg {
   backgroundCommand?: string
 }
 
+const loader = () => process.getBuiltinModule?.("node:fs")
+
 function readCfg(): SwarmCfg {
   try {
-    const loader = process.getBuiltinModule
-    const fs = loader?.("node:fs")
-    return JSON.parse(fs!.readFileSync(CFG_PATH, "utf8"))
+    return JSON.parse(loader()!.readFileSync(CFG_PATH, "utf8"))
   } catch {
     return {}
   }
@@ -42,9 +42,7 @@ function readCfg(): SwarmCfg {
 
 function writeCfg(cfg: SwarmCfg): boolean {
   try {
-    const loader = process.getBuiltinModule
-    const fs = loader?.("node:fs")
-    fs!.writeFileSync(CFG_PATH, JSON.stringify(cfg, null, 2) + "\n")
+    loader()!.writeFileSync(CFG_PATH, JSON.stringify(cfg, null, 2) + "\n")
     return true
   } catch {
     return false
@@ -78,11 +76,10 @@ async function swarmApi<T>(path: string, method = "GET", body?: unknown): Promis
 /** 项目根的 .agent-swarm.md 读写 */
 function swarmFile(worktree: string) {
   const path = `${worktree.replace(/[\\/]+$/, "")}/.agent-swarm.md`
-  const loader = process.getBuiltinModule
-  const fs = loader?.("node:fs")
+  const fs = loader()!
   const read = (): string => {
     try {
-      return fs!.readFileSync(path, "utf8")
+      return fs.readFileSync(path, "utf8")
     } catch {
       return ""
     }
@@ -97,7 +94,7 @@ function swarmFile(worktree: string) {
     } else {
       text = text.replace(/\s*$/, "") + `\n${key}: ${value}\n`
     }
-    fs!.writeFileSync(path, text)
+    fs.writeFileSync(path, text)
   }
   const getLine = (key: string): string => {
     const m = read().match(new RegExp(`^${key}:\\s*(.*)$`, "m"))
@@ -115,10 +112,9 @@ const tui: TuiPlugin = async (api) => {
   const worktree = api.state.path.worktree
   const file = swarmFile(worktree)
 
-  const toastErr = (e: string) =>
-    api.ui.toast({ variant: "error", message: e, duration: 6000 })
+  const toastErr = (e: string) => api.ui.toast({ variant: "error", message: e, duration: 6000 })
 
-  if (!api.command) return // v2 已弃用该 API（本插件依赖它；无则静默跳过）
+  if (!api.command) return
   api.command.register(() => [
     {
       title: "Swarm: Execution Mode",
@@ -164,31 +160,21 @@ const tui: TuiPlugin = async (api) => {
       value: "swarm.add",
       description: "注册当前目录为 agent_swarm 工作区",
       slash: { name: "swarm-add" },
-      onSelect: (dialog) => {
-        dialog?.replace(() =>
-          api.ui.DialogPrompt({
-            title: "工作区用途（purpose，留空跳过）",
-            onConfirm: async (purpose) => {
-              const rsp = await swarmApi<{ workspace_id: string; created: boolean }>("/api/workspaces", "POST", {
-                path: worktree,
-                name: worktree.split("/").filter(Boolean).pop() ?? worktree,
-                purpose: purpose.trim(),
-              })
-              if (!rsp.ok || !rsp.data) {
-                toastErr(`注册失败: ${rsp.error}`)
-                return
-              }
-              file.setLine("WORKSPACE_ID", rsp.data.workspace_id)
-              if (purpose.trim()) file.setLine("PURPOSE", purpose.trim())
-              api.ui.toast({
-                variant: "success",
-                message: `已注册 ${rsp.data.workspace_id}（写入 .agent-swarm.md）`,
-                duration: 6000,
-              })
-              dialog?.clear()
-            },
-          }),
-        )
+      onSelect: async (dialog) => {
+        dialog?.clear()
+        const rsp = await swarmApi<{ workspace_id: string; created: boolean; name: string }>("/api/workspaces", "POST", {
+          path: worktree,
+        })
+        if (!rsp.ok || !rsp.data) {
+          toastErr(`注册失败: ${rsp.error}`)
+          return
+        }
+        file.setLine("WORKSPACE_ID", rsp.data.workspace_id)
+        api.ui.toast({
+          variant: "success",
+          message: `已注册 ${rsp.data.workspace_id}（${rsp.data.created ? "新建" : "复用"}）`,
+          duration: 6000,
+        })
       },
     },
     {
@@ -196,33 +182,24 @@ const tui: TuiPlugin = async (api) => {
       value: "swarm.remove",
       description: "删除本目录注册的工作区（仅离线可删）",
       slash: { name: "swarm-remove" },
-      onSelect: (dialog) => {
+      onSelect: async (dialog) => {
+        dialog?.clear()
         const wid = file.getLine("WORKSPACE_ID")
         if (!wid) {
           toastErr(".agent-swarm.md 没有 WORKSPACE_ID（本目录未注册）")
           return
         }
-        dialog?.replace(() =>
-          api.ui.DialogConfirm({
-            title: "删除工作区",
-            message: `${wid}（需先离线；删除后本目录不再接收任务）`,
-            onConfirm: async () => {
-              const rsp = await swarmApi(`/api/workspaces/${wid}`, "DELETE")
-              if (rsp.status === 409) {
-                toastErr("工作区在线/最近心跳，不能删除——先停掉本目录的 opencode 再试")
-                return
-              }
-              if (!rsp.ok) {
-                toastErr(`删除失败: ${rsp.error}`)
-                return
-              }
-              file.setLine("WORKSPACE_ID", null)
-              api.ui.toast({ variant: "success", message: `已删除 ${wid}` })
-              dialog?.clear()
-            },
-            onCancel: () => dialog?.clear(),
-          }),
-        )
+        const rsp = await swarmApi(`/api/workspaces/${wid}`, "DELETE")
+        if (rsp.status === 409) {
+          toastErr("工作区在线/最近心跳，不能删除——先停掉本目录的 opencode 再试")
+          return
+        }
+        if (!rsp.ok) {
+          toastErr(`删除失败: ${rsp.error}`)
+          return
+        }
+        file.setLine("WORKSPACE_ID", null)
+        api.ui.toast({ variant: "success", message: `已删除 ${wid}` })
       },
     },
     {
@@ -230,17 +207,16 @@ const tui: TuiPlugin = async (api) => {
       value: "swarm.disable",
       description: "禁用工作区（不参与任务接收）",
       slash: { name: "swarm-disable" },
-      onSelect: (dialog) => {
+      onSelect: async (dialog) => {
+        dialog?.clear()
         const wid = file.getLine("WORKSPACE_ID")
         if (!wid) {
           toastErr(".agent-swarm.md 没有 WORKSPACE_ID")
           return
         }
-        void swarmApi(`/api/workspaces/${wid}/disable`, "POST").then((rsp) => {
-          if (rsp.ok) api.ui.toast({ variant: "success", message: "已禁用" })
-          else toastErr(`禁用失败: ${rsp.error}`)
-        })
-        dialog?.clear()
+        const rsp = await swarmApi(`/api/workspaces/${wid}/disable`, "POST")
+        if (rsp.ok) api.ui.toast({ variant: "success", message: "已禁用" })
+        else toastErr(`禁用失败: ${rsp.error}`)
       },
     },
     {
@@ -248,17 +224,16 @@ const tui: TuiPlugin = async (api) => {
       value: "swarm.enable",
       description: "启用工作区",
       slash: { name: "swarm-enable" },
-      onSelect: (dialog) => {
+      onSelect: async (dialog) => {
+        dialog?.clear()
         const wid = file.getLine("WORKSPACE_ID")
         if (!wid) {
           toastErr(".agent-swarm.md 没有 WORKSPACE_ID")
           return
         }
-        void swarmApi(`/api/workspaces/${wid}/enable`, "POST").then((rsp) => {
-          if (rsp.ok) api.ui.toast({ variant: "success", message: "已启用，等插件心跳上线" })
-          else toastErr(`启用失败: ${rsp.error}`)
-        })
-        dialog?.clear()
+        const rsp = await swarmApi(`/api/workspaces/${wid}/enable`, "POST")
+        if (rsp.ok) api.ui.toast({ variant: "success", message: "已启用，等插件心跳上线" })
+        else toastErr(`启用失败: ${rsp.error}`)
       },
     },
   ])
