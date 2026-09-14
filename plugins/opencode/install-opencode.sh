@@ -110,17 +110,38 @@ if (text.includes(mcpUrl)) {
     console.log("==> mcp.agent-swarm 已配置，跳过")
     process.exit(0)
 }
+// 剥 JSONC 注释（感知字符串字面量：file:// 等字符串内的 // 不能当注释）
+function stripJsoncComments(s) {
+    let out = ""
+    let inStr = false, inLine = false, inBlock = false
+    for (let i = 0; i < s.length; i++) {
+        const c = s[i], n = s[i + 1]
+        if (inLine) { if (c === "\n") { inLine = false; out += c } continue }
+        if (inBlock) { if (c === "*" && n === "/") { inBlock = false; out += " "; i++ } continue }
+        if (inStr) {
+            out += c
+            if (c === "\\") { out += n ?? ""; i++ }
+            else if (c === '"') inStr = false
+            continue
+        }
+        if (c === '"') { inStr = true; out += c; continue }
+        if (c === "/" && n === "/") { inLine = true; i++; continue }
+        if (c === "/" && n === "*") { inBlock = true; i++; continue }
+        out += c
+    }
+    return out
+}
 // 在 mcp 对象中插入 agent-swarm；没有 mcp 字段则插到最外层 { 后
 const m = text.match(/("mcp"\s*:\s*\{)([\s\S]*?)(\n  \})/)
 let out
 if (m) {
     const inner = m[2]
-    const stripped = inner.replace(/\/\/[^\n]*/g, "").replace(/\/\*[\s\S]*?\*\//g, "").trim()
+    const stripped = stripJsoncComments(inner).trim()
     const needComma = stripped && !stripped.endsWith(",")
     const newInner = (needComma ? inner.replace(/[ \t\r]+$/, "") + "," : inner) + "\n" + mcpBlock
-    out = text.replace(m[0], m[1] + newInner + m[3])
+    out = text.replace(m[0], () => m[1] + newInner + m[3])
 } else {
-    out = text.replace(/^\s*\{/, "{\n  \"mcp\": {\n" + mcpBlock + "\n  },\n")
+    out = text.replace(/^\s*\{/, () => "{\n  \"mcp\": {\n" + mcpBlock + "\n  },\n")
 }
 fs.writeFileSync(cfgPath, out)
 console.log(`==> 已写入 mcp.agent-swarm 到 ${cfgPath}`)
@@ -136,13 +157,34 @@ if (text.includes(pluginRef)) {
     console.log("==> 插件已在配置中，跳过注册")
     process.exit(0)
 }
+// 剥 JSONC 注释（感知字符串字面量：file:// 等字符串内的 // 不能当注释）
+function stripJsoncComments(s) {
+    let out = ""
+    let inStr = false, inLine = false, inBlock = false
+    for (let i = 0; i < s.length; i++) {
+        const c = s[i], n = s[i + 1]
+        if (inLine) { if (c === "\n") { inLine = false; out += c } continue }
+        if (inBlock) { if (c === "*" && n === "/") { inBlock = false; out += " "; i++ } continue }
+        if (inStr) {
+            out += c
+            if (c === "\\") { out += n ?? ""; i++ }
+            else if (c === '"') inStr = false
+            continue
+        }
+        if (c === '"') { inStr = true; out += c; continue }
+        if (c === "/" && n === "/") { inLine = true; i++; continue }
+        if (c === "/" && n === "*") { inBlock = true; i++; continue }
+        out += c
+    }
+    return out
+}
 // 在 plugin 数组中插入新项：逗号插在最后一个非空非注释项的末尾
 const m = text.match(/("plugin"\s*:\s*\[)([\s\S]*?)(\])/)
 let out
 if (m) {
     const inner = m[2]
-    // 去掉注释与空白后判断是否需要逗号
-    const stripped = inner.replace(/\/\/[^\n]*/g, "").replace(/\/\*[\s\S]*?\*\//g, "").trim()
+    // 去掉注释与空白后判断是否需要逗号（字符串感知，file:// 不误伤）
+    const stripped = stripJsoncComments(inner).trim()
     const needComma = stripped && !stripped.endsWith(",")
     let newInner
     if (needComma) {
@@ -152,10 +194,10 @@ if (m) {
     } else {
         newInner = inner + "\n    \"" + pluginRef + "\"\n  "
     }
-    out = text.replace(m[0], m[1] + newInner + m[3])
+    out = text.replace(m[0], () => m[1] + newInner + m[3])
 } else {
     // 没有 plugin 字段：插到最外层 { 后（保留 ], 后逗号——其后还有其他字段，合法）
-    out = text.replace(/^\s*\{/, "{\n  \"plugin\": [\n    \"" + pluginRef + "\"\n  ],\n")
+    out = text.replace(/^\s*\{/, () => "{\n  \"plugin\": [\n    \"" + pluginRef + "\"\n  ],\n")
 }
 fs.writeFileSync(cfgPath, out)
 console.log(`==> 已注册插件到 ${cfgPath}`)

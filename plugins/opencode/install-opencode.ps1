@@ -16,6 +16,38 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+# 剥 JSONC 注释（字符串感知：file:// 等字符串内的 // 不是注释）
+function Remove-JsoncComment {
+    param([string]$Text)
+    $sb = [System.Text.StringBuilder]::new()
+    $inStr = $false; $inLine = $false; $inBlock = $false
+    $i = 0
+    while ($i -lt $Text.Length) {
+        $c = $Text[$i]
+        $n = if ($i + 1 -lt $Text.Length) { $Text[$i + 1] } else { [char]0 }
+        if ($inLine) {
+            if ($c -eq "`n") { $inLine = $false; [void]$sb.Append($c) }
+            $i++; continue
+        }
+        if ($inBlock) {
+            if ($c -eq "*" -and $n -eq "/") { $inBlock = $false; [void]$sb.Append(" "); $i += 2; continue }
+            $i++; continue
+        }
+        if ($inStr) {
+            [void]$sb.Append($c)
+            if ($c -eq "\") { [void]$sb.Append($n); $i += 2; continue }
+            if ($c -eq '"') { $inStr = $false }
+            $i++; continue
+        }
+        if ($c -eq '"') { $inStr = $true; [void]$sb.Append($c); $i++; continue }
+        if ($c -eq "/" -and $n -eq "/") { $inLine = $true; $i += 2; continue }
+        if ($c -eq "/" -and $n -eq "*") { $inBlock = $true; $i += 2; continue }
+        [void]$sb.Append($c)
+        $i++
+    }
+    return $sb.ToString()
+}
+
 if (-not $Src) { $Src = $PSScriptRoot }
 if (-not $Server) { $Server = $env:AGENT_SWARM_SERVER }
 if (-not $ApiKey) { $ApiKey = $env:AGENT_SWARM_API_KEY }
@@ -117,7 +149,8 @@ if ($text.Contains("$Server/mcp/")) {
     $m = [regex]::Match($text, '(?s)("mcp"\s*:\s*\{)(.*?)(\n  \})')
     if ($m.Success) {
         $inner = $m.Groups[2].Value
-        $stripped = ($inner -replace "//[^\r\n]*", "" -replace "/\*[\s\S]*?\*/", "").Trim()
+        # 剥 JSONC 注释（字符串感知：file:// 等字符串内的 // 不是注释）
+        $stripped = (Remove-JsoncComment -Text $inner).Trim()
         $needComma = ($stripped.Length -gt 0) -and (-not $stripped.EndsWith(","))
         if ($needComma) {
             $newInner = $inner.TrimEnd() + ",`n" + $mcpBlock
@@ -146,7 +179,8 @@ if ($text.Contains($pluginRef)) {
     if ($m.Success) {
         # 在 plugin 数组中插入新项：逗号插在最后一个非空非注释项的末尾
         $inner = $m.Groups[2].Value
-        $stripped = ($inner -replace "//[^\r\n]*", "" -replace "/\*[\s\S]*?\*/", "").Trim()
+        # 剥 JSONC 注释（字符串感知：file:// 等字符串内的 // 不是注释）
+        $stripped = (Remove-JsoncComment -Text $inner).Trim()
         $needComma = ($stripped.Length -gt 0) -and (-not $stripped.EndsWith(","))
         if ($needComma) {
             $newInner = $inner.TrimEnd() + ",`n    `"$pluginRef`"`n  "
