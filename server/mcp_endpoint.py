@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 import shortuuid
 
 from mcp.server.fastmcp import FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
 from sqlmodel import select
 from starlette.requests import Request
 from starlette.responses import JSONResponse
@@ -80,6 +81,11 @@ mcp = FastMCP(
     json_response=True,
     stateless_http=True,
     streamable_http_path="/",
+    # MCP SDK 默认开 DNS rebinding 防护（Host 校验只放行 127.0.0.1/localhost），
+    # 局域网/远程客户端（10.x 等）会被 421 Misdirected Request 拒掉。
+    # 本服务有自己的 ApiKeyMiddleware 鉴权，Host 防护显式关闭。
+    # 注意：传 None 时 SDK 会在 host 为 127.0.0.1 时自动再开防护，必须显式传 disabled 实例。
+    transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
 )
 
 
