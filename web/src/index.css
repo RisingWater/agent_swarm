@@ -2313,3 +2313,45 @@ table.ws-grid th {
 .nexus-terminal.claude-tui .cl-ask-btn.primary:hover { background: #e8964a; border-color: #e8964a; }
 
 .nexus-terminal.claude-tui .cl-ask-btn.danger { color: #e07b7b; border-color: #5a2e2e; }
+
+/* --- claude-tui：markdown 渲染内的亮色背景透明化（.md 全局样式用 var(--bg-weak)，暖黑底下刺眼） --- */
+
+.nexus-terminal.claude-tui .md code {
+  background: transparent;
+  border-color: #3a2c1f;
+  color: #e8b271;
+}
+
+.nexus-terminal.claude-tui .md pre {
+  background: transparent;
+  border-color: #35281c;
+}
+
+.nexus-terminal.claude-tui .md pre code {
+  background: transparent;
+  border: none;
+  color: #d8d0c4;
+}
+
+.nexus-terminal.claude-tui .md th {
+  background: transparent;
+  border-color: #3a2c1f;
+  color: #e8e2da;
+}
+
+.nexus-terminal.claude-tui .md td { border-color: #3a2c1f; }
+
+.nexus-terminal.claude-tui .md blockquote {
+  border-left-color: #d97757;
+  color: #a89880;
+}
+
+.nexus-terminal.claude-tui .md a { color: #d97757; }
+
+.nexus-terminal.claude-tui .md hr { border-color: #3a2c1f; }
+
+/* 输入区/头部等残留的全局浅背景透明化 */
+.nexus-terminal.claude-tui .nexus-input-row { background: transparent; }
+.nexus-terminal.claude-tui .nexus-timeline { background: transparent; }
+.nexus-terminal.claude-tui .nexus-terminal-head,
+.nexus-terminal.claude-tui .nexus-footer { background: #201812; }
