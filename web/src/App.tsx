@@ -617,7 +617,7 @@ function HomePage({ toast, loggedIn, onGoAccount, onOpenLogin, onGoDocs }: { toa
           </div>
           <div className="home-card">
             <div className="home-card-head">
-              <FeatureIcon kind="pulse" />
+              <FeatureIcon kind="eye" />
               <h3>监控模式</h3>
             </div>
             <p>开启后（默认开），你在 opencode TUI 里的日常对话会按轮次实时同步到网页中枢：提问、思考、工具调用、回答全程可见，权限请求远程应答，历史随时回溯——像给 agent 开了一扇观察窗。</p>
@@ -814,7 +814,7 @@ function SupportedAgents() {
 }
 
 /** 特性卡黑白线性图标（与 SwarmMark 同风格：currentColor 描边） */
-function FeatureIcon({ kind }: { kind: "mcp" | "swarm" | "pulse" | "shield" | "terminal" }) {
+function FeatureIcon({ kind }: { kind: "mcp" | "swarm" | "pulse" | "shield" | "terminal" | "eye" }) {
   const common = {
     width: 22,
     height: 22,
@@ -850,6 +850,15 @@ function FeatureIcon({ kind }: { kind: "mcp" | "swarm" | "pulse" | "shield" | "t
       <svg {...common}>
         {/* 心跳脉冲 */}
         <path d="M3 12h4l2-5 4 10 2-5h6" />
+      </svg>
+    )
+
+  if (kind === "eye")
+    return (
+      <svg {...common}>
+        {/* 眼睛 = 监控观察窗 */}
+        <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z" />
+        <circle cx="12" cy="12" r="3" />
       </svg>
     )
   if (kind === "terminal")

@@ -2433,13 +2433,13 @@ table.ws-grid th {
   cursor: pointer;
 }
 
-.calls-clear-btn:hover:not(:disabled) {
-  border-color: #d4494b;
-  color: #d4494b;
-  background: #fdf1f1;
+/* 文档页表格：命令/工具列固定宽度不换行 */
+.docs-section table th:first-child,
+.docs-section table td:first-child {
+  white-space: nowrap;
+  width: 1%;
 }
 
-.calls-clear-btn:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
+.docs-section table td:first-child code {
+  white-space: nowrap;
 }
