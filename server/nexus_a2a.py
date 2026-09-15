@@ -579,9 +579,10 @@ async def reap_stale_tasks() -> int:
     """扫表把卡死的 working 任务置 failed（accepted_at 超 WORKING_TIMEOUT 的兜底）。
 
     场景：插件进程死亡/WS 断连丢终态事件，任务永远 working。返回本次收割数。
+    收割时向 web 订阅者广播 task 快照（否则在线页面的 busy 状态永远解除不了）。
     """
     now = models.utcnow()
-    n = 0
+    reaped: list[tuple[str, str]] = []  # (task_id, workspace_id)
     with Session(engine) as session:
         rows = session.exec(
             select(models.A2aTask).where(models.A2aTask.status == "working")
@@ -590,9 +591,14 @@ async def reap_stale_tasks() -> int:
             start = t.accepted_at or t.created_at
             if start and (now - start).total_seconds() > WORKING_TIMEOUT_SECONDS:
                 _mark_task(session, t.id, "failed", f"working timeout after {WORKING_TIMEOUT_SECONDS}s")
-                n += 1
+                reaped.append((t.id, t.workspace_id))
         session.commit()
-    return n
+    for task_id, workspace_id in reaped:
+        with Session(engine) as session:
+            t = session.get(models.A2aTask, task_id)
+            if t is not None:
+                await _push_web(workspace_id, {"type": "task", "task": task_obj(t)})
+    return len(reaped)
 
 
 async def _reap_loop() -> None:

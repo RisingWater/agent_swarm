@@ -1280,6 +1280,8 @@ function NexusPage({ toast }: { toast: (m: string) => void }) {
   const timelineRef = useRef<HTMLDivElement>(null)
   /** 任务状态表：taskId → 最新状态（completed/input-required 等判定用） */
   const taskStates = useRef<Map<string, string>>(new Map())
+  /** 本会话最近一次下发任务的 taskId（终态快照解锁 busy 的匹配键） */
+  const lastSentTask = useRef<string>("")
 
   const refresh = useCallback(async () => {
     try { setList(await api.workspaces()) } catch { /* 静默 */ }
@@ -1328,7 +1330,10 @@ function NexusPage({ toast }: { toast: (m: string) => void }) {
           {
             const t = msg.task as { id: string; status: string }
             if (t?.id) taskStates.current.set(t.id, t.status)
-            if (t?.status === "completed" || t?.status === "failed" || t?.status === "canceled") setBusy(false)
+            if (t?.status === "completed" || t?.status === "failed" || t?.status === "canceled") {
+              // 只有当前选中的工作区的任务才解锁输入（别的工作区的收割快照不该动这里）
+              if (t.id === lastSentTask.current) setBusy(false)
+            }
           }
           break
       }
@@ -1510,8 +1515,9 @@ function NexusPage({ toast }: { toast: (m: string) => void }) {
       { key: `u-local-${Date.now()}`, kind: "user", text, time: Date.now() },
     ])
     api.sendTask(selected, text)
-      .then(() => {
-        // 用户消息以服务端事件为准（key: u-<taskId>），本地回显在收到首个事件后由去重逻辑保留
+      .then((snap) => {
+        // 记下任务 ID：终态 task 快照（含 reaper 收割的 failed）解锁 busy 用
+        if (snap?.task_id) lastSentTask.current = snap.task_id
       })
       .catch((e: Error) => {
         toast(`下发失败: ${e.message}`)
