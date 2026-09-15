@@ -1280,8 +1280,9 @@ function NexusPage({ toast }: { toast: (m: string) => void }) {
   const timelineRef = useRef<HTMLDivElement>(null)
   /** 任务状态表：taskId → 最新状态（completed/input-required 等判定用） */
   const taskStates = useRef<Map<string, string>>(new Map())
-  /** 本会话最近一次下发任务的 taskId（终态快照解锁 busy 的匹配键） */
-  const lastSentTask = useRef<string>("")
+  /** 各工作区最后下发的 taskId（busy 解锁匹配键，按工作区隔离——
+   *  曾是全局单值：A 区任务未完切到 B 区，busy 卡死输入框且误显示 working） */
+  const lastSentTask = useRef<Map<string, string>>(new Map())
   /** 向上分页：已到最早一轮（true 后不再请求） */
   const [noMoreRounds, setNoMoreRounds] = useState(false)
   /** 已加载事件的最小 id（分页游标；0 = 还没加载过任何轮） */
@@ -1301,7 +1302,13 @@ function NexusPage({ toast }: { toast: (m: string) => void }) {
     setNoMoreRounds(false)
     minEventId.current = 0
     followBottom.current = true
-    taskStates.current.clear()
+    setBusy(false) // busy 按工作区隔离：切走时清掉（B 区不该继承 A 区的 working 态）
+    // 切回时按该工作区最后下发任务的实际状态恢复 busy（taskStates 是全局表，不随切换清空）
+    {
+      const lastTask = lastSentTask.current.get(selected)
+      const st = lastTask ? taskStates.current.get(lastTask) : undefined
+      if (lastTask && (st === "working" || st === "queued" || st === "input-required")) setBusy(true)
+    }
     if (!selected) return
     const token = localStorage.getItem("swarm_token") ?? ""
     const proto = location.protocol === "https:" ? "wss:" : "ws:"
@@ -1345,8 +1352,8 @@ function NexusPage({ toast }: { toast: (m: string) => void }) {
             const t = msg.task as { id: string; status: string }
             if (t?.id) taskStates.current.set(t.id, t.status)
             if (t?.status === "completed" || t?.status === "failed" || t?.status === "canceled") {
-              // 只有当前选中的工作区的任务才解锁输入（别的工作区的收割快照不该动这里）
-              if (t.id === lastSentTask.current) setBusy(false)
+              // 本 WS 只收当前选中工作区的事件；终态 = 解锁该工作区的 busy
+              if (t.id === lastSentTask.current.get(selected)) setBusy(false)
             }
           }
           break
@@ -1643,7 +1650,7 @@ function NexusPage({ toast }: { toast: (m: string) => void }) {
     api.sendTask(selected, text)
       .then((snap) => {
         // 记下任务 ID：终态 task 快照（含 reaper 收割的 failed）解锁 busy 用
-        if (snap?.task_id) lastSentTask.current = snap.task_id
+        if (snap?.task_id) lastSentTask.current.set(selected, snap.task_id)
       })
       .catch((e: Error) => {
         toast(`下发失败: ${e.message}`)
