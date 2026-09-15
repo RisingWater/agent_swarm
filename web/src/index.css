@@ -1264,8 +1264,7 @@ a.link:hover {
   white-space: nowrap;
   max-width: 320px;
 }
-.nexus-terminal.tui,
-.nexus-terminal.claude-tui .nexus-head-session { color: #6f9b6f; }
+.nexus-terminal.tui .nexus-head-session { color: #6f9b6f; }
 
 .nexus-head-status.on { color: #2e7d32; }
 .nexus-head-status.off { color: var(--text-weak); }
@@ -1297,8 +1296,7 @@ a.link:hover {
   font-size: 11.5px;
 }
 
-.nexus-terminal.tui,
-.nexus-terminal.claude-tui .nexus-footer {
+.nexus-terminal.tui .nexus-footer {
   border-top-color: #2a2a2a;
   background: #141414;
 }
@@ -1315,8 +1313,7 @@ a.link:hover {
   font-style: italic;
   color: #6f9b6f;
 }
-.nexus-terminal.tui,
-.nexus-terminal.claude-tui .nexus-footer-session { color: #5f8f5f; }
+.nexus-terminal.tui .nexus-footer-session { color: #5f8f5f; }
 
 .nexus-footer-main {
   display: flex;
@@ -1325,14 +1322,12 @@ a.link:hover {
   color: #2e7d32;
 }
 
-.nexus-terminal.tui,
-.nexus-terminal.claude-tui .nexus-footer-main { color: #7ec97e; }
+.nexus-terminal.tui .nexus-footer-main { color: #7ec97e; }
 
 .nexus-footer-key { font-weight: 600; }
 
 .nexus-footer-dim { color: var(--text-weak); }
-.nexus-terminal.tui,
-.nexus-terminal.claude-tui .nexus-footer-dim { color: #555; }
+.nexus-terminal.tui .nexus-footer-dim { color: #555; }
 
 .nexus-timeline {
   flex: 1;
@@ -1533,8 +1528,7 @@ a.link:hover {
 
 /* ===== opencode TUI 控件：黑底终端风（.tui 作用域） ===== */
 
-.nexus-terminal.tui,
-.nexus-terminal.claude-tui {
+.nexus-terminal.tui {
   background: #0d0d0d;
   border-color: #2a2a2a;
   color: #e6e6e6;
@@ -1543,8 +1537,7 @@ a.link:hover {
   line-height: 1.6;
 }
 
-.nexus-terminal.tui,
-.nexus-terminal.claude-tui .nexus-terminal-head {
+.nexus-terminal.tui .nexus-terminal-head {
   background: #141414;
   border-bottom-color: #2a2a2a;
   font-size: 12px;
@@ -1552,44 +1545,33 @@ a.link:hover {
 }
 
 /* 头部图标与文字同一水平线（图标 inline svg 的 baseline 偏移修正） */
-.nexus-terminal.tui,
-.nexus-terminal.claude-tui .nexus-terminal-head .agent-type-ico {
+.nexus-terminal.tui .nexus-terminal-head .agent-type-ico {
   display: inline-flex;
   align-items: center;
   margin: 0;
   vertical-align: middle;
 }
 
-.nexus-terminal.tui,
-.nexus-terminal.claude-tui .nexus-terminal-head .agent-type-ico svg {
+.nexus-terminal.tui .nexus-terminal-head .agent-type-ico svg {
   display: block;
 }
 
-.nexus-terminal.tui,
-.nexus-terminal.claude-tui .nexus-head-title { color: #fff; }
+.nexus-terminal.tui .nexus-head-title { color: #fff; }
 
-.nexus-terminal.tui,
-.nexus-terminal.claude-tui .nexus-head-status.on { color: #7ec97e; }
-.nexus-terminal.tui,
-.nexus-terminal.claude-tui .nexus-head-status.off { color: #666; }
+.nexus-terminal.tui .nexus-head-status.on { color: #7ec97e; }
+.nexus-terminal.tui .nexus-head-status.off { color: #666; }
 
-.nexus-terminal.tui,
-.nexus-terminal.claude-tui .nexus-head-clear { color: #666; }
-.nexus-terminal.tui,
-.nexus-terminal.claude-tui .nexus-head-clear:hover { color: #fff; }
+.nexus-terminal.tui .nexus-head-clear { color: #666; }
+.nexus-terminal.tui .nexus-head-clear:hover { color: #fff; }
 
-.nexus-terminal.tui,
-.nexus-terminal.claude-tui .nexus-timeline {
+.nexus-terminal.tui .nexus-timeline {
   gap: 10px;
 }
 
-.nexus-terminal.tui,
-.nexus-terminal.claude-tui .nexus-timeline::-webkit-scrollbar { width: 8px; }
-.nexus-terminal.tui,
-.nexus-terminal.claude-tui .nexus-timeline::-webkit-scrollbar-thumb { background: #2e2e2e; border-radius: 4px; }
+.nexus-terminal.tui .nexus-timeline::-webkit-scrollbar { width: 8px; }
+.nexus-terminal.tui .nexus-timeline::-webkit-scrollbar-thumb { background: #2e2e2e; border-radius: 4px; }
 
-.nexus-terminal.tui,
-.nexus-terminal.claude-tui .nexus-waiting { color: #555; font-size: 12.5px; }
+.nexus-terminal.tui .nexus-waiting { color: #555; font-size: 12.5px; }
 
 /* 用户指令：方形背景块 + 左侧蓝色竖线（居左，直角无圆角） */
 .tl-user-box {
@@ -1619,8 +1601,7 @@ a.link:hover {
 }
 
 /* assistant 输出：● 圆点前缀 */
-.nexus-terminal.tui,
-.nexus-terminal.claude-tui .tl-assistant {
+.nexus-terminal.tui .tl-assistant {
   display: flex;
   gap: 8px;
   align-items: flex-start;
@@ -1690,8 +1671,7 @@ a.link:hover {
 }
 
 /* 工具调用：整体方框（头部 + 输出都在框内），占满可用宽度，直角 */
-.nexus-terminal.tui,
-.nexus-terminal.claude-tui .tl-tool-box {
+.nexus-terminal.tui .tl-tool-box {
   background: #141414;
   border: 1px solid #262626;
   border-radius: 0;
@@ -1699,8 +1679,7 @@ a.link:hover {
   align-self: stretch;
 }
 
-.nexus-terminal.tui,
-.nexus-terminal.claude-tui .tl-tool-box.running {
+.nexus-terminal.tui .tl-tool-box.running {
   border-color: #3a3325;
 }
 
@@ -1714,11 +1693,8 @@ a.link:hover {
 .tl-tool-glyph { color: #6e6e6e; flex: 0 0 auto; }
 
 .nexus-terminal.tui .tl-tool .tl-tool-name,
-.nexus-terminal.tui .tl-tool-box .tl-tool-name,
-.nexus-terminal.claude-tui .tl-tool .tl-tool-name,
-.nexus-terminal.claude-tui .tl-tool-box .tl-tool-name { color: #c9a26d; font-weight: 600; }
-.nexus-terminal.tui .tl-tool-box.running .tl-tool-name,
-.nexus-terminal.claude-tui .tl-tool-box.running .tl-tool-name { color: #e0b97d; }
+.nexus-terminal.tui .tl-tool-box .tl-tool-name { color: #c9a26d; font-weight: 600; }
+.nexus-terminal.tui .tl-tool-box.running .tl-tool-name { color: #e0b97d; }
 
 .tl-tool-args {
   color: #7a7a7a;
@@ -1732,8 +1708,7 @@ a.link:hover {
 .tl-tool-ellipsis { color: #e0b97d; }
 
 /* 工具输出：无内框，直接平铺在工具方框里；超长限高 + expand */
-.nexus-terminal.tui,
-.nexus-terminal.claude-tui .tl-tool-box .tl-tool-output {
+.nexus-terminal.tui .tl-tool-box .tl-tool-output {
   margin: 8px 0 0;
   padding: 0;
   background: none;
@@ -1752,14 +1727,12 @@ a.link:hover {
 /* 超长输出：默认限高隐藏，expand 后完全展开（无滚动条，下方内容自然下移） */
 .tl-tool-output-wrap { margin: 8px 0 0; }
 
-.nexus-terminal.tui,
-.nexus-terminal.claude-tui .tl-tool-output.clamped {
+.nexus-terminal.tui .tl-tool-output.clamped {
   max-height: 220px;
   overflow: hidden;
 }
 
-.nexus-terminal.tui,
-.nexus-terminal.claude-tui .tl-tool-output.expanded {
+.nexus-terminal.tui .tl-tool-output.expanded {
   max-height: none;
   overflow: visible;
 }
@@ -1780,8 +1753,7 @@ a.link:hover {
 .tl-tool-expand:hover { color: #aecbfa; }
 
 /* 错误行 */
-.nexus-terminal.tui,
-.nexus-terminal.claude-tui .tl-error {
+.nexus-terminal.tui .tl-error {
   display: flex;
   gap: 8px;
   color: #e07b7b;
@@ -1795,26 +1767,20 @@ a.link:hover {
 .tl-error-text { white-space: pre-wrap; word-break: break-word; }
 
 /* 权限/问答交互卡（黑底版） */
-.nexus-terminal.tui,
-.nexus-terminal.claude-tui .tl-ask {
+.nexus-terminal.tui .tl-ask {
   border-color: #3a3a3a;
   background: #141414;
 }
 
-.nexus-terminal.tui,
-.nexus-terminal.claude-tui .tl-ask-head { color: #e6e6e6; font-size: 12.5px; }
-.nexus-terminal.tui,
-.nexus-terminal.claude-tui .tl-ask-head b { color: #fff; }
+.nexus-terminal.tui .tl-ask-head { color: #e6e6e6; font-size: 12.5px; }
+.nexus-terminal.tui .tl-ask-head b { color: #fff; }
 
 .tl-ask-glyph { margin-right: 4px; }
 
-.nexus-terminal.tui,
-.nexus-terminal.claude-tui .tl-ask-body { color: #8a8a8a; font-size: 12px; }
+.nexus-terminal.tui .tl-ask-body { color: #8a8a8a; font-size: 12px; }
 
-.nexus-terminal.tui,
-.nexus-terminal.claude-tui .tl-ask-btn { background: #1e1e1e; border-color: #3a3a3a; color: #d8d8d8; }
-.nexus-terminal.tui,
-.nexus-terminal.claude-tui .tl-ask-btn:hover { border-color: #6a6a6a; color: #fff; }
+.nexus-terminal.tui .tl-ask-btn { background: #1e1e1e; border-color: #3a3a3a; color: #d8d8d8; }
+.nexus-terminal.tui .tl-ask-btn:hover { border-color: #6a6a6a; color: #fff; }
 
 .tl-ask-btn.primary {
   background: #e6e6e6;
@@ -1825,8 +1791,7 @@ a.link:hover {
 
 .tl-ask-btn.primary:hover { background: #fff; }
 
-.nexus-terminal.tui,
-.nexus-terminal.claude-tui .tl-ask-btn.danger { color: #e07b7b; border-color: #5a2e2e; }
+.nexus-terminal.tui .tl-ask-btn.danger { color: #e07b7b; border-color: #5a2e2e; }
 
 .tl-ask-done { color: #7ec97e; font-size: 12.5px; align-self: auto; }
 
@@ -1862,16 +1827,14 @@ a.link:hover {
 
 /* opencode TUI：输入框左侧蓝色竖线指示条
    竖线在容器左缘 16px 处（与指令方框/工具方框左缘对齐），输入文字在其右侧 */
-.nexus-terminal.tui,
-.nexus-terminal.claude-tui .nexus-input-row {
+.nexus-terminal.tui .nexus-input-row {
   border-top-color: #2a2a2a;
   position: relative;
   padding-left: 28px;
   align-items: center;
 }
 
-.nexus-terminal.tui,
-.nexus-terminal.claude-tui .nexus-input-row::before {
+.nexus-terminal.tui .nexus-input-row::before {
   content: "";
   position: absolute;
   left: 16px;
@@ -1882,8 +1845,7 @@ a.link:hover {
   background: #4a8dff;
 }
 
-.nexus-terminal.tui,
-.nexus-terminal.claude-tui .nexus-input-row:focus-within::before {
+.nexus-terminal.tui .nexus-input-row:focus-within::before {
   background: #6ea8ff;
   box-shadow: 0 0 6px rgba(74, 141, 255, 0.5);
 }
@@ -1910,15 +1872,13 @@ textarea.nexus-input {
   padding: 0;
 }
 
-.nexus-terminal.tui,
-.nexus-terminal.claude-tui .nexus-input {
+.nexus-terminal.tui .nexus-input {
   color: #f0f0f0;
   caret-color: #e6e6e6;
 }
 
 .nexus-input::placeholder { color: var(--text-weak); }
-.nexus-terminal.tui,
-.nexus-terminal.claude-tui .nexus-input::placeholder { color: #555; }
+.nexus-terminal.tui .nexus-input::placeholder { color: #555; }
 
 .nexus-input:disabled { opacity: 0.5; }
 
@@ -1933,12 +1893,10 @@ textarea.nexus-input {
   cursor: pointer;
 }
 
-.nexus-terminal.tui,
-.nexus-terminal.claude-tui .nexus-send { border-color: #3a3a3a; color: #a8a8a8; }
+.nexus-terminal.tui .nexus-send { border-color: #3a3a3a; color: #a8a8a8; }
 
 .nexus-send:hover:not(:disabled) { border-color: var(--text-strong); }
-.nexus-terminal.tui,
-.nexus-terminal.claude-tui .nexus-send:hover:not(:disabled) { border-color: #6a6a6a; color: #fff; }
+.nexus-terminal.tui .nexus-send:hover:not(:disabled) { border-color: #6a6a6a; color: #fff; }
 
 .nexus-send:disabled { opacity: 0.4; cursor: default; }
 
@@ -1991,65 +1949,205 @@ table.ws-grid th {
 /* 用途展开：完整显示所有行，不限制高度（无滚动条） */
 
 
-/* ===== claude TUI 作用域：布局复用 .tui（上方多选择器已共用），品牌色覆写 =====
-   claude 界面风格：黑底同款终端控件，绿色字体全部换成橙色系 */
+/* ===== claude 中枢终端（.claude-tui）：独立作用域，与 opencode 的 .tui 完全分开 =====
+   布局/控件尺寸/字体与 .tui 同构（由 .tui 规则机械复制生成），配色为 claude 暖黑 + 橙色系。
+   ⚠️ 修改 .tui 布局时同步调整此处（两边不共用选择器）。 */
+
+.nexus-terminal.claude-tui .nexus-head-session { color: #c98a4b; }
+
+.nexus-terminal.claude-tui .nexus-footer {
+  border-top-color: #3a2c1f;
+  background: #201812;
+}
+
+.nexus-terminal.claude-tui .nexus-footer-session { color: #b8793f; }
+
+.nexus-terminal.claude-tui .nexus-footer-main { color: #e8964a; }
+
+.nexus-terminal.claude-tui .nexus-footer-dim { color: #6a5a4a; }
 
 .nexus-terminal.claude-tui {
-  background: #1a1310; /* claude 暖黑 */
+  background: #1a1310;
   border-color: #3a2c1f;
   color: #e8e2da;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.nexus-terminal.claude-tui .nexus-terminal-head {
+  background: #201812;
+  border-bottom-color: #3a2c1f;
+  font-size: 12px;
+  align-items: center;
+}
+
+.nexus-terminal.claude-tui .nexus-terminal-head .agent-type-ico {
+  display: inline-flex;
+  align-items: center;
+  margin: 0;
+  vertical-align: middle;
+}
+
+.nexus-terminal.claude-tui .nexus-terminal-head .agent-type-ico svg {
+  display: block;
 }
 
 .nexus-terminal.claude-tui .nexus-head-title { color: #fff; }
-.nexus-terminal.claude-tui .nexus-head-session { color: #c98a4b; }
-.nexus-terminal.claude-tui .nexus-footer-session { color: #b8793f; }
-.nexus-terminal.claude-tui .nexus-footer-main { color: #e8964a; }
+
 .nexus-terminal.claude-tui .nexus-head-status.on { color: #e8964a; }
+
 .nexus-terminal.claude-tui .nexus-head-status.off { color: #6a5a4a; }
+
 .nexus-terminal.claude-tui .nexus-head-clear { color: #6a5a4a; }
+
 .nexus-terminal.claude-tui .nexus-head-clear:hover { color: #fff; }
-.nexus-terminal.claude-tui .tl-ask-done { color: #e8964a; }
-.nexus-terminal.claude-tui .tl-dot { color: #e8964a; }
-.nexus-terminal.claude-tui .tl-user-box { background: #241a13; border-color: #3a2c1f; }
-.nexus-terminal.claude-tui .tl-user-box::before { background: #d97757; } /* claude 主橙竖线 */
-.nexus-terminal.claude-tui .nexus-input-row::before { background: #d97757; }
+
+.nexus-terminal.claude-tui .nexus-timeline {
+  gap: 10px;
+}
+
+.nexus-terminal.claude-tui .nexus-timeline::-webkit-scrollbar { width: 8px; }
+
+.nexus-terminal.claude-tui .nexus-timeline::-webkit-scrollbar-thumb { background: #3a2c1f; border-radius: 4px; }
+
+.nexus-terminal.claude-tui .nexus-waiting { color: #6a5a4a; font-size: 12.5px; }
+
+.nexus-terminal.claude-tui .tl-assistant {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  max-width: none;
+  align-self: auto;
+}
+
+.nexus-terminal.claude-tui .tl-tool-box {
+  background: #201812;
+  border: 1px solid #35281c;
+  border-radius: 0;
+  padding: 8px 12px;
+  align-self: stretch;
+}
+
+.nexus-terminal.claude-tui .tl-tool-box.running {
+  border-color: #3a3325;
+}
+
+.nexus-terminal.claude-tui .tl-tool .tl-tool-name,
+.nexus-terminal.claude-tui .tl-tool-box .tl-tool-name { color: #d9a05f; font-weight: 600; }
+
+.nexus-terminal.claude-tui .tl-tool-box.running .tl-tool-name { color: #e8b271; }
+
+.nexus-terminal.claude-tui .tl-tool-box .tl-tool-output {
+  margin: 8px 0 0;
+  padding: 0;
+  background: none;
+  border: none;
+  border-radius: 0;
+  color: #b8a48c;
+  white-space: pre-wrap;
+  word-break: break-all;
+  /* 覆盖兜底控件的限高滚动：TUI 输出不做内部滚动 */
+  max-height: none;
+  overflow: visible;
+  overflow-x: visible;
+  overflow-y: visible;
+}
+
+.nexus-terminal.claude-tui .tl-tool-output.clamped {
+  max-height: 220px;
+  overflow: hidden;
+}
+
+.nexus-terminal.claude-tui .tl-tool-output.expanded {
+  max-height: none;
+  overflow: visible;
+}
+
+.nexus-terminal.claude-tui .tl-error {
+  display: flex;
+  gap: 8px;
+  color: #e07b7b;
+  font-size: 12.5px;
+  align-self: auto;
+  max-width: none;
+}
+
+.nexus-terminal.claude-tui .tl-ask {
+  border-color: #4a3822;
+  background: #201812;
+}
+
+.nexus-terminal.claude-tui .tl-ask-head { color: #e8e2da; font-size: 12.5px; }
+
+.nexus-terminal.claude-tui .tl-ask-head b { color: #fff; }
+
+.nexus-terminal.claude-tui .tl-ask-body { color: #a89880; font-size: 12px; }
+
+.nexus-terminal.claude-tui .tl-ask-btn { background: #2a1f16; border-color: #4a3822; color: #d8d8d8; }
+
+.nexus-terminal.claude-tui .tl-ask-btn:hover { border-color: #8a6a42; color: #fff; }
+
+.nexus-terminal.claude-tui .tl-ask-btn.danger { color: #e07b7b; border-color: #5a2e2e; }
+
+.nexus-terminal.claude-tui .nexus-input-row {
+  border-top-color: #3a2c1f;
+  position: relative;
+  padding-left: 28px;
+  align-items: center;
+}
+
+.nexus-terminal.claude-tui .nexus-input-row::before {
+  content: "";
+  position: absolute;
+  left: 16px;
+  top: 8px;
+  bottom: 8px;
+  width: 3px;
+  border-radius: 2px;
+  background: #d97757;
+}
+
 .nexus-terminal.claude-tui .nexus-input-row:focus-within::before {
   background: #e8964a;
   box-shadow: 0 0 6px rgba(217, 119, 87, 0.5);
 }
-.nexus-terminal.claude-tui .nexus-terminal-head { background: #201812; border-bottom-color: #3a2c1f; }
-.nexus-terminal.claude-tui .nexus-footer { border-top-color: #3a2c1f; background: #201812; }
-.nexus-terminal.claude-tui .nexus-footer-dim { color: #6a5a4a; }
-.nexus-terminal.claude-tui .tl-tool-box { background: #201812; border-color: #35281c; }
-.nexus-terminal.claude-tui .tl-tool-box.running { border-color: #5a3d22; }
-.nexus-terminal.claude-tui .tl-tool .tl-tool-name,
-.nexus-terminal.claude-tui .tl-tool-box .tl-tool-name { color: #d9a05f; font-weight: 600; }
-.nexus-terminal.claude-tui .tl-tool-box.running .tl-tool-name { color: #e8b271; }
-.nexus-terminal.claude-tui .tl-tool-ellipsis { color: #e8b271; }
+
+.nexus-terminal.claude-tui .nexus-input {
+  color: #f0ebe4;
+  caret-color: #e8e2da;
+}
+
+.nexus-terminal.claude-tui .nexus-input::placeholder { color: #6a5a4a; }
+
+.nexus-terminal.claude-tui .nexus-send { border-color: #4a3822; color: #b8a48c; }
+
+.nexus-terminal.claude-tui .nexus-send:hover:not(:disabled) { border-color: #8a6a42; color: #fff; }
+
+/* --- claude-tui 补充：无 .tui 前缀的全局控件在暖黑底下的配色对齐 --- */
+
+.nexus-terminal.claude-tui .tl-user-box { background: #241a13; border-color: #3a2c1f; }
+.nexus-terminal.claude-tui .tl-user-box::before { background: #d97757; }
+.nexus-terminal.claude-tui .tl-user-text { color: #eae4dc; }
+.nexus-terminal.claude-tui .tl-dot { color: #e8964a; }
 .nexus-terminal.claude-tui .tl-assistant-text { color: #f0ebe4; }
 .nexus-terminal.claude-tui .tl-assistant-text pre { background: #241a13; border-color: #35281c; }
 .nexus-terminal.claude-tui .tl-assistant-text code { background: #2e2118; }
 .nexus-terminal.claude-tui .tl-assistant-text a { color: #d97757; }
+.nexus-terminal.claude-tui .tl-assistant-text table { border-color: #3a2c1f; }
+.nexus-terminal.claude-tui .tl-assistant-text th,
+.nexus-terminal.claude-tui .tl-assistant-text td { border-color: #3a2c1f; }
 .nexus-terminal.claude-tui .tl-thought { color: #8a7a6a; }
 .nexus-terminal.claude-tui .tl-thought summary:hover { color: #b8a48c; }
 .nexus-terminal.claude-tui .tl-thought-body { border-left-color: #3a2c1f; color: #a89880; }
-.nexus-terminal.claude-tui .tl-ask { border-color: #3a2c1f; background: #201812; }
-.nexus-terminal.claude-tui .tl-ask-head { color: #e8e2da; }
-.nexus-terminal.claude-tui .tl-ask-head b { color: #fff; }
-.nexus-terminal.claude-tui .tl-ask-body { color: #a89880; }
-.nexus-terminal.claude-tui .tl-ask-btn { background: #2a1f16; border-color: #4a3822; color: #d8d0c4; }
-.nexus-terminal.claude-tui .tl-ask-btn:hover { border-color: #8a6a42; color: #fff; }
-.nexus-terminal.claude-tui .tl-ask-btn.primary { background: #e8e6e3; border-color: #e8e6e3; color: #1a1310; }
-.nexus-terminal.claude-tui .tl-ask-btn.primary:hover { background: #fff; }
-.nexus-terminal.claude-tui .tl-ask-btn.danger { color: #e07b7b; border-color: #5a2e2e; }
+.nexus-terminal.claude-tui .tl-tool-glyph { color: #8a7a6a; }
+.nexus-terminal.claude-tui .tl-tool-args { color: #8a7a6a; }
+.nexus-terminal.claude-tui .tl-tool-head .tl-tool-ellipsis { color: #e8b271; }
+.nexus-terminal.claude-tui .tl-tool-output-wrap .tl-tool-output { color: #b8a48c; }
+.nexus-terminal.claude-tui .tl-error-mark { color: #e07b7b; }
+.nexus-terminal.claude-tui .tl-error-text { color: #e07b7b; }
+.nexus-terminal.claude-tui .tl-ask-glyph { color: #d97757; }
+.nexus-terminal.claude-tui .tl-ask-done { color: #e8964a; }
 .nexus-terminal.claude-tui .nexus-statusline { color: #e8b271; }
 .nexus-terminal.claude-tui .nexus-status-dim { color: #6a5a4a; }
-.nexus-terminal.claude-tui .nexus-timeline::-webkit-scrollbar-thumb { background: #3a2c1f; }
-.nexus-terminal.claude-tui .tl-tool-expand { color: #d97757; }
-.nexus-terminal.claude-tui .tl-tool-expand:hover { color: #e8964a; }
-.nexus-terminal.claude-tui .tl-error { color: #e07b7b; }
-.nexus-terminal.claude-tui .nexus-waiting { color: #6a5a4a; }
-.nexus-terminal.claude-tui .nexus-input { color: #f0ebe4; caret-color: #e8e2da; }
-.nexus-terminal.claude-tui .nexus-input::placeholder { color: #6a5a4a; }
-.nexus-terminal.claude-tui .nexus-send { border-color: #4a3822; color: #b8a48c; }
-.nexus-terminal.claude-tui .nexus-send:hover:not(:disabled) { border-color: #8a6a42; color: #fff; }
+.nexus-terminal.claude-tui .nexus-spinner { color: #e8b271; }
