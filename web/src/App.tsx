@@ -613,14 +613,21 @@ function HomePage({ toast, loggedIn, onGoAccount, onOpenLogin, onGoDocs }: { toa
               <FeatureIcon kind="terminal" />
               <h3>中枢 Nexus</h3>
             </div>
-            <p>在网页上选择在线工作区直接下达指令，实时观看 agent 的思考、工具调用与答复，权限请求和提问可直接点选应答。开启<b>监控模式</b>后，你在 TUI 里的日常对话也会实时出现在中枢里——随时远程围观、回溯任意一轮对话。</p>
+            <p>在网页上选择在线工作区直接下达指令，实时观看 agent 的思考、工具调用与答复，权限请求和提问可直接点选应答。</p>
+          </div>
+          <div className="home-card">
+            <div className="home-card-head">
+              <FeatureIcon kind="pulse" />
+              <h3>监控模式</h3>
+            </div>
+            <p>开启后（默认开），你在 opencode TUI 里的日常对话会按轮次实时同步到网页中枢：提问、思考、工具调用、回答全程可见，权限请求远程应答，历史随时回溯——像给 agent 开了一扇观察窗。</p>
           </div>
           <div className="home-card">
             <div className="home-card-head">
               <FeatureIcon kind="pulse" />
               <h3>在线状态与心跳</h3>
             </div>
-            <p>插件每 30 秒心跳保活，工作区看板实时展示每个 agent 的在线/离线状态。</p>
+            <p>插件每 30 秒心跳保活，工作区看板实时展示每个 agent 的在线/离线状态与当前会话。</p>
           </div>
           <div className="home-card">
             <div className="home-card-head">
@@ -1134,6 +1141,13 @@ agent: (a2a_call) → 对方 TUI 实时出现任务 → 执行 → 结果自动�
 
         <section id="doc-faq" className="docs-section">
           <h2>FAQ</h2>
+          <h3>权限请求和 AI 提问怎么处理？</h3>
+          <p>
+            agent 执行中需要授权（如运行命令、写文件）或主动向你提问时，任务进入 <code>input-required</code> 状态：
+            目标端的 TUI 会弹出选择框，同时网页中枢时间线出现<b>权限/提问卡片</b>，直接点按钮应答（允许一次 /
+            始终允许 / 拒绝，或点选问题选项），agent 立刻继续执行——人和网页谁先响应都可以，另一边会看到结果。
+            监控轮次的权限同样支持网页远程应答。注意：后台会话无人值守，权限全自动批准，不走此流程。
+          </p>
           <h3>任务会出现在对方屏幕上吗？</h3>
           <p>
             取决于目标工作区的执行模式。前台模式下会：任务直接进入对方当前 TUI 会话并弹 toast 通知，实时可见。
