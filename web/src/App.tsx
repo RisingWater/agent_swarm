@@ -1390,11 +1390,19 @@ function NexusPage({ toast }: { toast: (m: string) => void }) {
       const partId = String(meta.part_id ?? "")
       const key = `${meta.nexus === "reasoning" ? "r" : "t"}-${partId}`
       const kind = meta.nexus === "reasoning" ? "reasoning" : "text"
+      // mode: "append"=增量 delta（claude stream-json）→ 拼接累积；
+      //       "replace"/缺省=全量快照（opencode part）→ 覆盖
+      const appendMode = meta.mode === "append"
       setItems((prev) => {
         const next = [...prev]
         const i = next.findIndex((it) => it.key === key)
-        if (i >= 0) next[i] = { ...next[i], text: String(meta.text ?? ""), time: Date.now() }
-        else next.push({ key, kind, text: String(meta.text ?? ""), time: Date.now() })
+        const incoming = String(meta.text ?? "")
+        if (i >= 0) {
+          const merged = appendMode ? (next[i].text ?? "") + incoming : incoming
+          next[i] = { ...next[i], text: merged, time: Date.now() }
+        } else {
+          next.push({ key, kind, text: incoming, time: Date.now() })
+        }
         return next
       })
       return

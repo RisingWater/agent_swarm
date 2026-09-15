@@ -67,10 +67,12 @@ export function toolStatus(task, tool) {
   })
 }
 
-/** 思考/文本流式片段（metadata.nexus=text/reasoning） */
-export function streamStatus(task, kind, partId, text) {
+/** 思考/文本流式片段（metadata.nexus=text/reasoning）。
+ *  mode: "append"=增量 delta（前端拼接累积），"replace"=全量快照（前端覆盖）。
+ *  claude stream-json 的 *_delta 是增量；opencode part 是全量快照。 */
+export function streamStatus(task, kind, partId, text, mode = "append") {
   return statusUpdate(task, "working", {
-    metadata: { nexus: kind, part_id: partId, text },
+    metadata: { nexus: kind, part_id: partId, text, mode },
   })
 }
 

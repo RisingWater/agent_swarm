@@ -138,15 +138,18 @@ export function toolStatus(
   })
 }
 
-/** 思考/文本流式片段（opencode part → metadata.nexus=text/reasoning） */
+/** 思考/文本流式片段（opencode part → metadata.nexus=text/reasoning）。
+ *  mode: "replace"=全量快照（前端覆盖渲染），"append"=增量 delta（前端拼接累积）。
+ *  opencode part 事件是全量快照；claude stream-json delta 是增量。 */
 export function streamStatus(
   task: A2aTaskRef,
   kind: "text" | "reasoning",
   partId: string,
   text: string,
+  mode: "replace" | "append" = "replace",
 ): A2aEvent {
   return statusUpdate(task, "working", {
-    metadata: { nexus: kind, part_id: partId, text },
+    metadata: { nexus: kind, part_id: partId, text, mode },
   })
 }
 
