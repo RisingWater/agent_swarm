@@ -234,8 +234,8 @@ def heartbeat(
 
     Args:
         workspace_id: 注册时返回的工作区 ID
-        session_id: 当前 opencode 会话 ID（可选，前台任务注入需要）
-        session_title: 当前会话标题（可选，web 展示用）
+        session_id: 当前会话 ID（可选；非空时覆盖）
+        session_title: 当前会话标题（可选；非空时覆盖）
         agent_type: agent 工具类型（可选，如 opencode；重复上报会更新）
     """
     user = get_user()
@@ -246,6 +246,8 @@ def heartbeat(
             return {"ok": False, "status": "disabled", "message": "workspace is disabled"}
         ws.status = "online"
         ws.last_heartbeat = utcnow()
+        # 空值不覆盖：插件端负责尽量报最近会话（pickRecentSession 兜底），
+        # 服务端只保留最近一次非空上报，保证 web 始终有会话名可看
         if session_id:
             ws.session_id = session_id
         if session_title:

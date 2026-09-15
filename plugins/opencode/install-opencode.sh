@@ -102,32 +102,16 @@ chmod 600 "$GLOBAL_CFG"
 echo "    已写入插件配置: $GLOBAL_CFG"
 
 # 4. 注册：a) mcp.agent-swarm 配置（工具直连 MCP）b) 插件（心跳保活）
-MCP_BLOCK=$(cat <<EOF
-    "agent-swarm": {
-      "type": "remote",
-      "url": "$SERVER/mcp/",
-      "enabled": true,
-      "headers": {
-        "Authorization": "Bearer $API_KEY"
-      }
-    }
-EOF
-)
 OC_CONFIG="$HOME/.config/opencode/opencode.jsonc"
 [ -f "$HOME/.config/opencode/opencode.json" ] && OC_CONFIG="$HOME/.config/opencode/opencode.json"
 if [ -f "$PWD/opencode.json" ] || [ -f "$PWD/opencode.jsonc" ]; then
     OC_CONFIG="$PWD/opencode.jsonc"
     [ -f "$PWD/opencode.json" ] && OC_CONFIG="$PWD/opencode.json"
 fi
-
-node - "$OC_CONFIG" "$SERVER/mcp/" "$MCP_BLOCK" <<'NODE'
+node - "$OC_CONFIG" "$SERVER/mcp/" "$API_KEY" <<'NODE'
 const fs = require("fs")
-const [cfgPath, mcpUrl, mcpBlock] = process.argv.slice(2)
+const [cfgPath, mcpUrl, apiKey] = process.argv.slice(2)
 let text = fs.existsSync(cfgPath) ? fs.readFileSync(cfgPath, "utf-8") : "{\n}\n"
-if (text.includes(mcpUrl)) {
-    console.log("==> mcp.agent-swarm 已配置，跳过")
-    process.exit(0)
-}
 // 剥 JSONC 注释（感知字符串字面量：file:// 等字符串内的 // 不能当注释）
 function stripJsoncComments(s) {
     let out = ""
@@ -144,24 +128,55 @@ function stripJsoncComments(s) {
         }
         if (c === '"') { inStr = true; out += c; continue }
         if (c === "/" && n === "/") { inLine = true; i++; continue }
-        if (c === "/" && n === "*") { inBlock = true; i++; continue }
+        if (c === "/" && n === "*") { inBlock = true; i++ }
         out += c
     }
     return out
 }
-// 在 mcp 对象中插入 agent-swarm；没有 mcp 字段则插到最外层 { 后
-const m = text.match(/("mcp"\s*:\s*\{)([\s\S]*?)(\n  \})/)
-let out
-if (m) {
-    const inner = m[2]
+// 定位 mcp 对象内名为 agent-swarm 的整个键值（含前导逗号），有则整体替换（刷新 URL/apikey）。
+// headers 是嵌套对象，需做大括号平衡扫描而非简单正则。
+function findEntry(s) {
+    const keyRe = /"agent-swarm"\s*:\s*\{/
+    const m = keyRe.exec(s)
+    if (!m) return null
+    let depth = 0, i = m.index + m[0].length - 1
+    for (; i < s.length; i++) {
+        if (s[i] === "{") depth++
+        else if (s[i] === "}") { depth--; if (depth === 0) break }
+    }
+    let start = m.index
+    while (start > 0 && /\s|,/.test(s[start - 1])) start--
+    if (s[start] === ",") start++
+    return [start, i + 1]
+}
+const mcpObj = text.match(/("mcp"\s*:\s*\{)([\s\S]*?)(\n  \})/)
+const mcpBlock = `    "agent-swarm": {
+      "type": "remote",
+      "url": "${mcpUrl}",
+      "enabled": true,
+      "headers": {
+        "Authorization": "Bearer ${apiKey}"
+      }
+    }`
+if (mcpObj) {
+    const inner = mcpObj[2]
+    const entry = findEntry(stripJsoncComments(inner))
+    if (entry) {
+        const newInner = inner.slice(0, entry[0]) + "\n" + mcpBlock + inner.slice(entry[1])
+        text = text.replace(mcpObj[0], () => mcpObj[1] + newInner + mcpObj[3])
+        fs.writeFileSync(cfgPath, text)
+        console.log(`==> 已更新 mcp.agent-swarm（URL/apikey 刷新）`)
+        process.exit(0)
+    }
+    // 无同名条目：追加
     const stripped = stripJsoncComments(inner).trim()
     const needComma = stripped && !stripped.endsWith(",")
     const newInner = (needComma ? inner.replace(/[ \t\r]+$/, "") + "," : inner) + "\n" + mcpBlock
-    out = text.replace(m[0], () => m[1] + newInner + m[3])
+    text = text.replace(mcpObj[0], () => mcpObj[1] + newInner + mcpObj[3])
 } else {
-    out = text.replace(/^\s*\{/, () => "{\n  \"mcp\": {\n" + mcpBlock + "\n  },\n")
+    text = text.replace(/^\s*\{/, () => `{\n  "mcp": {\n` + mcpBlock + `\n  },\n`)
 }
-fs.writeFileSync(cfgPath, out)
+fs.writeFileSync(cfgPath, text)
 console.log(`==> 已写入 mcp.agent-swarm 到 ${cfgPath}`)
 NODE
 

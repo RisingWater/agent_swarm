@@ -386,6 +386,15 @@ const plugin: Plugin = async (input) => {
       }
       if (workspaceId) {
         try {
+          // 冷启动/无事件兜底：event hook 只在会话有活动时才更新 currentSessionId，
+          // TUI 打开但没发过消息时为空——主动挑最近活跃会话上报，让 web 有会话名可看
+          if (!currentSessionId) {
+            const recent = await pickRecentSession()
+            if (recent) {
+              currentSessionId = recent
+              log(`heartbeat: no tracked session, picked recent ${recent}`)
+            }
+          }
           // 会话变化时刷新一次标题（避免每轮心跳都查 session.get）
           if (currentSessionId && currentSessionId !== lastTitleSession) {
             currentSessionTitle = await fetchSessionTitle(currentSessionId)
@@ -393,10 +402,11 @@ const plugin: Plugin = async (input) => {
           }
           const rsp = await swarm.heartbeat(
             workspaceId,
-            currentSessionId || undefined,
+            currentSessionId,
             AGENT_TYPE,
-            currentSessionTitle || undefined,
+            currentSessionTitle,
           )
+          log(`heartbeat ok: session=${currentSessionId || "(none)"} title=${currentSessionTitle || "(none)"}`)
         } catch (e) {
           log(`heartbeat failed: ${e}`)
         }

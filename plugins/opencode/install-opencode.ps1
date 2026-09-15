@@ -160,14 +160,29 @@ New-Item -ItemType Directory -Force -Path (Split-Path $ocConfig) | Out-Null
 $text = ""
 if (Test-Path $ocConfig) { $text = [IO.File]::ReadAllText($ocConfig) }
 
-if ($text.Contains("$Server/mcp/")) {
-    Write-Host "==> mcp.agent-swarm 已配置，跳过"
-} else {
-    $m = [regex]::Match($text, '(?s)("mcp"\s*:\s*\{)(.*?)(\n  \})')
-    if ($m.Success) {
-        $inner = $m.Groups[2].Value
-        # 剥 JSONC 注释（字符串感知：file:// 等字符串内的 // 不是注释）
-        $stripped = (Remove-JsoncComment -Text $inner).Trim()
+# 与 sh 版对齐：不做提前跳过——同名条目一律走替换分支刷新 URL/apikey
+$m = [regex]::Match($text, '(?s)("mcp"\s*:\s*\{)(.*?)(\n  \})')
+if ($m.Success) {
+    $inner = $m.Groups[2].Value
+    # 剥 JSONC 注释（字符串感知：file:// 等字符串内的 // 不是注释）
+    $stripped = (Remove-JsoncComment -Text $inner).Trim()
+    # 已有同名条目：大括号平衡扫描定位整个键值，整体替换（刷新 URL/apikey）。
+    # headers 是嵌套对象，简单正则会截断在第一个 } 处。
+    $keyMatch = [regex]::Match($stripped, '"agent-swarm"\s*:\s*\{')
+    if ($keyMatch.Success) {
+        $depth = 0; $end = $keyMatch.Index + $keyMatch.Length - 1
+        for ($i = $end; $i -lt $stripped.Length; $i++) {
+            if ($stripped[$i] -eq '{') { $depth++ }
+            elseif ($stripped[$i] -eq '}') { $depth--; if ($depth -eq 0) { $end = $i; break } }
+        }
+        # stripped 与 inner 同长度同索引（剥注释只改注释字符），可按索引切 inner
+        $newInner = $inner.Substring(0, $keyMatch.Index) + '"agent-swarm": ' +
+            (@{ type = "remote"; url = "$Server/mcp/"; enabled = $true; headers = @{ Authorization = "Bearer $ApiKey" } } | ConvertTo-Json -Depth 5) +
+            $inner.Substring($end + 1)
+        $text = $text.Remove($m.Index, $m.Length).Insert($m.Index, $m.Groups[1].Value + $newInner + $m.Groups[3].Value)
+        [IO.File]::WriteAllText($ocConfig, $text, $utf8NoBom)
+        Write-Host "==> 已更新 mcp.agent-swarm（URL/apikey 刷新）"
+    } else {
         $needComma = ($stripped.Length -gt 0) -and (-not $stripped.EndsWith(","))
         if ($needComma) {
             $newInner = $inner.TrimEnd() + ",`n" + $mcpBlock
@@ -175,12 +190,14 @@ if ($text.Contains("$Server/mcp/")) {
             $newInner = $inner + "`n" + $mcpBlock
         }
         $text = $text.Remove($m.Index, $m.Length).Insert($m.Index, $m.Groups[1].Value + $newInner + $m.Groups[3].Value)
-    } else {
-        $insert = "{`n  `"mcp`": {`n" + $mcpBlock + "`n  },`n"
-        $rx = New-Object System.Text.RegularExpressions.Regex("(?m)^\s*\{")
-        $newText = $rx.Replace($text, $insert, 1)
-        if ($newText -eq $text) { $text = $insert + $text } else { $text = $newText }
+        [IO.File]::WriteAllText($ocConfig, $text, $utf8NoBom)
+        Write-Host "==> 已写入 mcp.agent-swarm 到 $ocConfig"
     }
+} else {
+    $insert = "{`n  `"mcp`": {`n" + $mcpBlock + "`n  },`n"
+    $rx = New-Object System.Text.RegularExpressions.Regex("(?m)^\s*\{")
+    $newText = $rx.Replace($text, $insert, 1)
+    if ($newText -eq $text) { $text = $insert + $text } else { $text = $newText }
     [IO.File]::WriteAllText($ocConfig, $text, $utf8NoBom)
     Write-Host "==> 已写入 mcp.agent-swarm 到 $ocConfig"
 }
