@@ -1657,7 +1657,9 @@ function TimelineEntrySwitch({ item, agentType, onPermissionReply, onQuestionRep
 }) {
   const kind = agentToolKind(agentType)
   const props = { item, onPermissionReply, onQuestionReply }
-  return kind === "opencode" ? <OpencodeTuiEntry {...props} /> : <TimelineEntry {...props} />
+  if (kind === "opencode") return <OpencodeTuiEntry {...props} />
+  if (kind === "claude") return <ClaudeTuiEntry {...props} />
+  return <TimelineEntry {...props} />
 }
 
 /** 兜底默认控件：气泡风格（通用，不依赖具体 agent 工具的视觉习惯） */
@@ -1870,6 +1872,175 @@ function TuiToolOutput({ output }: { output: string }) {
       <pre className={`tl-tool-output${isLong ? (expanded ? " expanded" : " clamped") : ""}`}>{output}</pre>
       {isLong && !expanded && (
         <button className="tl-tool-expand" onClick={() => setExpanded(true)}>expand</button>
+      )}
+    </div>
+  )
+}
+
+// ---------------- claude 中枢控件（模仿 claude code CLI 时间线） ----------------
+
+/** claude 风格工具行摘要：ToolName(第一参数)。list/read 类不显示内容只给摘要。 */
+function claudeToolSummary(item: TimelineItem): string {
+  const tool = item.tool ?? "tool"
+  const arg = truncateLine(item.text ?? "", 72)
+  return arg ? `${tool}(${arg})` : tool
+}
+
+/** list/read 类工具的完成摘要（不展示内容，一行 + expand） */
+function claudeReadonlySummary(item: TimelineItem): string | null {
+  const t = (item.tool ?? "").toLowerCase()
+  const n = (item.output ?? "").split("\n").filter((l) => l.trim()).length
+  if (["read", "view"].includes(t)) return `Read ${n || 1} line${n === 1 ? "" : "s"}`
+  if (["glob", "grep", "list"].includes(t)) return `Found ${n} entr${n === 1 ? "y" : "ies"}`
+  return null
+}
+
+/** claude 时间线条目：> 用户（左对齐） / ● 大点 agent·tool·thinking / ⎿ 工具输出，无框 */
+function ClaudeTuiEntry({ item, onPermissionReply, onQuestionReply }: {
+  item: TimelineItem
+  onPermissionReply?: (requestId: string, reply: "once" | "always" | "reject") => void
+  onQuestionReply?: (requestId: string, answers: string[][]) => void
+}) {
+  if (item.kind === "user") {
+    // 用户输入：左侧 "> " 前缀，无框无竖线
+    return (
+      <div className="cl-user">
+        <span className="cl-prompt">&gt;</span>
+        <span className="cl-user-text">{item.text}</span>
+      </div>
+    )
+  }
+  if (item.kind === "idle") {
+    return null
+  }
+  if (item.kind === "error") {
+    return (
+      <div className="cl-entry">
+        <span className="cl-dot">●</span>
+        <div className="cl-entry-body">
+          <span className="cl-error-text">{item.text}</span>
+        </div>
+      </div>
+    )
+  }
+  if (item.kind === "reasoning") {
+    // thinking：● 大点 + "Thought for a bit" 一行，expand 展开全文
+    return (
+      <details className="cl-entry cl-fold">
+        <summary>
+          <span className="cl-dot">●</span>
+          <span className="cl-fold-label">Thought for a bit</span>
+          <span className="cl-expand">expand</span>
+        </summary>
+        <div className="cl-entry-body">
+          <div className="cl-fold-body">{item.text}</div>
+        </div>
+      </details>
+    )
+  }
+  if (item.kind === "tool") {
+    const running = item.state === "running"
+    const readonly = claudeReadonlySummary(item)
+    const output = item.output?.trim() ?? ""
+    // list/read 类：一行摘要（完成后替换为 Found/Read 行），expand 展开完整输出
+    if (readonly && !running && output) {
+      return (
+        <details className="cl-entry cl-fold">
+          <summary>
+            <span className="cl-dot">●</span>
+            <span className="cl-fold-label">{readonly}</span>
+            <span className="cl-expand">expand</span>
+          </summary>
+          <div className="cl-entry-body">
+            <div className="cl-tool-cmd">{claudeToolSummary(item)}</div>
+            <pre className="cl-hook-output">{output}</pre>
+          </div>
+        </details>
+      )
+    }
+    // write/bash 等：● Tool(args) + ⎿ 输出（缩进块，超长 expand）
+    return (
+      <div className="cl-entry">
+        <span className="cl-dot">●</span>
+        <div className="cl-entry-body">
+          <div className="cl-tool-line">
+            <span className="cl-tool-name">{running ? claudeToolSummary(item) : claudeToolSummary(item)}</span>
+            {running && <span className="cl-ellipsis">…</span>}
+          </div>
+          {output && <ClaudeHookOutput output={output} />}
+        </div>
+      </div>
+    )
+  }
+  if (item.kind === "permission") {
+    if (item.answered) {
+      return (
+        <div className="cl-entry cl-done">
+          <span className="cl-dot">●</span>
+          <div className="cl-entry-body">
+            权限已{item.answered === "拒绝" ? "拒绝" : `允许（${item.answered}）`}：{item.permission}
+          </div>
+        </div>
+      )
+    }
+    return (
+      <div className="cl-entry">
+        <span className="cl-dot">●</span>
+        <div className="cl-entry-body">
+          <div className="cl-ask-head">权限请求：<b>{item.permission}</b></div>
+          {item.text && <div className="cl-ask-body">{item.text}</div>}
+          <div className="cl-ask-actions">
+            <button className="cl-ask-btn primary" onClick={() => onPermissionReply?.(item.request_id!, "once")}>allow once</button>
+            <button className="cl-ask-btn" onClick={() => onPermissionReply?.(item.request_id!, "always")}>always allow</button>
+            <button className="cl-ask-btn danger" onClick={() => onPermissionReply?.(item.request_id!, "reject")}>reject</button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+  if (item.kind === "question") {
+    if (item.answered) {
+      return (
+        <div className="cl-entry cl-done">
+          <span className="cl-dot">●</span>
+          <div className="cl-entry-body">已选择：<b>{item.answered}</b></div>
+        </div>
+      )
+    }
+    return (
+      <div className="cl-entry">
+        <span className="cl-dot">●</span>
+        <div className="cl-entry-body">
+          <div className="cl-ask-head">{item.text}</div>
+          <div className="cl-ask-actions">
+            {(item.options ?? []).map((o) => (
+              <button key={o.value} className="cl-ask-btn primary" onClick={() => onQuestionReply?.(item.request_id!, [[o.value]])}>
+                {o.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+    )
+  }
+  // agent 回答：● 大点 + markdown
+  return (
+    <div className="cl-entry">
+      <span className="cl-dot">●</span>
+      <div className="cl-entry-body cl-assistant-md"><Md text={item.text} /></div>
+    </div>
+  )
+}
+
+/** claude ⎿ 输出块：缩进 + ⎿ 前缀，超长限高 + expand */
+function ClaudeHookOutput({ output }: { output: string }) {
+  const [expanded, setExpanded] = useState(false)
+  const isLong = output.split("\n").length > 8 || output.length > 400
+  return (
+    <div className="cl-hook-wrap">
+      <pre className={`cl-hook-output${isLong && !expanded ? " clamped" : ""}`}>{output}</pre>
+      {isLong && !expanded && (
+        <button className="cl-expand" onClick={() => setExpanded(true)}>expand</button>
       )}
     </div>
   )

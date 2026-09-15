@@ -2151,3 +2151,165 @@ table.ws-grid th {
 .nexus-terminal.claude-tui .nexus-statusline { color: #e8b271; }
 .nexus-terminal.claude-tui .nexus-status-dim { color: #6a5a4a; }
 .nexus-terminal.claude-tui .nexus-spinner { color: #e8b271; }
+
+/* --- claude-tui 时间线控件（模仿 claude code CLI）：> 用户 / ● 大点条目 / ⎿ 输出，无框 --- */
+
+.nexus-terminal.claude-tui .cl-user {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  align-self: stretch;
+}
+
+.nexus-terminal.claude-tui .cl-prompt {
+  color: #d97757;
+  font-weight: 700;
+  flex: 0 0 auto;
+}
+
+.nexus-terminal.claude-tui .cl-user-text {
+  color: #eae4dc;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* ● 条目通用：大点 + 内容体（悬点缩进） */
+.nexus-terminal.claude-tui .cl-entry {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  align-self: stretch;
+}
+
+.nexus-terminal.claude-tui .cl-dot {
+  color: #e8964a;
+  font-size: 14px;
+  line-height: 1.5;
+  flex: 0 0 auto;
+}
+
+.nexus-terminal.claude-tui .cl-entry-body {
+  min-width: 0;
+  flex: 1;
+  color: #f0ebe4;
+}
+
+.nexus-terminal.claude-tui .cl-assistant-md { word-break: break-word; }
+
+/* 可折叠条目（thinking / list·read 摘要）：一行 + expand */
+.nexus-terminal.claude-tui .cl-fold summary {
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+}
+
+.nexus-terminal.claude-tui .cl-fold summary::-webkit-details-marker { display: none; }
+
+.nexus-terminal.claude-tui .cl-fold-label { color: #e8e2da; }
+
+.nexus-terminal.claude-tui .cl-expand {
+  color: #d97757;
+  font-size: 12px;
+  text-decoration: underline;
+  margin-left: 6px;
+}
+
+.nexus-terminal.claude-tui .cl-expand:hover { color: #e8964a; }
+
+.nexus-terminal.claude-tui .cl-fold-body {
+  margin-top: 6px;
+  padding: 6px 10px;
+  border-left: 2px solid #3a2c1f;
+  color: #a89880;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 12.5px;
+}
+
+/* 工具行 */
+.nexus-terminal.claude-tui .cl-tool-line {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+}
+
+.nexus-terminal.claude-tui .cl-tool-name {
+  color: #d9a05f;
+  font-weight: 600;
+  word-break: break-all;
+}
+
+.nexus-terminal.claude-tui .cl-ellipsis { color: #e8b271; }
+
+/* ⎿ 输出块：缩进 + ⎿ 视觉（伪元素），直角无框 */
+.nexus-terminal.claude-tui .cl-hook-wrap { margin-top: 4px; }
+
+.nexus-terminal.claude-tui .cl-hook-output {
+  margin: 0;
+  padding: 0 0 0 22px;
+  background: none;
+  border: none;
+  border-radius: 0;
+  color: #a89880;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-all;
+  position: relative;
+}
+
+.nexus-terminal.claude-tui .cl-hook-output::before {
+  content: "⎿";
+  position: absolute;
+  left: 4px;
+  color: #8a7a6a;
+}
+
+.nexus-terminal.claude-tui .cl-hook-output.clamped {
+  max-height: 160px;
+  overflow: hidden;
+}
+
+.nexus-terminal.claude-tui .cl-done { color: #e8964a; }
+
+/* 错误文本 */
+.nexus-terminal.claude-tui .cl-error-text { color: #e07b7b; white-space: pre-wrap; word-break: break-word; }
+
+/* ask 卡（无框，沿用暖色） */
+.nexus-terminal.claude-tui .cl-ask-head { color: #e8e2da; }
+.nexus-terminal.claude-tui .cl-ask-head b { color: #fff; }
+.nexus-terminal.claude-tui .cl-ask-body { color: #a89880; font-size: 12.5px; margin-top: 2px; }
+
+.nexus-terminal.claude-tui .cl-ask-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.nexus-terminal.claude-tui .cl-ask-btn {
+  background: #2a1f16;
+  border: 1px solid #4a3822;
+  border-radius: 6px;
+  color: #d8d0c4;
+  font-family: inherit;
+  font-size: 12px;
+  padding: 4px 12px;
+  cursor: pointer;
+}
+
+.nexus-terminal.claude-tui .cl-ask-btn:hover { border-color: #8a6a42; color: #fff; }
+
+.nexus-terminal.claude-tui .cl-ask-btn.primary {
+  background: #d97757;
+  border-color: #d97757;
+  color: #1a1310;
+  font-weight: 600;
+}
+
+.nexus-terminal.claude-tui .cl-ask-btn.primary:hover { background: #e8964a; border-color: #e8964a; }
+
+.nexus-terminal.claude-tui .cl-ask-btn.danger { color: #e07b7b; border-color: #5a2e2e; }
