@@ -240,7 +240,7 @@ function startA2A(cfg) {
         text,
         caller,
         { cwd: directory, resumeSessionId: resume },
-        { emit: (event) => a2a.send({ type: "event", payload: event }), log },
+        { emit: (event) => a2a.sendEvent(event), log },
       )
       // 会话回写映射表（成功失败都写：失败也可能已产生新会话，保证连续性）
       if (result.sessionId) writeSessionEntry(directory, caller, result.sessionId)

@@ -104,6 +104,9 @@ export function startNexusA2AClient(options) {
   let reconnectTimer = null
   let pingTimer = null
   let reconnectDelay = 1_000
+  /** WS 断连期间的事件缓冲（终态事件不能丢：hello_ok 后补发，上限 2000 条防内存失控） */
+  const pendingEvents = []
+  const MAX_PENDING_EVENTS = 2000
 
   function send(obj) {
     if (!ws || ws.readyState !== WebSocket.OPEN) return false
@@ -112,6 +115,18 @@ export function startNexusA2AClient(options) {
       return true
     } catch {
       return false
+    }
+  }
+
+  /** 事件发送：断连时入缓冲，重连后 flush */
+  function sendEvent(event) {
+    if (send({ type: "event", payload: event })) return
+    if (pendingEvents.length < MAX_PENDING_EVENTS) pendingEvents.push(event)
+  }
+
+  function flushPendingEvents() {
+    while (pendingEvents.length) {
+      if (!send({ type: "event", payload: pendingEvents.shift() })) break // 又断了，剩下的下次发
     }
   }
 
@@ -153,6 +168,7 @@ export function startNexusA2AClient(options) {
         reconnectDelay = 1_000
         startPing()
         log("nexus a2a ready")
+        flushPendingEvents()
         break
       case "hello_err":
         log(`nexus hello rejected: ${msg.error}`)
@@ -261,6 +277,8 @@ export function startNexusA2AClient(options) {
   connect()
 
   return {
+    /** 事件发送（断连自动缓冲，重连后补发） */
+    sendEvent,
     close() {
       closed = true
       ready = false

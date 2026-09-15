@@ -111,6 +111,10 @@ export async function runBackgroundTask(task, text, caller, opts, bg) {
       "--verbose", // stream-json 必需（否则只输出最终 result）
       "--dangerously-skip-permissions", // 后台无人值守，全自动批准
       "--max-turns", String(MAX_TURNS),
+      // 禁掉 user-scope MCP：否则 claude -p 会再拉起 keepalive 子进程，
+      // 同一 workspace_id 多个 WS 连接互相顶号，任务事件流断连丢失
+      "--strict-mcp-config",
+      "--mcp-config", '{"mcpServers":{}}',
     ]
     if (resume) a.push("--resume", resume)
     return a
