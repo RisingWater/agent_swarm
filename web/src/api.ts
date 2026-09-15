@@ -51,6 +51,7 @@ export const pageOrigin = window.location.origin
 /** A2A 任务（调用记录页 / a2a_call 历史） */
 export interface WorkspaceCall {
   id: string
+  monitor?: boolean
   caller: { id: string; name: string; path: string } | null
   target: { id: string; name: string; path: string } | null
   external_url?: string | null
@@ -100,7 +101,8 @@ export const api = {
   enableWorkspace: (id: string) => request(`/api/workspaces/${id}/enable`, { method: "POST" }),
   deleteWorkspace: (id: string) => request(`/api/workspaces/${id}`, { method: "DELETE" }),
 
-  calls: () => request("/api/calls") as Promise<WorkspaceCall[]>,
+  calls: (workspaceId = "") =>
+    request(`/api/calls${workspaceId ? `?workspace_id=${encodeURIComponent(workspaceId)}` : ""}`) as Promise<WorkspaceCall[]>,
   deleteCall: (id: string) => request(`/api/calls/${id}`, { method: "DELETE" }),
 
   /** web 中枢：以用户身份向工作区下发 A2A 任务（非流式下发，事件走 /ws/nexus 订阅） */
@@ -120,4 +122,12 @@ export const api = {
   /** 清空工作区任务历史（事件+任务记录） */
   clearWorkspaceHistory: (workspaceId: string) =>
     request(`/api/nexus/${workspaceId}/history`, { method: "DELETE" }) as Promise<{ ok: boolean }>,
+
+  /** 中枢时间线向上滚动分页：before_id 之前最近一轮的事件 */
+  fetchRounds: (workspaceId: string, beforeId: number) =>
+    request(`/api/nexus/${workspaceId}/rounds?before_id=${beforeId}`) as Promise<{
+      events: unknown[]
+      first_id: number
+      has_more: boolean
+    }>,
 }

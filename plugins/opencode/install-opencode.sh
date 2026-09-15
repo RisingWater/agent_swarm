@@ -133,50 +133,25 @@ function stripJsoncComments(s) {
     }
     return out
 }
-// 定位 mcp 对象内名为 agent-swarm 的整个键值（含前导逗号），有则整体替换（刷新 URL/apikey）。
-// headers 是嵌套对象，需做大括号平衡扫描而非简单正则。
-function findEntry(s) {
-    const keyRe = /"agent-swarm"\s*:\s*\{/
-    const m = keyRe.exec(s)
-    if (!m) return null
-    let depth = 0, i = m.index + m[0].length - 1
-    for (; i < s.length; i++) {
-        if (s[i] === "{") depth++
-        else if (s[i] === "}") { depth--; if (depth === 0) break }
-    }
-    let start = m.index
-    while (start > 0 && /\s|,/.test(s[start - 1])) start--
-    if (s[start] === ",") start++
-    return [start, i + 1]
+// 读改写走 JSON 往返（parse → 对象操作 → stringify），杜绝文本手术写出坏 JSON
+// （曾用正则插入，第二次运行替换分支把嵌套 headers 的 } 误当对象结尾，配置文件被写坏）
+const mcpEntry = {
+    type: "remote",
+    url: mcpUrl,
+    enabled: true,
+    headers: { Authorization: `Bearer ${apiKey}` },
 }
-const mcpObj = text.match(/("mcp"\s*:\s*\{)([\s\S]*?)(\n  \})/)
-const mcpBlock = `    "agent-swarm": {
-      "type": "remote",
-      "url": "${mcpUrl}",
-      "enabled": true,
-      "headers": {
-        "Authorization": "Bearer ${apiKey}"
-      }
-    }`
-if (mcpObj) {
-    const inner = mcpObj[2]
-    const entry = findEntry(stripJsoncComments(inner))
-    if (entry) {
-        const newInner = inner.slice(0, entry[0]) + "\n" + mcpBlock + inner.slice(entry[1])
-        text = text.replace(mcpObj[0], () => mcpObj[1] + newInner + mcpObj[3])
-        fs.writeFileSync(cfgPath, text)
-        console.log(`==> 已更新 mcp.agent-swarm（URL/apikey 刷新）`)
-        process.exit(0)
-    }
-    // 无同名条目：追加
-    const stripped = stripJsoncComments(inner).trim()
-    const needComma = stripped && !stripped.endsWith(",")
-    const newInner = (needComma ? inner.replace(/[ \t\r]+$/, "") + "," : inner) + "\n" + mcpBlock
-    text = text.replace(mcpObj[0], () => mcpObj[1] + newInner + mcpObj[3])
-} else {
-    text = text.replace(/^\s*\{/, () => `{\n  "mcp": {\n` + mcpBlock + `\n  },\n`)
+const stripped = stripJsoncComments(text)
+let cfg
+try {
+    cfg = JSON.parse(stripped || "{}")
+} catch (e) {
+    console.error(`错误: ${cfgPath} 不是合法 JSON(C)（${e.message}），不覆盖，请手工修正后重跑`)
+    process.exit(1)
 }
-fs.writeFileSync(cfgPath, text)
+cfg.mcp = cfg.mcp || {}
+cfg.mcp["agent-swarm"] = mcpEntry
+fs.writeFileSync(cfgPath, JSON.stringify(cfg, null, 2) + "\n")
 console.log(`==> 已写入 mcp.agent-swarm 到 ${cfgPath}`)
 NODE
 
@@ -211,28 +186,17 @@ function stripJsoncComments(s) {
     }
     return out
 }
-// 在 plugin 数组中插入新项：逗号插在最后一个非空非注释项的末尾
-const m = text.match(/("plugin"\s*:\s*\[)([\s\S]*?)(\])/)
-let out
-if (m) {
-    const inner = m[2]
-    // 去掉注释与空白后判断是否需要逗号（字符串感知，file:// 不误伤）
-    const stripped = stripJsoncComments(inner).trim()
-    const needComma = stripped && !stripped.endsWith(",")
-    let newInner
-    if (needComma) {
-        // 找到最后一个非空白/非注释字符（应为 " 或 ]），在其后补逗号
-        const tail = inner.replace(/[ \t\n\r]+$/, "")          // 去尾部空白
-        newInner = tail + ",\n    \"" + pluginRef + "\"\n  "
-    } else {
-        newInner = inner + "\n    \"" + pluginRef + "\"\n  "
-    }
-    out = text.replace(m[0], () => m[1] + newInner + m[3])
-} else {
-    // 没有 plugin 字段：插到最外层 { 后（保留 ], 后逗号——其后还有其他字段，合法）
-    out = text.replace(/^\s*\{/, () => "{\n  \"plugin\": [\n    \"" + pluginRef + "\"\n  ],\n")
+// JSON 往返读改写（同 mcp 注册：杜绝文本手术产出坏 JSON）
+let cfg
+try {
+    cfg = JSON.parse(stripJsoncComments(text) || "{}")
+} catch (e) {
+    console.error(`警告: ${cfgPath} 不是合法 JSON(C)（${e.message}），跳过插件注册`)
+    process.exit(0)
 }
-fs.writeFileSync(cfgPath, out)
+if (!Array.isArray(cfg.plugin)) cfg.plugin = cfg.plugin ? [cfg.plugin] : []
+if (!cfg.plugin.includes(pluginRef)) cfg.plugin.push(pluginRef)
+fs.writeFileSync(cfgPath, JSON.stringify(cfg, null, 2) + "\n")
 console.log(`==> 已注册插件 ${pluginRef}`)
 NODE
 }

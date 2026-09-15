@@ -1095,7 +1095,7 @@ agent: (a2a_call) → 对方 TUI 实时出现任务 → 执行 → 结果自动�
           <p>
             在网页上直接指挥 agent。选择一个在线工作区，输入指令发送，时间线会实时滚动
             agent 的思考过程、工具调用与最终答复。agent 请求权限或向你提问时，直接在时间线里点按钮应答。
-            时间线历史持久化保存，刷新页面不丢，点 <code>clear</code> 可清空。
+            时间线历史持久化保存，刷新页面不丢；点 <code>clear</code> 清空视图，鼠标上滚逐轮加载更早的对话。
           </p>
           <h3>工作区</h3>
           <p>
@@ -1282,6 +1282,10 @@ function NexusPage({ toast }: { toast: (m: string) => void }) {
   const taskStates = useRef<Map<string, string>>(new Map())
   /** 本会话最近一次下发任务的 taskId（终态快照解锁 busy 的匹配键） */
   const lastSentTask = useRef<string>("")
+  /** 向上分页：已到最早一轮（true 后不再请求） */
+  const [noMoreRounds, setNoMoreRounds] = useState(false)
+  /** 已加载事件的最小 id（分页游标；0 = 还没加载过任何轮） */
+  const minEventId = useRef(0)
 
   const refresh = useCallback(async () => {
     try { setList(await api.workspaces()) } catch { /* 静默 */ }
@@ -1294,6 +1298,9 @@ function NexusPage({ toast }: { toast: (m: string) => void }) {
   useEffect(() => {
     setItems([])
     setPluginOnline(false)
+    setNoMoreRounds(false)
+    minEventId.current = 0
+    followBottom.current = true
     taskStates.current.clear()
     if (!selected) return
     const token = localStorage.getItem("swarm_token") ?? ""
@@ -1316,14 +1323,21 @@ function NexusPage({ toast }: { toast: (m: string) => void }) {
           break
         case "subscribed":
           setPluginOnline(!!msg.plugin_online)
-          // 服务端回放历史事件（A2A 形状）
+          // 服务端回放最新一轮（更早的轮上滚分页拉取）
+          minEventId.current = Number(msg.first_id ?? 0) // 分页游标：首次上滚从本轮之前开始
           if (Array.isArray(msg.history) && msg.history.length) {
             setItems([])
-            for (const evt of msg.history as A2aEvent[]) applyA2aEvent(evt)
+            for (const evt of msg.history as (A2aEvent | Record<string, unknown>)[]) {
+              if (evt && typeof evt === "object" && "kind" in evt) applyA2aEvent(evt as A2aEvent)
+              else applyMonitorEvent((evt ?? {}) as Record<string, unknown>)
+            }
           }
           break
         case "event":
           applyA2aEvent(msg.payload as A2aEvent)
+          break
+        case "monitor":
+          applyMonitorEvent((msg.payload ?? {}) as Record<string, unknown>)
           break
         case "task":
           // 任务快照：更新状态表（artifact 已随事件渲染）
@@ -1498,9 +1512,121 @@ function NexusPage({ toast }: { toast: (m: string) => void }) {
     }
   }
 
-  // 自动滚到底部
+  /** 前台监控事件（{"type":"monitor"} payload）→ 渲染条目。
+   *  形状 {roundKey, sessionId, type, ...}：复用 A2A 条目渲染，key 加 roundKey 前缀防串轮。 */
+  function applyMonitorEvent(p: Record<string, unknown>) {
+    const round = String(p.roundKey ?? "")
+    const mtype = String(p.type ?? "")
+    if (!round || !mtype) return
+    taskStates.current.set(round, mtype === "idle" ? "completed" : "working")
+    if (mtype === "user") {
+      const key = `u-${round}`
+      setItems((prev) => {
+        if (prev.some((it) => it.key === key)) return prev
+        return [...prev, { key, kind: "user", text: String(p.text ?? ""), time: Date.now() }]
+      })
+      return
+    }
+    if (mtype === "user-text") {
+      // 提问文本补拉：更新已存在的 user 条目（开轮时文本为空）
+      const key = `u-${round}`
+      setItems((prev) => prev.map((it) => (it.key === key && !it.text ? { ...it, text: String(p.text ?? "") } : it)))
+      return
+    }
+    if (mtype === "tool") {
+      const key = `tool-${p.callId ?? p.call_id ?? `${round}-${p.tool}`}`
+      const entry: TimelineItem = {
+        key,
+        kind: "tool",
+        text: toolCommand(p.input as Record<string, unknown> | undefined),
+        tool: String(p.tool ?? ""),
+        state: String(p.toolState ?? "running"),
+        output: typeof p.output === "string" ? p.output : undefined,
+        time: Date.now(),
+      }
+      setItems((prev) => {
+        const next = [...prev]
+        const i = next.findIndex((it) => it.key === key)
+        if (i >= 0) next[i] = entry
+        else next.push(entry)
+        // 同轮出现【新的 running 工具】= agent 已越过权限等待（多半在 TUI 里选过了）：
+        // 把该轮未应答的 permission/question 条目自动标记，避免残留可点按钮。
+        // 只认 running 态——completed 是等待期此前工具的收尾快照，不能作为"已越过"的证据。
+        if (entry.state !== "running") return next
+        return next.map((it) =>
+          !it.answered && it.task_id === round && (it.kind === "permission" || it.kind === "question")
+            ? { ...it, answered: "TUI 已处理" }
+            : it,
+        )
+      })
+      return
+    }
+    if (mtype === "text" || mtype === "reasoning") {
+      const partId = String(p.partId ?? p.part_id ?? "")
+      const key = `${mtype === "reasoning" ? "r" : "t"}-${partId || round}`
+      const kind = mtype === "reasoning" ? "reasoning" : "text"
+      setItems((prev) => {
+        const next = [...prev]
+        const i = next.findIndex((it) => it.key === key)
+        const incoming = String(p.text ?? "")
+        if (i >= 0) next[i] = { ...next[i], text: incoming, time: Date.now() } // replace 全量快照
+        else next.push({ key, kind, text: incoming, time: Date.now() })
+        return next
+      })
+      return
+    }
+    if (mtype === "permission" || mtype === "question") {
+      const requestId = String(p.requestId ?? "")
+      if (!requestId) return
+      const key = mtype === "permission" ? `perm-${requestId}` : `ques-${requestId}`
+      setItems((prev) => {
+        if (prev.some((it) => it.key === key)) return prev
+        return [
+          ...prev,
+          mtype === "permission"
+            ? {
+                key,
+                kind: "permission" as const,
+                text: String(p.title ?? ""),
+                permission: String(p.permission ?? "unknown"),
+                request_id: requestId,
+                task_id: round, // 监控轮：replyTask 的 task_id = roundKey
+                time: Date.now(),
+              }
+            : {
+                key,
+                kind: "question" as const,
+                text: String(p.question ?? "请选择"),
+                options: (Array.isArray(p.options) ? p.options : []) as Array<{ label: string; value: string }>,
+                request_id: requestId,
+                task_id: round,
+                time: Date.now(),
+              },
+        ]
+      })
+      return
+    }
+    if (mtype === "idle") {
+      setItems((prev) => {
+        const key = `idle-${round}`
+        if (prev.some((it) => it.key === key)) return prev
+        return [...prev, { key, kind: "idle", text: "已完成", time: Date.now() }]
+      })
+    }
+  }
+
+  // 自动滚到底部，仅当视口本来就在底部附近（用户没有上翻看历史时）。
+  // 上翻阅读时实时事件不再拽走视口（这就是"回头原来的消息不见了"的体感来源之一）。
+  const prependRef = useRef(false)
+  const followBottom = useRef(true)
   useEffect(() => {
-    timelineRef.current?.scrollTo({ top: timelineRef.current.scrollHeight })
+    if (prependRef.current) {
+      prependRef.current = false
+      return
+    }
+    const el = timelineRef.current
+    if (!el || !followBottom.current) return
+    el.scrollTo({ top: el.scrollHeight })
   }, [items])
 
   const send = () => {
@@ -1526,9 +1652,192 @@ function NexusPage({ toast }: { toast: (m: string) => void }) {
   }
 
   const clearHistory = () => {
-    if (!selected) return
+    // 只清前端时间线（服务端持久化数据保留：上滚可重新加载最新一轮）
     setItems([])
-    api.clearWorkspaceHistory(selected).catch((e: Error) => toast(`清空失败: ${e.message}`))
+    taskStates.current.clear()
+    setNoMoreRounds(false)
+    minEventId.current = 0 // 游标归零：上滚重新从最新一轮开始
+  }
+
+  /** 向上滚动加载：空时间线 → 拉最新一轮；否则按游标拉上一轮，转换为条目后【前插】。
+   *  不清空现有数组（清空重放曾导致"正在看的内容消失"）、不打断 React 渲染，
+   *  视口位置由 prepend 后的高度差补偿（onTimelineScroll → requestAnimationFrame）。 */
+  const loadingRounds = useRef(false)
+  const loadOlderRound = () => {
+    if (!selected || loadingRounds.current || noMoreRounds) return
+    loadingRounds.current = true
+    const firstId = minEventId.current
+    api.fetchRounds(selected, firstId)
+      .then((rsp) => {
+        if (!rsp.events.length) {
+          if (items.length === 0) setNoMoreRounds(true)
+          return
+        }
+        if (!rsp.has_more) setNoMoreRounds(true)
+        if (rsp.first_id && (!minEventId.current || rsp.first_id < minEventId.current)) {
+          minEventId.current = rsp.first_id
+        }
+        const converted = convertReplayEvents(rsp.events as (A2aEvent | Record<string, unknown>)[])
+        // 视口补偿：prepend 会在数组头部插入内容，记录当前高度差，渲染后把 scrollTop 平移同样的量，
+        // 用户视口里正在看的内容保持原位（这就是"重新计算滚动条位置"的正确姿势）
+        const el = timelineRef.current
+        const prevHeight = el?.scrollHeight ?? 0
+        prependRef.current = true
+        setItems((prev) => {
+          const have = new Set(prev.map((it) => it.key))
+          return [...converted.filter((it) => !have.has(it.key)), ...prev]
+        })
+        requestAnimationFrame(() => {
+          if (el) el.scrollTop = el.scrollHeight - prevHeight
+        })
+      })
+      .catch(() => {})
+      .finally(() => { loadingRounds.current = false })
+  }
+
+  /** 回放事件序列 → 渲染条目（纯转换，不改状态）。
+   *  顺序遍历模拟实时流的 upsert 语义：同 key 后写覆盖先写（条目保留首次出现的位置）。
+   *  monitor 载荷与 A2A 事件按形状分发（"kind" in evt）。 */
+  function convertReplayEvents(events: (A2aEvent | Record<string, unknown>)[]): TimelineItem[] {
+    const byKey = new Map<string, TimelineItem>()
+    const order: string[] = []
+    const put = (item: TimelineItem) => {
+      if (!byKey.has(item.key)) order.push(item.key)
+      byKey.set(item.key, item)
+    }
+    for (const evt of events) {
+      if (!evt || typeof evt !== "object") continue
+      if ("kind" in evt) convertA2aEvent(evt as A2aEvent, put)
+      else convertMonitorEvent(evt as Record<string, unknown>, put, byKey)
+    }
+    return order.map((k) => byKey.get(k)!)
+  }
+
+  /** A2A 事件 → 条目（转换部分，与 applyA2aEvent 的实时分支同规则） */
+  function convertA2aEvent(evt: A2aEvent, put: (item: TimelineItem) => void) {
+    if (evt.kind === "artifact-update") {
+      const text = (evt.artifact?.parts ?? []).map((p) => p.text ?? "").join("\n")
+      if (text) put({ key: `art-${evt.artifact?.artifactId ?? evt.taskId}`, kind: "text", text, time: 0 })
+      return
+    }
+    const state = evt.status?.state ?? ""
+    const meta = (evt.metadata as Record<string, unknown> | undefined)?.nexus ? (evt.metadata as Record<string, unknown>) : {}
+    if (meta.nexus === "tool") {
+      put({
+        key: `tool-${meta.call_id}`,
+        kind: "tool",
+        text: toolCommand(meta.input as Record<string, unknown> | undefined),
+        tool: String(meta.tool ?? ""),
+        state: String(meta.tool_state ?? "running"),
+        output: typeof meta.output === "string" ? meta.output : undefined,
+        time: 0,
+      })
+      return
+    }
+    if (meta.nexus === "text" || meta.nexus === "reasoning") {
+      const kind = meta.nexus === "reasoning" ? "reasoning" : "text"
+      put({ key: `${meta.nexus === "reasoning" ? "r" : "t"}-${String(meta.part_id ?? "")}`, kind, text: String(meta.text ?? ""), time: 0 })
+      return
+    }
+    if (state === "input-required") {
+      const data = evt.status?.message?.parts?.find((p) => p.kind === "data")?.data as Record<string, unknown> | undefined
+      const type = String(data?.type ?? "")
+      const requestId = String(data?.requestId ?? "")
+      if (type === "permission" && requestId) {
+        put({ key: `perm-${requestId}`, kind: "permission", text: String(data?.title ?? ""), permission: String(data?.permission ?? "unknown"), request_id: requestId, task_id: evt.taskId, time: 0 })
+      } else if (type === "question" && requestId) {
+        put({ key: `ques-${requestId}`, kind: "question", text: String(data?.question ?? "请选择"), options: (Array.isArray(data?.options) ? data.options : []) as Array<{ label: string; value: string }>, request_id: requestId, task_id: evt.taskId, time: 0 })
+      }
+      return
+    }
+    if (state === "completed") {
+      put({ key: `idle-${evt.taskId}`, kind: "idle", text: "已完成", time: 0 })
+      return
+    }
+    if (state === "failed" || state === "canceled") {
+      const errText = evt.status?.message?.parts?.find((p) => p.kind === "text")?.text ?? state
+      put({ key: `err-${evt.taskId}`, kind: "error", text: errText, time: 0 })
+      return
+    }
+    if (state === "working" && evt.status?.message?.role === "user") {
+      const text = evt.status.message.parts?.find((p) => p.kind === "text")?.text ?? ""
+      if (text) put({ key: `u-${evt.taskId}`, kind: "user", text, time: 0 })
+    }
+  }
+
+  /** monitor 载荷 → 条目（转换部分，与 applyMonitorEvent 同规则；user-text 回填内联处理） */
+  function convertMonitorEvent(p: Record<string, unknown>, put: (item: TimelineItem) => void, byKey: Map<string, TimelineItem>) {
+    const round = String(p.roundKey ?? "")
+    const mtype = String(p.type ?? "")
+    if (!round || !mtype) return
+    if (mtype === "user") {
+      put({ key: `u-${round}`, kind: "user", text: String(p.text ?? ""), time: 0 })
+      return
+    }
+    if (mtype === "user-text") {
+      // 回填：找到已存在的 user 条目（Map 里先 put 过的），覆盖文本
+      const key = `u-${round}`
+      const existing = byKey.get(key)
+      if (existing && !existing.text) byKey.set(key, { ...existing, text: String(p.text ?? "") })
+      return
+    }
+    if (mtype === "tool") {
+      put({
+        key: `tool-${p.callId ?? p.call_id ?? `${round}-${p.tool}`}`,
+        kind: "tool",
+        text: toolCommand(p.input as Record<string, unknown> | undefined),
+        tool: String(p.tool ?? ""),
+        state: String(p.toolState ?? "running"),
+        output: typeof p.output === "string" ? p.output : undefined,
+        time: 0,
+      })
+      return
+    }
+    if (mtype === "text" || mtype === "reasoning") {
+      const partId = String(p.partId ?? p.part_id ?? "")
+      const kind = mtype === "reasoning" ? "reasoning" : "text"
+      put({ key: `${mtype === "reasoning" ? "r" : "t"}-${partId || round}`, kind, text: String(p.text ?? ""), time: 0 })
+      return
+    }
+    if (mtype === "permission" || mtype === "question") {
+      const requestId = String(p.requestId ?? "")
+      if (!requestId) return
+      const key = mtype === "permission" ? `perm-${requestId}` : `ques-${requestId}`
+      put(
+        mtype === "permission"
+          ? { key, kind: "permission", text: String(p.title ?? ""), permission: String(p.permission ?? "unknown"), request_id: requestId, task_id: round, time: 0 }
+          : { key, kind: "question", text: String(p.question ?? "请选择"), options: (Array.isArray(p.options) ? p.options : []) as Array<{ label: string; value: string }>, request_id: requestId, task_id: round, time: 0 },
+      )
+      return
+    }
+    if (mtype === "idle") {
+      put({ key: `idle-${round}`, kind: "idle", text: "已完成", time: 0 })
+    }
+  }
+
+  // 时间线滚动：跟踪视口位置（是否贴底 → 自动跟随）；触顶（≤40px）加载更早一轮。
+  // 防抖：scroll 事件高频触发，且 prepend 恢复视口的过程也会路过顶部（不设冷却会连环拉取）。
+  const scrollCooldown = useRef(0)
+  const [showJumpBtn, setShowJumpBtn] = useState(false)
+  const onTimelineScroll = () => {
+    const el = timelineRef.current
+    if (!el) return
+    const fromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
+    followBottom.current = fromBottom < 80
+    setShowJumpBtn(fromBottom > 200) // 离底超过一屏的 1/3 才出现"回到底部"按钮
+    if (el.scrollTop > 40) return
+    const now = Date.now()
+    if (now - scrollCooldown.current < 800) return
+    scrollCooldown.current = now
+    loadOlderRound()
+  }
+
+  const jumpToBottom = () => {
+    const el = timelineRef.current
+    if (!el) return
+    el.scrollTo({ top: el.scrollHeight, behavior: "smooth" })
+    followBottom.current = true
+    setShowJumpBtn(false)
   }
 
   const markAnswered = (key: string, answer: string) => {
@@ -1538,7 +1847,7 @@ function NexusPage({ toast }: { toast: (m: string) => void }) {
   const current = list.find((w) => w.id === selected)
 
   return (
-    <>
+    <div className="nexus-page">
       <h1 className="page-title">中枢</h1>
       <p className="page-sub">选择一个在线工作区直接下达指令，实时查看 agent 的思考、工具调用与答复。</p>
 
@@ -1561,7 +1870,7 @@ function NexusPage({ toast }: { toast: (m: string) => void }) {
             )}
             <span className={`nexus-head-status ${pluginOnline ? "on" : "off"}`}>{pluginOnline ? "● online" : "○ offline"}</span>
             <span style={{ flex: 1 }} />
-            <button className="nexus-head-clear" title="清空历史记录（服务端持久化数据一并删除）" onClick={clearHistory}>
+            <button className="nexus-head-clear" title="清空视图（服务端历史保留，上滚可重新加载）" onClick={clearHistory}>
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
                 <path d="M3 6h18" />
                 <path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2" />
@@ -1570,33 +1879,43 @@ function NexusPage({ toast }: { toast: (m: string) => void }) {
               clear
             </button>
           </div>
-          <div className="nexus-timeline" ref={timelineRef}>
-            {!items.length && (
-              <div className="nexus-waiting">waiting for input — type a command to start</div>
-            )}
-            {items.map((it) => (
-              <TimelineEntrySwitch
-                key={it.key}
-                item={it}
-                agentType={current?.agent_type}
-                onPermissionReply={(reqId, reply) => {
-                  api.replyTask(selected, it.task_id ?? "", { type: "permission", request_id: reqId, reply })
-                    .catch((e: Error) => toast(`应答失败: ${e.message}`))
-                  markAnswered(it.key, reply === "once" ? "一次" : reply === "always" ? "始终" : "拒绝")
-                }}
-                onQuestionReply={(reqId, answers) => {
-                  api.replyTask(selected, it.task_id ?? "", { type: "question", request_id: reqId, answers })
-                    .catch((e: Error) => toast(`应答失败: ${e.message}`))
-                  markAnswered(it.key, answers[0]?.[0] ?? "已选择")
-                }}
-              />
-            ))}
-            {busy && (
-              <div className="nexus-statusline">
-                <span className="nexus-spinner">✳</span>
-                <span className="nexus-status-text">Working…</span>
-                <span className="nexus-status-dim">(nexus-web · esc to interrupt in TUI)</span>
-              </div>
+          <div className="nexus-timeline-wrap">
+            <div className="nexus-timeline" ref={timelineRef} onScroll={onTimelineScroll}>
+              {!items.length && (
+                <div className="nexus-waiting">waiting for input — type a command to start</div>
+              )}
+              {items.map((it) => (
+                <TimelineEntrySwitch
+                  key={it.key}
+                  item={it}
+                  agentType={current?.agent_type}
+                  onPermissionReply={(reqId, reply) => {
+                    api.replyTask(selected, it.task_id ?? "", { type: "permission", request_id: reqId, reply })
+                      .catch((e: Error) => toast(`应答失败: ${e.message}`))
+                    markAnswered(it.key, reply === "once" ? "一次" : reply === "always" ? "始终" : "拒绝")
+                  }}
+                  onQuestionReply={(reqId, answers) => {
+                    api.replyTask(selected, it.task_id ?? "", { type: "question", request_id: reqId, answers })
+                      .catch((e: Error) => toast(`应答失败: ${e.message}`))
+                    markAnswered(it.key, answers[0]?.[0] ?? "已选择")
+                  }}
+                />
+              ))}
+              {busy && (
+                <div className="nexus-statusline">
+                  <span className="nexus-spinner">✳</span>
+                  <span className="nexus-status-text">Working…</span>
+                  <span className="nexus-status-dim">(nexus-web · esc to interrupt in TUI)</span>
+                </div>
+              )}
+            </div>
+            {showJumpBtn && (
+              <button className="nexus-jump-bottom" title="滚动到底部" onClick={jumpToBottom}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                  <path d="M12 5v14" />
+                  <path d="M19 12l-7 7-7-7" />
+                </svg>
+              </button>
             )}
           </div>
           <div className="nexus-input-row">
@@ -1641,7 +1960,7 @@ function NexusPage({ toast }: { toast: (m: string) => void }) {
           </div>
         </div>
       )}
-    </>
+    </div>
   )
 }
 
@@ -1710,7 +2029,7 @@ function TimelineEntry({ item, onPermissionReply, onQuestionReply }: {
   }
   if (item.kind === "permission") {
     if (item.answered) {
-      return <div className="tl-item tl-idle">✓ 权限已{item.answered === "拒绝" ? "拒绝" : `允许（${item.answered}）`}</div>
+      return <div className="tl-item tl-idle">✓ 权限已{permAnswerLabel(item.answered!)}</div>
     }
     return (
       <div className="tl-item tl-ask">
@@ -1726,7 +2045,7 @@ function TimelineEntry({ item, onPermissionReply, onQuestionReply }: {
   }
   if (item.kind === "question") {
     if (item.answered) {
-      return <div className="tl-item tl-idle">✓ 已选择：{item.answered}</div>
+      return <div className="tl-item tl-idle">✓ {item.answered === "TUI 已处理" ? "已在 TUI 处理" : `已选择：${item.answered}`}</div>
     }
     return (
       <div className="tl-item tl-ask">
@@ -1802,7 +2121,7 @@ function OpencodeTuiEntry({ item, onPermissionReply, onQuestionReply }: {
       return (
         <div className="tl-ask-done">
           <span className="tl-ask-glyph">🔐</span>
-          权限已{item.answered === "拒绝" ? "拒绝" : `允许（${item.answered}）`}：{item.permission}
+          权限已{permAnswerLabel(item.answered!)}：{item.permission}
         </div>
       )
     }
@@ -1822,7 +2141,7 @@ function OpencodeTuiEntry({ item, onPermissionReply, onQuestionReply }: {
     if (item.answered) {
       return (
         <div className="tl-ask-done">
-          <span className="tl-ask-glyph">❓</span> 已选择：<b>{item.answered}</b>
+          <span className="tl-ask-glyph">❓</span> {item.answered === "TUI 已处理" ? "已在 TUI 处理" : <>已选择：<b>{item.answered}</b></>}
         </div>
       )
     }
@@ -1847,6 +2166,11 @@ function OpencodeTuiEntry({ item, onPermissionReply, onQuestionReply }: {
   )
 }
 
+/** 权限条目应答状态文案：普通应答显示 允许（一次/始终）；TUI 已处理显示中性文案 */
+function permAnswerLabel(answered: string): string {
+  if (answered === "TUI 已处理") return "已在 TUI 处理"
+  return answered === "拒绝" ? "拒绝" : `允许（${answered}）`
+}
 /** 截断单行文本（工具命令摘要用） */
 function truncateLine(s: string, max: number): string {
   const line = s.split("\n")[0]
@@ -1978,7 +2302,7 @@ function ClaudeTuiEntry({ item, onPermissionReply, onQuestionReply }: {
         <div className="cl-entry cl-done">
           <span className="cl-dot">●</span>
           <div className="cl-entry-body">
-            权限已{item.answered === "拒绝" ? "拒绝" : `允许（${item.answered}）`}：{item.permission}
+            权限已{permAnswerLabel(item.answered!)}：{item.permission}
           </div>
         </div>
       )
@@ -2003,7 +2327,7 @@ function ClaudeTuiEntry({ item, onPermissionReply, onQuestionReply }: {
       return (
         <div className="cl-entry cl-done">
           <span className="cl-dot">●</span>
-          <div className="cl-entry-body">已选择：<b>{item.answered}</b></div>
+          <div className="cl-entry-body">{item.answered === "TUI 已处理" ? "已在 TUI 处理" : <>已选择：<b>{item.answered}</b></>}</div>
         </div>
       )
     }
@@ -2210,8 +2534,23 @@ function CallsPage({ toast }: { toast: (m: string) => void }) {
   const [detail, setDetail] = useState<WorkspaceCall | null>(null)
   const [deleting, setDeleting] = useState<string | null>(null)
   const [query, setQuery] = useState("")
+  const [workspaces, setWorkspaces] = useState<Workspace[]>([])
+  // 必选：按工作区筛选；cookie 记忆上次选择（30 天，同中枢 swarm_nexus_ws 惯例）
+  const [wsFilter, setWsFilter] = useState(() => {
+    const m = document.cookie.match(/(?:^|;\s*)swarm_calls_ws=([^;]*)/)
+    try { return m ? decodeURIComponent(m[1]) : "" } catch { return "" }
+  })
 
-  const load = useCallback(() => api.calls().then(setList).catch(() => {}), [])
+  useEffect(() => { api.workspaces().then(setWorkspaces).catch(() => {}) }, [])
+  useEffect(() => {
+    if (wsFilter) {
+      document.cookie = `swarm_calls_ws=${encodeURIComponent(wsFilter)}; max-age=${60 * 60 * 24 * 30}; path=/; SameSite=Lax`
+    }
+  }, [wsFilter])
+  const load = useCallback(() => {
+    if (!wsFilter) { setList([]); return }
+    api.calls(wsFilter).then(setList).catch(() => {})
+  }, [wsFilter])
   useEffect(() => {
     load()
     const t = setInterval(load, 10_000)
@@ -2232,82 +2571,142 @@ function CallsPage({ toast }: { toast: (m: string) => void }) {
     }
   }
 
+  const [clearingAll, setClearingAll] = useState(false)
+  const [confirmClear, setConfirmClear] = useState(false)
+  const clearAll = async () => {
+    if (!wsFilter) return
+    setClearingAll(true)
+    try {
+      await api.clearWorkspaceHistory(wsFilter)
+      setList([])
+      toast("该工作区的全部调用记录已清空")
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "清空失败")
+    } finally {
+      setClearingAll(false)
+      setConfirmClear(false)
+    }
+  }
+
   return (
     <>
       <h1 className="page-title">调用记录</h1>
-      <p className="page-sub">agent 之间的 A2A 任务调用历史。</p>
-      <SearchBox value={query} onChange={setQuery} placeholder="搜索发起方 / 目标 / 指令 / 状态…" />
-      <table className="grid">
-        <thead>
-          <tr>
-            <th style={{ width: 110 }}>时间</th>
-            <th style={{ width: 140 }}>发起方</th>
-            <th style={{ width: 140 }}>目标</th>
-            <th style={{ width: 110 }}>状态</th>
-            <th>指令</th>
-            <th style={{ width: 60 }}></th>
-          </tr>
-        </thead>
-        <tbody>
-          {list
-            .filter((r) => {
-              const q = query.trim().toLowerCase()
-              if (!q) return true
-              return (
-                hit(r.caller?.name, q) || hit(r.target?.name, q) || hit(r.instruction, q) ||
-                hit(r.status, q) || hit(r.result, q) || hit(r.error, q)
-              )
-            })
-            .map((r) => (
-            <tr key={r.id}>
-              <td style={{ color: "var(--text-weak)", fontSize: 12 }}>{fmtTime(r.created_at, "datetime")}</td>
-              <td>{callerLabel(r)}</td>
-              <td>{r.target?.name ?? "-"}</td>
-              <td><span className={`status-pill ${r.status === "working" || r.status === "queued" ? "accepted" : r.status}`}>{r.status}</span></td>
-              <td><a className="link" onClick={() => setDetail(r)}>{r.instruction}</a></td>
-              <td>
-                {(r.status === "completed" || r.status === "failed" || r.status === "canceled") && (
-                  <Btn
-                    variant="icon"
-                    size="sm"
-                    className="btn-danger-hover"
-                    title="删除该调用记录"
-                    disabled={deleting === r.id}
-                    onClick={() => removeCall(r.id)}
-                  >
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                      strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                      <path d="M3 6h18" />
-                      <path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2" />
-                      <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
-                      <path d="M10 11v6M14 11v6" />
-                    </svg>
-                  </Btn>
-                )}
-              </td>
-            </tr>
-          ))}
-          {!list.length && (
-            <tr><td colSpan={6} style={{ color: "var(--text-weak)", textAlign: "center", padding: 32 }}>
-              [*] 暂无调用记录
-            </td></tr>
-          )}
-          {list.length > 0 && query.trim() && !list.some((r) => {
-            const q = query.trim().toLowerCase()
-            return (
-              hit(r.caller?.name, q) || hit(r.target?.name, q) || hit(r.instruction, q) ||
-              hit(r.status, q) || hit(r.result, q) || hit(r.error, q)
-            )
-          }) && (
-            <tr><td colSpan={6} style={{ color: "var(--text-weak)", textAlign: "center", padding: 32 }}>
-              [*] 没有匹配「{query.trim()}」的调用记录
-            </td></tr>
-          )}
-        </tbody>
-      </table>
+      <p className="page-sub">A2A 任务调用与前台监控轮次历史（按工作区查看）。</p>
+      <div className="nexus-picker" style={{ marginBottom: 12 }}>
+        <NexusWorkspaceSelect
+          list={workspaces}
+          value={wsFilter}
+          onChange={setWsFilter}
+        />
+        <button
+          className="calls-clear-btn"
+          title="清空该工作区的全部调用记录"
+          disabled={!wsFilter || clearingAll}
+          onClick={() => setConfirmClear(true)}
+        >
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            <path d="M3 6h18" />
+            <path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2" />
+            <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+            <path d="M10 11v6M14 11v6" />
+          </svg>
+          clear
+        </button>
+      </div>
+      {wsFilter && (
+        <>
+          <SearchBox value={query} onChange={setQuery} placeholder="搜索发起方 / 目标 / 指令 / 状态…" />
+          <table className="grid">
+            <thead>
+              <tr>
+                <th style={{ width: 110 }}>时间</th>
+                <th style={{ width: 160 }}>发起方</th>
+                <th style={{ width: 140 }}>目标</th>
+                <th style={{ width: 110 }}>状态</th>
+                <th>指令</th>
+                <th style={{ width: 60 }}></th>
+              </tr>
+            </thead>
+            <tbody>
+              {list
+                .filter((r) => {
+                  const q = query.trim().toLowerCase()
+                  if (!q) return true
+                  return (
+                    hit(r.caller?.name, q) || hit(r.target?.name, q) || hit(r.instruction, q) ||
+                    hit(r.status, q) || hit(r.result, q) || hit(r.error, q)
+                  )
+                })
+                .map((r) => (
+                <tr key={r.id}>
+                  <td style={{ color: "var(--text-weak)", fontSize: 12 }}>{fmtTime(r.created_at, "datetime")}</td>
+                  <td>{callerLabel(r)}</td>
+                  <td>{r.target?.name ?? "-"}</td>
+                  <td><span className={`status-pill ${r.status === "working" || r.status === "queued" ? "accepted" : r.status}`}>{r.status}</span></td>
+                  <td><a className="link" onClick={() => setDetail(r)}>{r.monitor ? "[monitor] " : ""}{r.instruction}</a></td>
+                  <td>
+                    {(r.status === "completed" || r.status === "failed" || r.status === "canceled") && (
+                      <Btn
+                        variant="icon"
+                        size="sm"
+                        className="btn-danger-hover"
+                        title="删除该调用记录"
+                        disabled={deleting === r.id}
+                        onClick={() => removeCall(r.id)}
+                      >
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                          strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                          <path d="M3 6h18" />
+                          <path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2" />
+                          <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+                          <path d="M10 11v6M14 11v6" />
+                        </svg>
+                      </Btn>
+                    )}
+                  </td>
+                </tr>
+              ))}
+              {!list.length && (
+                <tr><td colSpan={6} style={{ color: "var(--text-weak)", textAlign: "center", padding: 32 }}>
+                  [*] 暂无调用记录
+                </td></tr>
+              )}
+              {list.length > 0 && query.trim() && !list.some((r) => {
+                const q = query.trim().toLowerCase()
+                return (
+                  hit(r.caller?.name, q) || hit(r.target?.name, q) || hit(r.instruction, q) ||
+                  hit(r.status, q) || hit(r.result, q) || hit(r.error, q)
+                )
+              }) && (
+                <tr><td colSpan={6} style={{ color: "var(--text-weak)", textAlign: "center", padding: 32 }}>
+                  [*] 没有匹配「{query.trim()}」的调用记录
+                </td></tr>
+              )}
+            </tbody>
+          </table>
+        </>
+      )}
+      {!wsFilter && (
+        <p style={{ color: "var(--text-weak)", textAlign: "center", padding: 48 }}>
+          [*] 请先选择工作区
+        </p>
+      )}
+
+      {confirmClear && wsFilter && (
+        <Modal title="清空调用记录？" onClose={() => setConfirmClear(false)}>
+          <p style={{ margin: 0, color: "var(--text-weak)", fontSize: 14 }}>
+            将删除工作区 <b>{workspaces.find((w) => w.id === wsFilter)?.name ?? wsFilter}</b> 的全部调用记录
+            （含事件与监控轮次），不可恢复。
+          </p>
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
+            <Btn size="sm" variant="ghost" onClick={() => setConfirmClear(false)}>取消</Btn>
+            <Btn size="sm" variant="danger" disabled={clearingAll} onClick={clearAll}>确认清空</Btn>
+          </div>
+        </Modal>
+      )}
 
       {detail && (
-        <Modal wide title={`调用 ${detail.id.slice(0, 8)}`} onClose={() => setDetail(null)}>
+        <Modal wide title={`调用 ${detail.id.slice(0, 8)}${detail.monitor ? " (monitor)" : ""}`} onClose={() => setDetail(null)}>
           <dl className="dl">
             <dt>发起方</dt><dd>{callerLabel(detail)}{detail.external_url ? ` (${detail.external_url})` : ""}</dd>
             <dt>目标</dt><dd>{detail.target?.name} ({detail.target?.path})</dd>

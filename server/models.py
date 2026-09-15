@@ -112,12 +112,17 @@ class A2aTask(SQLModel, table=True):
 
 
 class A2aEvent(SQLModel, table=True):
-    """A2A 任务事件持久化（StatusUpdate / ArtifactUpdate，web 刷新后回放）。"""
+    """A2A 任务事件持久化（StatusUpdate / ArtifactUpdate，web 刷新后回放）。
+
+    round_key：轮次分组键。任务事件 = task_id；前台监控事件 = mon-<sid>-<msg>。
+    中枢回放/滚动分页按此列分组（最新一轮优先，向上滚动加载更早的轮）。
+    """
     __tablename__ = "a2a_events"
 
     id: Optional[int] = Field(default=None, primary_key=True)
     task_id: str = Field(index=True)
     workspace_id: str = Field(default="", index=True)  # 内部任务才有（外部任务为空串）
-    kind: str  # status / artifact（A2A 事件判别符）
+    kind: str  # status / artifact / monitor（A2A 事件判别符）
+    round_key: str = Field(default="", index=True)  # 轮次分组键（监控/任务轮）
     payload: str = Field(default="{}", sa_column=Column(Text))  # 事件 JSON（camelCase，原样存储）
     created_at: datetime = Field(default_factory=utcnow)

@@ -135,16 +135,6 @@ Write-PluginConfig (Join-Path $InstallDir "config.json")
 Write-PluginConfig (Join-Path $HOME ".config\opencode\agent-swarm.json")
 
 # 4. 注册：a) mcp.agent-swarm 配置（工具直连 MCP）b) 插件（心跳保活）
-$mcpBlock = @"
-    "agent-swarm": {
-      "type": "remote",
-      "url": "$Server/mcp/",
-      "enabled": true,
-      "headers": {
-        "Authorization": "Bearer $ApiKey"
-      }
-    }
-"@
 $hasLocal = (Test-Path (Join-Path $PWD "opencode.json")) -or (Test-Path (Join-Path $PWD "opencode.jsonc"))
 if ($Global -or -not $hasLocal) {
     $ocConfig = Join-Path $HOME ".config\opencode\opencode.jsonc"
@@ -160,119 +150,91 @@ New-Item -ItemType Directory -Force -Path (Split-Path $ocConfig) | Out-Null
 $text = ""
 if (Test-Path $ocConfig) { $text = [IO.File]::ReadAllText($ocConfig) }
 
-# 与 sh 版对齐：不做提前跳过——同名条目一律走替换分支刷新 URL/apikey
-$m = [regex]::Match($text, '(?s)("mcp"\s*:\s*\{)(.*?)(\n  \})')
-if ($m.Success) {
-    $inner = $m.Groups[2].Value
-    # 剥 JSONC 注释（字符串感知：file:// 等字符串内的 // 不是注释）
-    $stripped = (Remove-JsoncComment -Text $inner).Trim()
-    # 已有同名条目：大括号平衡扫描定位整个键值，整体替换（刷新 URL/apikey）。
-    # headers 是嵌套对象，简单正则会截断在第一个 } 处。
-    $keyMatch = [regex]::Match($stripped, '"agent-swarm"\s*:\s*\{')
-    if ($keyMatch.Success) {
-        $depth = 0; $end = $keyMatch.Index + $keyMatch.Length - 1
-        for ($i = $end; $i -lt $stripped.Length; $i++) {
-            if ($stripped[$i] -eq '{') { $depth++ }
-            elseif ($stripped[$i] -eq '}') { $depth--; if ($depth -eq 0) { $end = $i; break } }
-        }
-        # stripped 与 inner 同长度同索引（剥注释只改注释字符），可按索引切 inner
-        $newInner = $inner.Substring(0, $keyMatch.Index) + '"agent-swarm": ' +
-            (@{ type = "remote"; url = "$Server/mcp/"; enabled = $true; headers = @{ Authorization = "Bearer $ApiKey" } } | ConvertTo-Json -Depth 5) +
-            $inner.Substring($end + 1)
-        $text = $text.Remove($m.Index, $m.Length).Insert($m.Index, $m.Groups[1].Value + $newInner + $m.Groups[3].Value)
-        [IO.File]::WriteAllText($ocConfig, $text, $utf8NoBom)
-        Write-Host "==> 已更新 mcp.agent-swarm（URL/apikey 刷新）"
-    } else {
-        $needComma = ($stripped.Length -gt 0) -and (-not $stripped.EndsWith(","))
-        if ($needComma) {
-            $newInner = $inner.TrimEnd() + ",`n" + $mcpBlock
-        } else {
-            $newInner = $inner + "`n" + $mcpBlock
-        }
-        $text = $text.Remove($m.Index, $m.Length).Insert($m.Index, $m.Groups[1].Value + $newInner + $m.Groups[3].Value)
-        [IO.File]::WriteAllText($ocConfig, $text, $utf8NoBom)
-        Write-Host "==> 已写入 mcp.agent-swarm 到 $ocConfig"
+# opencode 配置读改写：JSONC 剥注释 → JSON.parse → 对象操作 → stringify 整体重写。
+# （曾用正则/索引手术改写，第二次运行时尾部锚点误配 headers 内层 }，写出缺 } 的坏 JSON
+#  导致 opencode 拒绝启动——JSON 往返重写从根上杜绝，重写后注释会丢，但配置文件注释本就非契约。）
+$mcpEntry = @{ type = "remote"; url = "$Server/mcp/"; enabled = $true; headers = @{ Authorization = "Bearer $ApiKey" } }
+function Update-OpencodeConfig {
+    param([string]$Path, [string]$Json)
+    if (-not (Test-Path $Path)) { return $false }
+    try {
+        $stripped = Remove-JsoncComment -Text ([IO.File]::ReadAllText($Path))
+        $cfg = $stripped | ConvertFrom-Json
+        $mcp = $cfg.mcp
+        if ($null -eq $mcp) { return $false }
+        $mcp | Add-Member -NotePropertyName "agent-swarm" -NotePropertyValue $mcpEntry -Force
+        [IO.File]::WriteAllText($Path, ($cfg | ConvertTo-Json -Depth 20), $utf8NoBom)
+        return $true
+    } catch {
+        Write-Host "警告: $Path 解析失败（$($_.Exception.Message)），跳过 MCP 刷新" -ForegroundColor Yellow
+        return $false
     }
+}
+
+$updated = Update-OpencodeConfig -Path $ocConfig -Json $text
+if ($updated) {
+    Write-Host "==> 已更新 mcp.agent-swarm（URL/apikey 刷新）"
 } else {
-    $insert = "{`n  `"mcp`": {`n" + $mcpBlock + "`n  },`n"
-    $rx = New-Object System.Text.RegularExpressions.Regex("(?m)^\s*\{")
-    $newText = $rx.Replace($text, $insert, 1)
-    if ($newText -eq $text) { $text = $insert + $text } else { $text = $newText }
-    [IO.File]::WriteAllText($ocConfig, $text, $utf8NoBom)
-    Write-Host "==> 已写入 mcp.agent-swarm 到 $ocConfig"
+    # 无 mcp 字段或解析失败且文件不存在/为空：安全插入最小 mcp 块（对象式构造，不会产出坏 JSON）
+    $cfg = @{ mcp = @{ "agent-swarm" = $mcpEntry } }
+    if ($text.Trim()) {
+        try {
+            $existing = (Remove-JsoncComment -Text $text) | ConvertFrom-Json
+            $existing | Add-Member -NotePropertyName "mcp" -NotePropertyValue $cfg.mcp -Force
+            [IO.File]::WriteAllText($ocConfig, ($existing | ConvertTo-Json -Depth 20), $utf8NoBom)
+            Write-Host "==> 已写入 mcp.agent-swarm 到 $ocConfig"
+        } catch {
+            Write-Host "错误: $ocConfig 不是合法 JSON(C)，请手工修正后重跑安装（不会覆盖你的文件）" -ForegroundColor Red
+            exit 1
+        }
+    } else {
+        [IO.File]::WriteAllText($ocConfig, ($cfg | ConvertTo-Json -Depth 20), $utf8NoBom)
+        Write-Host "==> 已创建 $ocConfig 并写入 mcp.agent-swarm"
+    }
 }
 
 # 插件（file:// 指向入口）负责心跳保活
 $pluginRef = "file:///" + ($InstallDir -replace "\\", "/") + "/src/index.ts"
 
-$text = [IO.File]::ReadAllText($ocConfig)
-if ($text.Contains($pluginRef)) {
-    Write-Host "==> 插件已在配置中，跳过注册"
-} else {
-    $m = [regex]::Match($text, '(?s)("plugin"\s*:\s*\[)(.*?)(\])')
-    if ($m.Success) {
-        # 在 plugin 数组中插入新项：逗号插在最后一个非空非注释项的末尾
-        $inner = $m.Groups[2].Value
-        # 剥 JSONC 注释（字符串感知：file:// 等字符串内的 // 不是注释）
-        $stripped = (Remove-JsoncComment -Text $inner).Trim()
-        $needComma = ($stripped.Length -gt 0) -and (-not $stripped.EndsWith(","))
-        if ($needComma) {
-            $newInner = $inner.TrimEnd() + ",`n    `"$pluginRef`"`n  "
-        } else {
-            $newInner = $inner + "`n    `"$pluginRef`"`n  "
-        }
-        $text = $text.Remove($m.Index, $m.Length).Insert($m.Index, $m.Groups[1].Value + $newInner + $m.Groups[3].Value)
-    } else {
-        # 没有 plugin 字段：插到最外层 { 后（保留 ], 后逗号——其后还有其他字段，合法）
-        $insert = "{`n  `"plugin`": [`n    `"$pluginRef`"`n  ],`n"
-        $rx = New-Object System.Text.RegularExpressions.Regex("(?m)^\s*\{")
-        $newText = $rx.Replace($text, $insert, 1)
-        if ($newText -eq $text) { $text = $insert + $text } else { $text = $newText }
+function Add-PluginRef {
+    param([string]$Path, [string]$Ref)
+    $read = ""
+    if (Test-Path $Path) { $read = [IO.File]::ReadAllText($Path) }
+    if ($read -and $read.Contains($Ref)) {
+        Write-Host "==> 插件已在配置中，跳过注册（$Path）"
+        return
     }
-    [IO.File]::WriteAllText($ocConfig, $text, $utf8NoBom)
-    Write-Host "==> 已注册插件到 $ocConfig"
+    $cfg = @{}
+    if ($read.Trim()) {
+        try {
+            $cfg = (Remove-JsoncComment -Text $read) | ConvertFrom-Json
+        } catch {
+            Write-Host "警告: $Path 解析失败，跳过插件注册（$($_.Exception.Message)）" -ForegroundColor Yellow
+            return
+        }
+    }
+    if ($null -eq $cfg.plugin) {
+        $cfg | Add-Member -NotePropertyName "plugin" -NotePropertyValue @($Ref) -Force
+    } elseif ($cfg.plugin -is [array]) {
+        $cfg.plugin = @($cfg.plugin) + @($Ref)
+    } else {
+        $cfg.plugin = @($cfg.plugin, $Ref)
+    }
+    [IO.File]::WriteAllText($Path, ($cfg | ConvertTo-Json -Depth 20), $utf8NoBom)
+    Write-Host "==> 已注册插件到 $Path"
 }
+Add-PluginRef -Path $ocConfig -Ref $pluginRef
 
 # TUI 插件注册到 ~/.config/opencode/tui.jsonc（v1 TUI 插件与 server 插件分开注册）
 $tuiCfg = Join-Path $HOME ".config\opencode\tui.jsonc"
 $tuiRef = "file:///" + ($InstallDir -replace "\\", "/") + "/src/tui.ts"
 if (-not (Test-Path $tuiCfg)) {
     [IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($tuiCfg)) | Out-Null
-    $tuiText = @"
-{
-  `"$schema`": `"https://opencode.ai/tui.json`",
-  `"plugin`": [
-    `"$tuiRef`"
-  ]
-}
-"@
-    [IO.File]::WriteAllText($tuiCfg, $tuiText, $utf8NoBom)
+    $tuiCfgObj = @{ plugin = @($tuiRef) } | ConvertTo-Json -Depth 10
+    [IO.File]::WriteAllText($tuiCfg, $tuiCfgObj, $utf8NoBom)
     Write-Host "==> 已创建并注册 TUI 插件到 $tuiCfg"
 } else {
-    $tuiText = [IO.File]::ReadAllText($tuiCfg)
-    if ($tuiText.Contains($tuiRef)) {
-        Write-Host "==> TUI 插件已在 tui.jsonc 中，跳过注册"
-    } else {
-        $tm = [regex]::Match($tuiText, '(?s)("plugin"\s*:\s*\[)(.*?)(\])')
-        if ($tm.Success) {
-            $inner = $tm.Groups[2].Value
-            $stripped = (Remove-JsoncComment -Text $inner).Trim()
-            $needComma = ($stripped.Length -gt 0) -and (-not $stripped.EndsWith(","))
-            if ($needComma) {
-                $newInner = $inner.TrimEnd() + ",`n    `"$tuiRef`"`n  "
-            } else {
-                $newInner = $inner + "`n    `"$tuiRef`"`n  "
-            }
-            $tuiText = $tuiText.Remove($tm.Index, $tm.Length).Insert($tm.Index, $tm.Groups[1].Value + $newInner + $tm.Groups[3].Value)
-        } else {
-            $insert = "{`n  `"plugin`": [`n    `"$tuiRef`"`n  ],`n"
-            $rx = New-Object System.Text.RegularExpressions.Regex("(?m)^\s*\{")
-            $newText = $rx.Replace($tuiText, $insert, 1)
-            $tuiText = if ($newText -eq $tuiText) { $insert + $tuiText } else { $newText }
-        }
-        [IO.File]::WriteAllText($tuiCfg, $tuiText, $utf8NoBom)
-        Write-Host "==> 已注册 TUI 插件到 $tuiCfg"
-    }
+    Add-PluginRef -Path $tuiCfg -Ref $tuiRef
 }
 
 # 5. 安装 md 命令（/swarm-add：前台会话由 agent 生成 purpose 后调 MCP 工具）

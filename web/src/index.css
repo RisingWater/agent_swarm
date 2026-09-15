@@ -2360,3 +2360,86 @@ table.ws-grid th {
 .nexus-terminal.claude-tui .nexus-timeline { background: transparent; }
 .nexus-terminal.claude-tui .nexus-terminal-head,
 .nexus-terminal.claude-tui .nexus-footer { background: #201812; }
+
+/* ---------- 中枢页：固定视口高度布局（控件高度不随内容变化，页面无滚动条） ---------- */
+
+.nexus-page {
+  display: flex;
+  flex-direction: column;
+  /* 视口 - 顶栏64 - main上padding48 - 下padding80 */
+  height: calc(100vh - 192px);
+  min-height: 480px;
+}
+
+.nexus-page .nexus-terminal {
+  flex: 1;
+  min-height: 0; /* flex 允许收缩，timeline 内部滚动 */
+  max-height: none;
+}
+
+.nexus-page .nexus-timeline {
+  flex: 1;
+  min-height: 0;
+  max-height: none; /* 高度由终端 flex 决定，不再用 62vh 上限 */
+}
+
+.nexus-timeline-wrap {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  display: flex;
+}
+
+.nexus-timeline-wrap .nexus-timeline {
+  flex: 1;
+  min-height: 0;
+}
+
+/* 浮动回到底部按钮：仅当时间线可滚动且视口离底较远时出现 */
+.nexus-jump-bottom {
+  position: absolute;
+  right: 18px;
+  bottom: 16px;
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--bg-strong);
+  color: var(--text);
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
+  z-index: 5;
+}
+
+.nexus-jump-bottom:hover {
+  background: var(--bg-strong-hover);
+}
+
+/* 调用记录页清空按钮：浅色背景，hover 变红（danger 语义） */
+.calls-clear-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 7px 12px;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-weak);
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.calls-clear-btn:hover:not(:disabled) {
+  border-color: #d4494b;
+  color: #d4494b;
+  background: #fdf1f1;
+}
+
+.calls-clear-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}

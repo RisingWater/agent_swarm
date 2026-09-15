@@ -29,6 +29,7 @@ interface SwarmCfg {
   apiKey?: string
   executionMode?: string
   backgroundCommand?: string
+  monitor?: boolean
 }
 
 const loader = () => process.getBuiltinModule?.("node:fs")
@@ -184,6 +185,40 @@ const tui: TuiPlugin = async (api) => {
                 api.ui.toast({
                   variant: "success",
                   message: `执行模式: ${MODE_LABEL[next]}（下一个 A2A 任务生效）`,
+                  duration: 5000,
+                })
+              } else {
+                toastErr("写入配置失败")
+              }
+              dialog?.clear()
+            },
+          }),
+        )
+      },
+    },
+    {
+      title: "Swarm: Monitor TUI Session",
+      value: "swarm.monitor",
+      description: "切换前台会话实时监控（对话轮次上报 web 中枢）",
+      slash: { name: "swarm-monitor" },
+      onSelect: (dialog) => {
+        const cfg = readCfg()
+        dialog?.replace(() =>
+          api.ui.DialogSelect({
+            title: "前台会话实时监控",
+            options: [
+              { title: `${cfg.monitor !== false ? "● " : "○ "}开启（TUI 对话实时上报中枢）`, value: "on" },
+              { title: `${cfg.monitor === false ? "● " : "○ "}关闭`, value: "off" },
+            ],
+            get current() {
+              return cfg.monitor === false ? "off" : "on"
+            },
+            onSelect: (opt) => {
+              const next = String(opt.value) === "on"
+              if (writeCfg({ ...readCfg(), monitor: next })) {
+                api.ui.toast({
+                  variant: "success",
+                  message: `实时监控: ${next ? "开启" : "关闭"}（立即生效）`,
                   duration: 5000,
                 })
               } else {
