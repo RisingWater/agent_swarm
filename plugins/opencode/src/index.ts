@@ -9,7 +9,7 @@
  * 执行过程流式上报 A2A 事件（working/reasoning/text/tool/input-required）→
  * session.idle 提取最后 assistant 文本 → completed + Artifact 回传。
  *
- * 工作区 ID 从项目根目录 .agent-swarm.md 的 WORKSPACE_ID: 行读取
+ * 工作区 ID 从项目根目录 .agent_swarm/workspace.md 的 WORKSPACE_ID: 行读取
  * （workspace_add 后由 agent 写入）；日志写 plugin.log，不进控制台。
  */
 

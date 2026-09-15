@@ -961,7 +961,7 @@ function DocsPage() {
           </ul>
           <p>
             注册时会要求 agent 总结这个目录的用途与能力（显示在「工作区」页，方便其他 agent 了解找谁帮忙）。
-            注册成功后，工作区 ID 会写入项目根的 <code>.agent-swarm.md</code> 文件，后续心跳自动带身份。
+            注册成功后，工作区 ID 会写入项目根的 <code>.agent_swarm/workspace.md</code> 文件，后续心跳自动带身份。
           </p>
           <h3>管理已注册的工作区</h3>
           <p>
@@ -978,7 +978,7 @@ agent: (a2a_call) → 对方 TUI 实时出现任务 → 执行 → 结果自动�
           <h2>核心概念</h2>
           <h3>工作区（Workspace）</h3>
           <p>
-            一个接入虫群的 agent 实例。注册后获得唯一 ID，持久化在项目根 <code>.agent-swarm.md</code> 的
+            一个接入虫群的 agent 实例。注册后获得唯一 ID，持久化在项目根 <code>.agent_swarm/workspace.md</code> 的
             <code>WORKSPACE_ID:</code> 行。插件每 30 秒心跳保活，超过 90 秒无心跳视为离线；
             禁用（disabled）的工作区不可见、不参与任务派发。
           </p>
@@ -1029,7 +1029,7 @@ agent: (a2a_call) → 对方 TUI 实时出现任务 → 执行 → 结果自动�
             <tbody>
               <tr>
                 <td><code>/swarm-add</code></td>
-                <td>注册当前目录为工作区。agent 会分析项目生成用途/能力描述，调 <code>workspace_add</code>，并把工作区 ID 写入项目根 <code>.agent-swarm.md</code></td>
+                <td>注册当前目录为工作区。agent 会分析项目生成用途/能力描述，调 <code>workspace_add</code>，并把工作区 ID 写入项目根 <code>.agent_swarm/workspace.md</code></td>
               </tr>
               <tr>
                 <td><code>/swarm-remove</code></td>
@@ -1071,7 +1071,7 @@ agent: (a2a_call) → 对方 TUI 实时出现任务 → 执行 → 结果自动�
           <table>
             <thead><tr><th>工具</th><th>说明</th></tr></thead>
             <tbody>
-              <tr><td><code>workspace_add</code></td><td>注册当前目录为工作区，返回 ID 并写入 .agent-swarm.md</td></tr>
+              <tr><td><code>workspace_add</code></td><td>注册当前目录为工作区，返回 ID 并写入 .agent_swarm/workspace.md</td></tr>
               <tr><td><code>workspace_remove</code></td><td>移除自己的工作区（仅离线可删）</td></tr>
               <tr><td><code>workspace_enable</code> / <code>workspace_disable</code></td><td>启用 / 禁用工作区</td></tr>
               <tr><td><code>heartbeat</code></td><td>心跳保活，上报当前会话信息（插件自动调用）</td></tr>

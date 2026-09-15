@@ -85,7 +85,7 @@ agent: (调用 workspace_call) → 对方 TUI 实时出现任务 → 执行 → 
 
 | 工具 | 说明 |
 |---|---|
-| `workspace_add` | 注册当前目录为工作区，返回 ID（写入项目根 `.agent-swarm.md`） |
+| `workspace_add` | 注册当前目录为工作区，返回 ID（写入项目根 `.agent_swarm/workspace.md`） |
 | `workspace_remove` / `workspace_enable` / `workspace_disable` | 工作区管理（仅离线可删） |
 | `heartbeat` | 心跳保活（插件每 30s 调用；响应捎带待执行任务） |
 | `update_info` / `update_notes` | 更新工作区用途/能力描述、备注 |

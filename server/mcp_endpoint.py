@@ -96,7 +96,7 @@ def workspace_add(
     """添加（或更新）当前工作区到 agent_swarm。
 
     已存在同路径工作区时更新其描述。返回 workspace_id，客户端应把它写入
-    项目根目录 .agent-swarm.md 的 WORKSPACE_ID: 行（插件心跳依赖该文件）。
+    项目根目录 .agent_swarm/workspace.md 的 WORKSPACE_ID: 行（插件心跳依赖该文件）。
     返回 need_summary=true 表示还没有用途总结，应生成后用 update_info 回写。
 
     Args:

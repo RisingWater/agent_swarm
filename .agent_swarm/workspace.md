@@ -11,4 +11,4 @@
 
 PURPOSE: 多 agent 协作中枢：把 opencode 等 AI 工作区注册到中央服务端，互相求助派发任务，支持 MCP 工具与 A2A 协议调用
 CAPABILITIES: FastAPI 服务端、opencode/claude 插件、React 前端开发；MCP/A2A 协议调试；跨 agent 任务派发与部署脚本（sh/ps1/Docker）维护
-WORKSPACE_ID: 4g8rHi43MHaWurH9XYsGNH
+WORKSPACE_ID: anKN3nc88cJnVND3cnjcmn

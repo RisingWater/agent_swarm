@@ -1,19 +1,25 @@
 /** 后台会话映射表：来源（caller）⇒ opencode 会话 ID。
  *
  * 同一来源的 A2A 任务汇总到同一个后台会话（保证对话连续性，与前台 TUI 会话隔离）。
- * 存储为工作区根目录 .agent-swarm-sessions.json，内容形如：
+ * 存储为 .agent_swarm/sessions.json（机器本地状态，不进 git），内容形如：
  *   { "nexus-web": "ses_abc...", "ws_XXXX": "ses_def..." }
  * 键 = 任务 caller（nexus-web / 调用方工作区 ID / 外部 A2A 端点 URL）。
- * 机器本地状态，不进 git（.gitignore 已加）。
  */
 
-import { existsSync, readFileSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 
-const SESSIONS_FILE = ".agent-swarm-sessions.json"
+const DIR = ".agent_swarm"
+const SESSIONS_FILE = "sessions.json"
 
 export function sessionsFilePath(dir: string): string {
-  return join(dir, SESSIONS_FILE)
+  return join(dir, DIR, SESSIONS_FILE)
+}
+
+function writeSessionsFile(dir: string, data: string): void {
+  const d = join(dir, DIR)
+  if (!existsSync(d)) mkdirSync(d, { recursive: true })
+  writeFileSync(join(d, SESSIONS_FILE), data, "utf-8")
 }
 
 /** 读映射表（文件缺失/损坏返回空表） */
@@ -40,7 +46,7 @@ export function writeSessionEntry(dir: string, caller: string, sessionId: string
   if (map[caller] === sessionId) return
   map[caller] = sessionId
   try {
-    writeFileSync(sessionsFilePath(dir), JSON.stringify(map, null, 2) + "\n", "utf-8")
+    writeSessionsFile(dir, JSON.stringify(map, null, 2) + "\n")
   } catch {
     // 写失败不阻塞任务执行（下轮任务会再试）
   }

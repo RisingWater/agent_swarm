@@ -13,7 +13,7 @@
  *
  * 配置：~/.claude/agent-swarm/config.json（install-claude 脚本写入），
  * 环境变量 AGENT_SWARM_SERVER / AGENT_SWARM_API_KEY 可覆盖。
- * 工作区 ID：每轮心跳从 process.cwd() 的 .agent-swarm.md 重读
+ * 工作区 ID：每轮心跳从 process.cwd() 的 .agent_swarm/workspace.md 重读
  * （MCP 子进程 cwd = claude 启动目录），/swarm-add 换 ID 后无需重启。
  *
  * 会话映射表：<cwd>/.agent-swarm-sessions.json（caller → claude session UUID），
@@ -21,7 +21,7 @@
  *
  * 日志：~/.claude/agent-swarm/keepalive.log（不进 claude 控制台，stdout 是协议通道）。
  */
-import { appendFileSync, existsSync, readFileSync, statSync, truncateSync, writeFileSync } from "node:fs"
+import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync, truncateSync, writeFileSync } from "node:fs"
 import { homedir } from "node:os"
 import { join } from "node:path"
 import { startNexusA2AClient } from "./nexus_a2a.mjs"
@@ -64,9 +64,9 @@ function loadConfig() {
   return cfg.apiKey ? cfg : null
 }
 
-/** 读 <dir>/.agent-swarm.md 的 WORKSPACE_ID: 行（与 opencode 插件同一文件格式） */
+/** 读 <dir>/.agent_swarm/workspace.md 的 WORKSPACE_ID: 行（与 opencode 插件同一文件格式） */
 function readWorkspaceId(dir) {
-  const file = join(dir, ".agent-swarm.md")
+  const file = join(dir, ".agent_swarm", "workspace.md")
   if (!existsSync(file)) return ""
   try {
     return readFileSync(file, "utf-8")
@@ -78,10 +78,17 @@ function readWorkspaceId(dir) {
 
 // ---------------- 后台会话映射表（caller → claude session UUID） ----------------
 
-const SESSIONS_FILE = ".agent-swarm-sessions.json"
+const SESSIONS_DIR = ".agent_swarm"
+const SESSIONS_FILE = "sessions.json"
 
 function sessionsFilePath(dir) {
-  return join(dir, SESSIONS_FILE)
+  return join(dir, SESSIONS_DIR, SESSIONS_FILE)
+}
+
+function writeSessionsFile(dir, data) {
+  const d = join(dir, SESSIONS_DIR)
+  if (!existsSync(d)) mkdirSync(d, { recursive: true })
+  writeFileSync(join(d, SESSIONS_FILE), data, "utf-8")
 }
 
 /** 读映射表（文件缺失/损坏返回空表） */
@@ -108,7 +115,7 @@ function writeSessionEntry(dir, caller, sessionId) {
   if (map[caller] === sessionId) return
   map[caller] = sessionId
   try {
-    writeFileSync(sessionsFilePath(dir), JSON.stringify(map, null, 2) + "\n", "utf-8")
+    writeSessionsFile(dir, JSON.stringify(map, null, 2) + "\n")
   } catch {
     // 写失败不阻塞任务执行（下轮任务会再试）
   }
