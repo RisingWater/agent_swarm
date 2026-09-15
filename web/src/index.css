@@ -2211,10 +2211,15 @@ table.ws-grid th {
 .nexus-terminal.claude-tui .cl-fold-label { color: #e8e2da; }
 
 .nexus-terminal.claude-tui .cl-expand {
+  background: none;
+  border: none;
+  padding: 0;
+  font-family: inherit;
   color: #d97757;
   font-size: 12px;
   text-decoration: underline;
   margin-left: 6px;
+  cursor: pointer;
 }
 
 .nexus-terminal.claude-tui .cl-expand:hover { color: #e8964a; }
