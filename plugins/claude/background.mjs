@@ -209,6 +209,7 @@ function spawnOnce(taskId, bin, args, cwd, bg) {
     let sawSession = false
     let settled = false
     let blockIdx = 0 // content_block 序号 → part_id（thinking/text 分块流式）
+    let pendingTool = null // 参数流式累积中的工具调用（content_block_start→stop 期间）
 
     const timer = setTimeout(() => {
       bg.log(`bg ${taskId.slice(0, 8)}: timeout 30min, killing`)
@@ -236,23 +237,56 @@ function spawnOnce(taskId, bin, args, cwd, bg) {
             blockIdx++
             const cb = e.content_block ?? {}
             if (cb.type === "tool_use") {
-              // 工具调用开始（input 可能尚未流完，先报 running + 已知 name/id）
-              bg.emit(
-                toolStatus(taskRef(taskId), {
-                  callId: String(cb.id ?? ""),
-                  name: String(cb.name ?? "unknown"),
-                  state: "running",
-                  input: cb.input,
-                }),
-              )
+              // 工具调用开始（input 尚未流完，先记 callId + 已知 name；input 靠 delta 累积，
+              // content_block_stop / assistant 完整行到齐后再发 running 状态）
+              pendingTool = { callId: String(cb.id ?? ""), name: String(cb.name ?? "unknown"), input: {} }
             }
           } else if (e.type === "content_block_delta") {
             const d = e.delta ?? {}
             if (d.type === "thinking_delta" && typeof d.thinking === "string" && d.thinking) {
               bg.emit(streamStatus(taskRef(taskId), "reasoning", `blk-${blockIdx}`, d.thinking))
             } else if (d.type === "text_delta" && typeof d.text === "string" && d.text) {
-              bg.emit(streamStatus(taskRef(taskId), "text", `blk-${blockIdx}`, d.text))
+              bg.emit(streamStatus(taskRef(taskId), "text", `blk-${blockIdx}`, d.text, "append"))
               finalText += d.text // text 块只有最终答复一个（工具轮次的 text 也会累积，最后一条 assistant text 语义上等价于全量拼接）
+            } else if (d.type === "input_json_delta" && typeof d.partial_json === "string" && pendingTool) {
+              // 工具参数流式累积（stream-json 的 tool_use input 在 start 时是空的）
+              try {
+                pendingTool.rawJson = (pendingTool.rawJson ?? "") + d.partial_json
+              } catch { /* 忽略累积失败 */ }
+            }
+          } else if (e.type === "content_block_stop" && pendingTool) {
+            // 参数流完：解析累积的 JSON 并上报 running
+            if (pendingTool.rawJson) {
+              try { pendingTool.input = JSON.parse(pendingTool.rawJson) } catch { /* 解析失败保持 {} */ }
+            }
+            bg.emit(
+              toolStatus(taskRef(taskId), {
+                callId: pendingTool.callId,
+                name: pendingTool.name,
+                state: "running",
+                input: pendingTool.input,
+              }),
+            )
+            pendingTool = null
+          }
+          break
+        }
+        case "assistant": {
+          // assistant 完整行兜底：若 delta 流被截断导致 content_block_stop 没触发，这里补发
+          const content = evt.message?.content
+          if (Array.isArray(content)) {
+            for (const c of content) {
+              if (c?.type === "tool_use" && pendingTool && String(c.id ?? "") === pendingTool.callId) {
+                bg.emit(
+                  toolStatus(taskRef(taskId), {
+                    callId: pendingTool.callId,
+                    name: pendingTool.name,
+                    state: "running",
+                    input: c.input ?? pendingTool.input,
+                  }),
+                )
+                pendingTool = null
+              }
             }
           }
           break
@@ -291,7 +325,7 @@ function spawnOnce(taskId, bin, args, cwd, bg) {
           break
         }
         default:
-          break // system/init 之外的 status、assistant 完整行等：信息已由 delta 覆盖
+          break // system/init 之外的 status、assistant 完整行等：信息已由 delta 覆盖（assistant 的 tool_use 兜底在 case "assistant"）
       }
     }
 

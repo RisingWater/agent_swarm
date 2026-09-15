@@ -51,6 +51,8 @@ log = logging.getLogger("nexus_a2a")
 router = APIRouter()
 
 CALL_TIMEOUT_SECONDS = int(os.environ.get("AGENT_SWARM_CALL_TIMEOUT", str(cfg_get("AGENT_SWARM_CALL_TIMEOUT", "3600"))))
+# working 状态硬超时：插件进程死亡/事件丢失导致任务永远卡 working 的兜底（默认 30 分钟）
+WORKING_TIMEOUT_SECONDS = int(os.environ.get("AGENT_SWARM_WORKING_TIMEOUT", "1800"))
 
 # ---------------------------------------------------------------- A2A 对象构造（camelCase，规范形状）
 
@@ -571,6 +573,36 @@ async def a2a_rpc(workspace_id: str, request: Request):
 
         else:
             return JSONResponse(_err(-32601, f"method not supported: {method}"))
+
+
+async def reap_stale_tasks() -> int:
+    """扫表把卡死的 working 任务置 failed（accepted_at 超 WORKING_TIMEOUT 的兜底）。
+
+    场景：插件进程死亡/WS 断连丢终态事件，任务永远 working。返回本次收割数。
+    """
+    now = models.utcnow()
+    n = 0
+    with Session(engine) as session:
+        rows = session.exec(
+            select(models.A2aTask).where(models.A2aTask.status == "working")
+        ).all()
+        for t in rows:
+            start = t.accepted_at or t.created_at
+            if start and (now - start).total_seconds() > WORKING_TIMEOUT_SECONDS:
+                _mark_task(session, t.id, "failed", f"working timeout after {WORKING_TIMEOUT_SECONDS}s")
+                n += 1
+        session.commit()
+    return n
+
+
+async def _reap_loop() -> None:
+    """周期扫表（lifespan 挂载，每 60s 一次）。"""
+    while True:
+        try:
+            await reap_stale_tasks()
+        except Exception as e:  # noqa: BLE001
+            log(f"reap_stale_tasks error: {e}")
+        await asyncio.sleep(60)
 
 
 async def _wait_final(task_id: str, timeout: float) -> None:

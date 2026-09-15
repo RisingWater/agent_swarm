@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+import asyncio
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -9,7 +10,7 @@ from server.db import init_db
 from server.api import auth, me, workspaces, calls
 from server.download import routes as download_routes
 from server.mcp_endpoint import build_mcp_asgi_app, mcp_lifespan
-from server.nexus_a2a import router as nexus_a2a_router
+from server.nexus_a2a import router as nexus_a2a_router, _reap_loop
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
@@ -20,7 +21,11 @@ def create_app() -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         async with mcp_lifespan():
-            yield
+            reap_task = asyncio.create_task(_reap_loop())  # 卡死 working 任务周期收割
+            try:
+                yield
+            finally:
+                reap_task.cancel()
 
     app = FastAPI(title="agent_swarm", version="0.1.0", lifespan=lifespan)
 
