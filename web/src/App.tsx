@@ -1552,7 +1552,7 @@ function NexusPage({ toast }: { toast: (m: string) => void }) {
       </div>
 
       {selected && (
-        <div className={`nexus-terminal${agentToolKind(current?.agent_type) === "opencode" ? " tui" : ""}`}>
+        <div className={`nexus-terminal ${agentToolKind(current?.agent_type) === "opencode" ? "tui" : "claude-tui"}`}>
           <div className="nexus-terminal-head">
             <AgentTypeIcon type={current?.agent_type} inherit />
             <span className="nexus-head-title">{current?.name ?? selected}</span>
