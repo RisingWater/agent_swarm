@@ -125,6 +125,7 @@ class TimelineCard:
         self._rendered_text = ""
         self._dirty = False
         self._rendering = False
+        self._push_lock = asyncio.Lock()  # _push 全程串行（sequence 严格单调的前提）
 
     async def start(self, title: str, status: str = "", content: str = "",
                     buttons: list[dict] | None = None) -> bool:
@@ -253,6 +254,19 @@ class TimelineCard:
                 self._kick()
 
     async def _push(self) -> None:
+        """全量推送当前视图到 cardkit。
+
+        必须整卡持锁：sequence 是卡片级单调计数器，status/text/actions 多个请求
+        严格 +1 串行分配；此前 debounce 任务与 RoundCards close 队列并发进入，
+        交错读 self.seq 导致两个请求拿到相同 sequence → 服务端报
+        "sequence number compare failed"，还会把 _fail_streak 推满误降级。
+        """
+        if not self.card_id or self.degraded:
+            return
+        async with self._push_lock:
+            await self._push_locked()
+
+    async def _push_locked(self) -> None:
         if not self.card_id or self.degraded:
             return
         loop = asyncio.get_running_loop()
@@ -263,10 +277,11 @@ class TimelineCard:
             rendered = self._rendered_status if snap == "status" else self._rendered_text
             if rendered == md_text:
                 return
+            self.seq += 1  # 发请求前先占号：无论成败序号都消耗，保证与服务端单调同步
             try:
                 body = ContentCardElementRequestBody.builder() \
                     .content(md_text) \
-                    .sequence(self.seq + 1) \
+                    .sequence(self.seq) \
                     .build()
                 req = ContentCardElementRequest.builder() \
                     .card_id(self.card_id) \
@@ -281,9 +296,9 @@ class TimelineCard:
                     else:
                         self._rendered_text = md_text
                 else:
-                    log.error("cardkit content 更新失败 %s: %s", elem_id, resp.msg)
+                    # sequence 冲突可自愈：不写快照，下轮带新序号重试
+                    log.warning("cardkit content 更新失败 %s: %s", elem_id, resp.msg)
                     ok = False
-                self.seq += 1
             except Exception as e:  # noqa: BLE001
                 log.warning("cardkit content 更新异常 %s: %s", elem_id, e)
                 ok = False
@@ -297,11 +312,12 @@ class TimelineCard:
         if want_actions != self.has_actions or getattr(self, "_sync_actions", False):
             actions_el = _actions_element(self._buttons)
             try:
+                self.seq += 1  # 占号同 _content：成败都消耗，保持与服务端单调同步
                 if want_actions and not self.has_actions:
                     body = CreateCardElementRequestBody.builder() \
                         .type("append") \
                         .elements(json.dumps([actions_el], ensure_ascii=False)) \
-                        .sequence(self.seq + 1) \
+                        .sequence(self.seq) \
                         .build()
                     req = CreateCardElementRequest.builder() \
                         .card_id(self.card_id).request_body(body).build()
@@ -311,10 +327,9 @@ class TimelineCard:
                         self.has_actions = True
                     else:
                         ok = False
-                    self.seq += 1
                 elif not want_actions and self.has_actions:
                     body = DeleteCardElementRequestBody.builder() \
-                        .sequence(self.seq + 1).build()
+                        .sequence(self.seq).build()
                     req = DeleteCardElementRequest.builder() \
                         .card_id(self.card_id) \
                         .element_id(ACTIONS_ELEM) \
@@ -325,7 +340,6 @@ class TimelineCard:
                         self.has_actions = False
                     else:
                         ok = False
-                    self.seq += 1
                 self._sync_actions = False
             except Exception as e:  # noqa: BLE001
                 log.warning("cardkit actions 增删异常: %s", e)
