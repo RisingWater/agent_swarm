@@ -122,8 +122,60 @@ async def _dispatch_command(chat_id, chat_type, user_id, open_id, text, send_tex
     elif cmd == "last":
         from .last import send_last
         await send_last(chat_id, user_id, send_card, send_text)
+    elif cmd == "status":
+        await _cmd_status(chat_id, user_id, send_text)
     else:
-        await send_text(chat_id, f"未知指令 `{cmd}`。\n{HELP}")
+        await send_card(chat_id, command_menu_card(
+            _status_lines(chat_id, chat_type, user_id),
+            *_available_commands(chat_id, chat_type, user_id),
+        ))
+
+
+def _status_lines(chat_id: str, chat_type: str, user_id: str) -> list[str]:
+    """菜单卡头部状态行：绑定账号 / 关联工作区 / 监控开关（未绑定返回空）。"""
+    if not user_id:
+        return []
+    lines = []
+    with Session(engine) as session:
+        user = session.get(models.User, user_id)
+        if user is not None:
+            lines.append(f"👤 **{user.username}**")
+    ws = _current_ws(chat_id, user_id)
+    if ws is None:
+        lines.append("⚪ 未选择工作区")
+    else:
+        online = ws_online(ws.id)
+        icon = "🟢" if online else "⚪"
+        lines.append(f"{icon} {ws.name}（{ws.agent_type or '未知'}）— {'在线' if online else '离线'}")
+        chat = state.get_chat(chat_id)
+        lines.append(f"👀 监控：{'开' if chat and chat.monitor_on else '关'}")
+    return lines
+
+
+def _available_commands(chat_id: str, chat_type: str, user_id: str) -> list[tuple[str, str]]:
+    """按当前状态生成可用命令 [(label, command_text)]（help/status 不进菜单）。
+
+    - 未绑定：只有 bind
+    - 已绑定未选工作区：list / select / unbind
+    - 已选中：+ monitor on|off（按当前开关取反）+ last
+    """
+    if not user_id:
+        return [("🔐 绑定账号", "/swarm bind")]
+    items = [
+        ("📋 我的工作区", "/swarm list"),
+        ("📂 选择工作区", "/swarm select"),
+    ]
+    chat = state.get_chat(chat_id)
+    ws = _ws_or_none(user_id, chat.workspace_id) if chat and chat.workspace_id else None
+    if ws is not None:
+        monitor_on = bool(chat and chat.monitor_on)
+        items.append(
+            ("👀 监控：关闭", "/swarm monitor off")
+            if monitor_on else ("👀 监控：开启", "/swarm monitor on")
+        )
+        items.append(("📜 最后一次问答", "/swarm last"))
+    items.append(("🚪 解绑账号", "/swarm unbind"))
+    return items
 
 
 async def _cmd_status(chat_id, user_id, send_text) -> None:

@@ -266,6 +266,15 @@ class FeishuGateway:
 
             # 2) 普通按钮（value 内 action 字段路由）
             act = value.get("action", "")
+            if act == "cmd":
+                # 命令菜单按钮：把按钮携带的命令文本回灌 handle_message 重放执行
+                cmd_text = str(value.get("cmd", ""))
+                if cmd_text:
+                    await commands.handle_message(
+                        chat_id, "p2p", operator, cmd_text,
+                        send_text=self.send_text, send_card=self.send_card,
+                    )
+                return P2CardActionTriggerResponse()
             if act == "abort":
                 await self._handle_abort(value, operator, chat_id)
                 return self._toast("中断请求已发送")
