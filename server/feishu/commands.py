@@ -174,28 +174,27 @@ def _status_lines(chat_id: str, chat_type: str, user_id: str) -> list[str]:
 
 
 def _available_commands(chat_id: str, chat_type: str, user_id: str) -> list[tuple[str, str]]:
-    """按当前状态生成可用命令 [(label, command_text)]（help/status 不进菜单）。
+    """按当前状态生成可用命令 [(label, command_text)]（help/status/unbind 不进菜单）。
 
     - 未绑定：只有 bind
-    - 已绑定未选工作区：list / select / unbind
+    - 已绑定未选工作区：list / select
     - 已选中：+ monitor on|off（按当前开关取反）+ last
     """
     if not user_id:
-        return [("🔐 绑定账号", "/swarm bind")]
+        return [("绑定账号", "/swarm bind")]
     items = [
-        ("📋 我的工作区", "/swarm list"),
-        ("📂 选择工作区", "/swarm select"),
+        ("我的工作区", "/swarm list"),
+        ("选择工作区", "/swarm select"),
     ]
     chat = state.get_chat(chat_id)
     ws = _ws_or_none(user_id, chat.workspace_id) if chat and chat.workspace_id else None
     if ws is not None:
         monitor_on = bool(chat and chat.monitor_on)
         items.append(
-            ("👀 监控：关闭", "/swarm monitor off")
-            if monitor_on else ("👀 监控：开启", "/swarm monitor on")
+            ("监控：关闭", "/swarm monitor off")
+            if monitor_on else ("监控：开启", "/swarm monitor on")
         )
-        items.append(("📜 最后一次问答", "/swarm last"))
-    items.append(("🚪 解绑账号", "/swarm unbind"))
+        items.append(("最后一次问答", "/swarm last"))
     return items
 
 
