@@ -225,6 +225,11 @@ def _task_broadcast(task_id: str, event_id: int, event: dict) -> None:
         q.put_nowait((event_id, event))
 
 
+# 内部事件监听者（如 nexus-feishu）：签名 async fn(workspace_id, event_dict)；
+# 在 handle_plugin_event / handle_monitor_event 持久化后调用，异常互不影响主链路
+internal_listeners: list = []
+
+
 # ---------------------------------------------------------------- 事件管道
 
 
@@ -306,6 +311,12 @@ async def handle_plugin_event(workspace_id: str, event: dict) -> None:
     # 广播：事件（SSE 流 / 同步等待队列）
     _task_broadcast(task_id, event_id, event)
     await _push_web(workspace_id, event)
+    # 内部监听者（feishu 等）
+    for listener in internal_listeners:
+        try:
+            await listener(workspace_id, event)
+        except Exception:
+            pass
     # 状态变化时附带推送任务快照（web 直接拿最新 status / artifact）
     if snapshot is not None and event.get("kind") == "status-update":
         await _push_web(workspace_id, {"type": "task", "task": snapshot})
@@ -380,6 +391,12 @@ async def handle_monitor_event(workspace_id: str, payload: dict) -> None:
         session.add(task)
         session.commit()
     await _push_web(workspace_id, payload, "monitor")
+    # 内部监听者（feishu 等）
+    for listener in internal_listeners:
+        try:
+            await listener(workspace_id, payload)
+        except Exception:
+            pass
     with Session(engine) as session:
         t = session.get(models.A2aTask, round_key)
         if t is not None:
@@ -956,6 +973,101 @@ async def nexus_reply(workspace_id: str, request: Request):
     if not ok:
         raise HTTPException(502, "plugin connection lost")
     return {"ok": True, "status": "working"}
+
+
+# ---------------------------------------------------------------- 飞书渠道入口（nexus-feishu）
+
+
+async def cancel_task_by_id(task_id: str, user_id: str) -> bool:
+    """按任务 ID 取消（feishu 中断按钮）。校验任务属于 user_id 的工作区。
+
+    返回是否受理（任务不存在/不属你/已终态 → False）。
+    """
+    with Session(engine) as session:
+        task = session.get(models.A2aTask, task_id)
+        if task is None:
+            return False
+        ws = session.get(models.Workspace, task.workspace_id) if task.workspace_id else None
+        if ws is None or ws.user_id != user_id:
+            return False
+        wid = task.workspace_id
+        if task.status in TERMINAL_STATES:
+            return False
+    conn = plugins.get(wid)
+    if conn is not None:
+        await _send_json(
+            conn.ws,
+            {"type": "rpc", "payload": {
+                "jsonrpc": "2.0",
+                "id": f"srv-cancel-{task_id}",
+                "method": "tasks/cancel",
+                "params": {"id": task_id},
+            }},
+        )
+    with Session(engine) as session:
+        _mark_task(session, task_id, "canceled")
+        session.commit()
+        t = session.get(models.A2aTask, task_id)
+        snap = task_obj(t) if t is not None else None
+    if snap is not None:
+        await _push_web(wid, status_event_from_snap(snap, True))
+        # 飞书/web 卡片都靠 task 快照更新终态
+        for listener in internal_listeners:
+            try:
+                await listener(wid, status_event_from_snap(snap, True))
+            except Exception:
+                pass
+    return True
+
+
+def status_event_from_snap(snap: dict, final: bool) -> dict:
+    """task_obj 快照 → status-update 事件（cancel 后广播用，绕开 ORM 会话生命周期）。"""
+    return {
+        "taskId": snap.get("id", ""),
+        "contextId": snap.get("contextId", ""),
+        "kind": "status-update",
+        "status": snap.get("status") or {"state": "canceled"},
+        "final": final,
+    }
+
+
+async def reply_task_from_feishu(task_id: str, reply: str, request_id: str) -> tuple[bool, str]:
+    """飞书卡片应答 input-required（权限 once/always/reject 或提问自由文本）。
+
+    权限复用与 web reply 相同的 DataPart 语义；提问自由文本按 answers=[text] 传递。
+    返回 (ok, message)。
+    """
+    with Session(engine) as session:
+        task = session.get(models.A2aTask, task_id)
+        if task is None:
+            return False, "task not found"
+        wid = task.workspace_id
+        itype = _input_type(task)
+    conn = plugins.get(wid)
+    if conn is None:
+        return False, "workspace plugin is not online"
+    data: dict = {"requestId": request_id or task_id, "taskId": task_id}
+    if itype == "question":
+        data["type"] = "question"
+        data["answers"] = [reply]
+    else:
+        data["type"] = "permission"
+        data["reply"] = reply if reply in ("once", "always", "reject") else "once"
+    msg = {
+        "role": "user",
+        "parts": [{"kind": "data", "data": data}],
+        "messageId": f"msg-{task_id}-feishu-{request_id or task_id}",
+        "taskId": task_id,
+        "contextId": "",
+    }
+    req = {
+        "jsonrpc": "2.0",
+        "id": f"srv-reply-feishu-{request_id or task_id}",
+        "method": "message/send",
+        "params": {"message": msg, "metadata": {"caller": "nexus-feishu-reply"}},
+    }
+    ok = await _send_json(conn.ws, {"type": "rpc", "payload": req})
+    return (True, "") if ok else (False, "plugin connection lost")
 
 
 @router.get("/api/nexus/{workspace_id}/history")

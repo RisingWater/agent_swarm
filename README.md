@@ -120,6 +120,7 @@ docker run -d --name agent-swarm -p 8700:8700 \
 | `AGENT_SWARM_JWT_SECRET` | JWT 签名密钥（**生产必设**） | dev secret |
 | `AGENT_SWARM_PUBLIC_URL` | 公网地址（注入 install 脚本，反代时设） | 从请求 Host 推断 |
 | `AGENT_SWARM_CALL_TIMEOUT` | 跨 agent 调用超时 | `3600`s |
+| `FEISHU_APP_ID` / `FEISHU_APP_SECRET` | 飞书自建应用凭据（nexus-feishu，两者都配置后飞书网关随服务启动） | 未配置不启动 |
 
 环境变量优先于项目根 `.env`。
 

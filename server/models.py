@@ -126,3 +126,27 @@ class A2aEvent(SQLModel, table=True):
     round_key: str = Field(default="", index=True)  # 轮次分组键（监控/任务轮）
     payload: str = Field(default="{}", sa_column=Column(Text))  # 事件 JSON（camelCase，原样存储）
     created_at: datetime = Field(default_factory=utcnow)
+
+
+class FeishuBinding(SQLModel, table=True):
+    """飞书用户 ↔ 平台账号绑定（open_id 唯一；一个飞书人只能绑一个账号）。"""
+    __tablename__ = "feishu_bindings"
+
+    open_id: str = Field(primary_key=True)  # 飞书 open_id（app 维度稳定）
+    user_id: str = Field(foreign_key="users.id", index=True)
+    bound_at: datetime = Field(default_factory=utcnow)
+
+
+class FeishuChat(SQLModel, table=True):
+    """飞书聊天窗口状态：每个窗口（p2p / 群）当前选中的工作区与监控开关。
+
+    p2p 窗口 chat_id 即会话 id；群聊按群维度选中（同群共用一个选中工作区）。
+    """
+    __tablename__ = "feishu_chats"
+
+    chat_id: str = Field(primary_key=True)
+    chat_type: str = Field(default="p2p")  # p2p / group
+    user_id: str = Field(default="", index=True)  # 最后操作者（绑定校验用；群聊=管理员）
+    workspace_id: str = Field(default="", index=True)  # 当前选中（空=未选）
+    monitor_on: bool = Field(default=False)  # 前台会话监控同步开关（默认关）
+    updated_at: datetime = Field(default_factory=utcnow)

@@ -15,6 +15,26 @@ from server.nexus_a2a import router as nexus_a2a_router, _reap_loop
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 
+def _start_feishu():
+    """FEISHU_APP_ID/SECRET 已配置时启动飞书网关；否则静默跳过。
+
+    在 lifespan（事件循环内）调用：create_task 后台启动，绝不阻塞/等待——
+    曾用 run_coroutine_threadsafe(...).result() 在主线程等自己 → 死锁 TimeoutError，
+    整个应用启动失败（2026-09-16）。
+    """
+    from server.config import get
+
+    app_id = get("FEISHU_APP_ID")
+    app_secret = get("FEISHU_APP_SECRET")
+    if not app_id or not app_secret:
+        return None
+    from server.feishu.gateway import FeishuGateway
+
+    gw = FeishuGateway(app_id, app_secret)
+    asyncio.create_task(gw.start())
+    return gw
+
+
 def create_app() -> FastAPI:
     init_db()
 
@@ -22,10 +42,13 @@ def create_app() -> FastAPI:
     async def lifespan(app: FastAPI):
         async with mcp_lifespan():
             reap_task = asyncio.create_task(_reap_loop())  # 卡死 working 任务周期收割
+            feishu = _start_feishu()
             try:
                 yield
             finally:
                 reap_task.cancel()
+                if feishu is not None:
+                    feishu.stop()
 
     app = FastAPI(title="agent_swarm", version="0.1.0", lifespan=lifespan)
 
