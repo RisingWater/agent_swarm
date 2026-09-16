@@ -16,8 +16,14 @@ import lark_oapi as lark
 from lark_oapi.api.cardkit.v1 import (
     ContentCardElementRequest,
     ContentCardElementRequestBody,
+    CreateCardElementRequest,
+    CreateCardElementRequestBody,
     CreateCardRequest,
     CreateCardRequestBody,
+    DeleteCardElementRequest,
+    DeleteCardElementRequestBody,
+    UpdateCardElementRequest,
+    UpdateCardElementRequestBody,
 )
 
 from . import commands
@@ -25,10 +31,13 @@ from . import commands
 log = logging.getLogger("nexus-feishu")
 
 THROTTLE_S = 2.5
-ELEM_STATUS = "elem_status"
-ELEM_REPLY = "elem_reply"
-ELEM_TOOLS = "elem_tools"
-ELEM_ACTIONS = "elem_actions"
+ELEM_STATUS = "reply_status"
+ELEM_REPLY = "reply_text"
+ELEM_DETAILS = "reply_details"
+ELEM_DETAILS_CONTENT = "reply_details_body"
+ELEM_ACTIONS = "reply_actions"
+
+EMPTY_REPLY_PLACEHOLDER = "_⏳ 等待 agent 回复_"
 
 RUNNING_TEMPLATES = {
     "queued": "blue",
@@ -69,16 +78,20 @@ class StreamingCard:
         self.degraded = False  # cardkit 不可用时降级为纯文本收尾
         self._fail_streak = 0  # 连续渲染失败计数（瞬时网络抖动容忍 2 次）
         # 视图状态
-        self.status_text = "已受理"
+        self.status_text = "⏳ 已受理"
         self.reply_text = ""
-        self.tool_lines: list[str] = []
         self._tool_states: dict[str, tuple[str, str, str]] = {}  # callId → (name, state, detail)
+        self.reasoning_text = ""  # 中间思路快照（折叠面板）
         self.actions: list[dict] = []
         self.header_template = RUNNING_TEMPLATES["queued"]
         self._dirty = asyncio.Event()
         self._loop_task: asyncio.Task | None = None
         self._last_render = 0.0
-        self._thinking_seen = False
+        self._actions_sig = ""
+        # 已渲染快照（内容不变不调 cardkit，减少调用量是防 degraded 的关键）
+        self._rendered = {"status": "", "reply": "", "details": ""}
+        self._details_present = False
+        self._actions_present = True  # open 时 actions 若在 schema 里则视为已存在
 
     # ────────────── 创建与发送 ──────────────
 
@@ -151,18 +164,23 @@ class StreamingCard:
         self._dirty.set()
 
     def update_reasoning(self) -> None:
-        self._thinking_seen = True
-        self.status_text = "思考中…"
+        if "🔄" not in self._details_md():
+            self._dirty.set()
+
+    def set_reasoning(self, text: str) -> None:
+        """中间思路快照（折叠面板 section，对齐 opencode-feishu setReasoningSnapshot）。"""
+        text = (text or "").strip()
+        if not text:
+            return
+        if text == self.reasoning_text:
+            return
+        self.reasoning_text = text
+        self.status_text = "⏳ 正在生成回复"
         self._dirty.set()
 
     def append_tool(self, line: str) -> None:
-        icon_line = f"⚙️ {line}"
-        if icon_line not in self.tool_lines:
-            self.tool_lines.append(icon_line)
-            if len(self.tool_lines) > 12:
-                self.tool_lines = self.tool_lines[-12:]
-        self.status_text = "执行工具中…"
-        self._dirty.set()
+        # 兼容旧调用（不带 callId）：塞进匿名槽位
+        self.set_tool(f"anon-{len(self._tool_states)}", line, "running", "")
 
     def set_tool(self, call_id: str, name: str, state_: str, detail: str = "") -> None:
         """按 callId 维护工具状态 map（running → completed 原地翻新，对齐 opencode-feishu）。
@@ -175,7 +193,7 @@ class StreamingCard:
         if self._tool_states.get(call_id) == (name, state_, detail):
             return
         self._tool_states[call_id] = (name, state_, detail)
-        self.status_text = "执行工具中…"
+        self.status_text = "⏳ 正在生成回复"
         self._dirty.set()
 
     def _render_tools(self) -> list[str]:
@@ -193,51 +211,80 @@ class StreamingCard:
             self._dirty.set()
 
     def set_actions(self, actions: list[dict]) -> None:
+        sig = json.dumps(actions, ensure_ascii=False)
+        if sig == self._actions_sig:
+            return
+        self._actions_sig = sig
         self.actions = actions
         self._dirty.set()
 
     def finish(self, state_: str, detail: str = "") -> None:
         self.header_template = TERMINAL_TEMPLATES.get(state_, "grey")
-        label = {"completed": "✅ 已完成", "failed": "❌ 失败", "canceled": "⛔ 已中断"}.get(state_, state_)
+        label = {"completed": "✅ 已完成", "failed": "❌ 已失败", "canceled": "⛔ 已中断"}.get(state_, state_)
         self.status_text = f"{label}" + (f" · {detail}" if detail else "")
         self.actions = []
+        # 终态：details 里的 running 图标全部落为 completed（对齐 opencode-feishu 终态映射）
+        self._tool_states = {
+            cid: (n, "completed" if s == "running" else s, d)
+            for cid, (n, s, d) in self._tool_states.items()
+        }
         self._dirty.set()
 
-    # ────────────── 渲染 ──────────────
+    # ────────────── 渲染（对齐 opencode-feishu result-card-view） ──────────────
 
     def _schema(self) -> dict:
         elements = [
             _md_element(ELEM_STATUS, self._status_md()),
             _md_element(ELEM_REPLY, self._reply_md()),
-            _md_element(ELEM_TOOLS, self._tools_md()),
-            self._actions_element(),
         ]
+        details = self._details_element()
+        if details is not None:
+            elements.append(details)
+            self._details_present = True
+        actions = self._actions_element()
+        if actions is not None:
+            elements.append(actions)
+            self._actions_present = True
         return {
             "schema": "2.0",
             "config": {"streaming_mode": True, "wide_screen_mode": True},
             "header": {
-                "title": {"tag": "plain_text", "content": self.title[:100]},
+                "title": {"tag": "plain_text", "content": self.title[:72]},
                 "template": self.header_template,
             },
-            "body": {"elements": [e for e in elements if e is not None]},
+            "body": {"elements": elements},
         }
 
     def _status_md(self) -> str:
-        return f"**{self.status_text}**"
+        return f"**状态**\n{self.status_text}"
 
     def _reply_md(self) -> str:
-        if self.reply_text:
-            return self.reply_text[:2800]
-        if self._thinking_seen:
-            return "_思考中…_"
-        return "_等待 agent 输出…_"
+        return self.reply_text[:2800] if self.reply_text else EMPTY_REPLY_PLACEHOLDER
 
-    def _tools_md(self) -> str:
+    def _details_md(self) -> str:
+        """折叠面板内容：中间思路 + 工具进度 sections（opencode-feishu buildDetailsMarkdown）。"""
+        sections = []
+        if self.reasoning_text:
+            icon = "✅" if self.reply_text else "🔄"
+            sections.append(f"### {icon} 中间思路\n\n{self.reasoning_text[:1500]}")
         if self._tool_states:
-            return "\n".join(self._render_tools())
-        if not self.tool_lines:
-            return " "
-        return "\n".join(self.tool_lines)
+            icon = "❌" if any(s == "error" for _, s, _ in self._tool_states.values()) \
+                else ("🔄" if any(s == "running" for _, s, _ in self._tool_states.values()) else "✅")
+            body = "**工具进度**\n" + "\n".join(f"- {l}" for l in self._render_tools())
+            sections.append(f"### {icon} 执行过程\n\n{body}")
+        return "\n\n---\n\n".join(sections)
+
+    def _details_element(self) -> dict | None:
+        content = self._details_md()
+        if not content:
+            return None
+        return {
+            "tag": "collapsible_panel",
+            "element_id": ELEM_DETAILS,
+            "expanded": False,
+            "header": {"title": {"tag": "plain_text", "content": "详细步骤"}},
+            "elements": [_md_element(ELEM_DETAILS_CONTENT, content)],
+        }
 
     def _actions_element(self) -> dict | None:
         """按钮列：schema 2.0 卡片**不支持 tag:action**，按 opencode-feishu 的
@@ -276,22 +323,22 @@ class StreamingCard:
                 return
 
     async def _push_render(self) -> None:
-        """cardkit element content 更新（header/actions 不支持增量，靠整体重建仅在 open 时有效；
-        header 模板变化与 actions 增删用"降级 patch 消息"实现——先 element 更新，失败再 patch）。"""
+        """增量渲染：status/reply 走 element content，details 折叠面板走 add/replace/delete，
+        actions 增删走 add/delete（opencode-feishu renderDetails/renderActions 同款）。
+        内容快照去重：不变的内容不调 cardkit。"""
         if not self.card_id or self.degraded:
             return
         loop = asyncio.get_running_loop()
-        updates = [
-            (ELEM_STATUS, self._status_md()),
-            (ELEM_REPLY, self._reply_md()),
-            (ELEM_TOOLS, self._tools_md()),
-        ]
         ok = True
-        for elem_id, content in updates:
+
+        async def _content(elem_id: str, md_text: str, snap_key: str) -> None:
+            nonlocal ok
+            if self._rendered.get(snap_key) == md_text:
+                return
             try:
                 # sequence 必填（自增，幂等去重用），缺省报 99992402
                 body = ContentCardElementRequestBody.builder() \
-                    .content(content) \
+                    .content(md_text) \
                     .sequence(self.seq + 1) \
                     .build()
                 req = ContentCardElementRequest.builder() \
@@ -304,11 +351,128 @@ class StreamingCard:
                 if not resp.success():
                     log.error("cardkit element 更新失败 %s: %s", elem_id, resp.msg)
                     ok = False
+                else:
+                    self._rendered[snap_key] = md_text
                 self.seq += 1
             except Exception as e:  # noqa: BLE001
-                # 网络/SSL 抖动等瞬时异常：不更新 sequence，下轮重试；连续 3 轮失败才降级
+                # 网络/SSL 抖动等瞬时异常：不更新快照，下轮重试；连续 3 轮失败才降级
                 log.warning("cardkit element 更新异常 %s: %s", elem_id, e)
                 ok = False
+
+        # 1. 状态 + 回答正文
+        await _content(ELEM_STATUS, self._status_md(), "status")
+        await _content(ELEM_REPLY, self._reply_md(), "reply")
+
+        # 2. details 折叠面板（中间思路/工具进度）：动态增/换/删
+        details_md = self._details_md()
+        details_el = self._details_element()
+        if details_md and details_el is not None:
+            if self._rendered.get("details") != details_md:
+                try:
+                    if not self._details_present:
+                        # 面板首次出现：append（若无按钮区则加在末尾；有则插到按钮前）
+                        body = CreateCardElementRequestBody.builder() \
+                            .type("append") \
+                            .elements(json.dumps([details_el], ensure_ascii=False)) \
+                            .sequence(self.seq + 1) \
+                            .build()
+                        req = CreateCardElementRequest.builder() \
+                            .card_id(self.card_id) \
+                            .request_body(body).build()
+                        resp = await loop.run_in_executor(
+                            None, self.gw.lark.cardkit.v1.card_element.create, req)
+                        if resp.success():
+                            self._details_present = True
+                            self._rendered["details"] = details_md
+                        else:
+                            log.error("cardkit addElement 失败: %s", resp.msg)
+                            ok = False
+                        self.seq += 1
+                    else:
+                        # 面板已存在：整面板 replace（collapsible_panel 不支持 content 直更）
+                        body = UpdateCardElementRequestBody.builder() \
+                            .element(json.dumps(details_el, ensure_ascii=False)) \
+                            .sequence(self.seq + 1) \
+                            .build()
+                        req = UpdateCardElementRequest.builder() \
+                            .card_id(self.card_id) \
+                            .element_id(ELEM_DETAILS) \
+                            .request_body(body).build()
+                        resp = await loop.run_in_executor(
+                            None, self.gw.lark.cardkit.v1.card_element.update, req)
+                        if resp.success():
+                            self._rendered["details"] = details_md
+                        else:
+                            log.error("cardkit replaceElement 失败: %s", resp.msg)
+                            ok = False
+                        self.seq += 1
+                except Exception as e:  # noqa: BLE001
+                    log.warning("cardkit details 更新异常: %s", e)
+                    ok = False
+        elif self._details_present and not details_md:
+            try:
+                body = DeleteCardElementRequestBody.builder() \
+                    .sequence(self.seq + 1).build()
+                req = DeleteCardElementRequest.builder() \
+                    .card_id(self.card_id) \
+                    .element_id(ELEM_DETAILS) \
+                    .request_body(body).build()
+                resp = await loop.run_in_executor(
+                    None, self.gw.lark.cardkit.v1.card_element.delete, req)
+                if resp.success():
+                    self._details_present = False
+                    self._rendered["details"] = ""
+                else:
+                    log.error("cardkit deleteElement 失败: %s", resp.msg)
+                    ok = False
+                self.seq += 1
+            except Exception as e:  # noqa: BLE001
+                log.warning("cardkit details 删除异常: %s", e)
+                ok = False
+
+        # 3. actions 按钮区：动态增/删（状态翻转靠按钮 value 不变，无需 replace）
+        actions_el = self._actions_element()
+        if actions_el is not None and not self._actions_present:
+            try:
+                body = CreateCardElementRequestBody.builder() \
+                    .type("append") \
+                    .elements(json.dumps([actions_el], ensure_ascii=False)) \
+                    .sequence(self.seq + 1) \
+                    .build()
+                req = CreateCardElementRequest.builder() \
+                    .card_id(self.card_id) \
+                    .request_body(body).build()
+                resp = await loop.run_in_executor(
+                    None, self.gw.lark.cardkit.v1.card_element.create, req)
+                if resp.success():
+                    self._actions_present = True
+                else:
+                    log.error("cardkit addActions 失败: %s", resp.msg)
+                    ok = False
+                self.seq += 1
+            except Exception as e:  # noqa: BLE001
+                log.warning("cardkit actions 添加异常: %s", e)
+                ok = False
+        elif actions_el is None and self._actions_present:
+            try:
+                body = DeleteCardElementRequestBody.builder() \
+                    .sequence(self.seq + 1).build()
+                req = DeleteCardElementRequest.builder() \
+                    .card_id(self.card_id) \
+                    .element_id(ELEM_ACTIONS) \
+                    .request_body(body).build()
+                resp = await loop.run_in_executor(
+                    None, self.gw.lark.cardkit.v1.card_element.delete, req)
+                if resp.success():
+                    self._actions_present = False
+                else:
+                    log.error("cardkit deleteActions 失败: %s", resp.msg)
+                    ok = False
+                self.seq += 1
+            except Exception as e:  # noqa: BLE001
+                log.warning("cardkit actions 删除异常: %s", e)
+                ok = False
+
         if not ok:
             self._fail_streak += 1
             if self._fail_streak >= 3:

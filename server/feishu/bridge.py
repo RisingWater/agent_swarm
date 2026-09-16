@@ -67,23 +67,26 @@ async def _on_task_event(workspace_id: str, event: dict) -> None:
     from server import models
 
     # 只推飞书自己下发的任务
+    question = ""
     with Session(engine) as session:
         task = session.get(models.A2aTask, task_id)
         if task is None or task.caller != commands.CALLER:
             return
         workspace_id = task.workspace_id
+        question = str(task.message or "")
 
     chats = _chats_for_task(workspace_id, task_id)
     if not chats:
         return
+    title = _question_title(question) or f"任务 {task_id[:8]}"
     for chat_id in chats:
         card = manager().get(task_id)
         if card is None:
             if event.get("kind") == "artifact-update":
                 continue  # 卡还没建（罕见）；artifact-only 不建卡
-            card = StreamingCard(None, chat_id, task_id, title=f"任务 {task_id[:8]}")
+            card = StreamingCard(None, chat_id, task_id, title=title)
             card.gw = _manager.gw
-            card.status_text = "执行中…"
+            card.status_text = "⏳ 正在生成回复"
             card.header_template = "blue"
             # 常驻中断按钮（working）
             card.actions = [{
@@ -97,6 +100,18 @@ async def _on_task_event(workspace_id: str, event: dict) -> None:
             card.start()
             manager().register(task_id, card)
         _apply_task_event(card, event)
+
+
+def _question_title(question: str) -> str:
+    """卡片标题 = 提问首行（opencode-feishu normalizeReplyTitle 同款截取）。"""
+    import re
+
+    normalized = (question or "").replace("\r", "\n")
+    first = next((ln.strip() for ln in normalized.split("\n") if ln.strip()), "")
+    first = re.sub(r"\s+", " ", first).strip()
+    if not first:
+        return ""
+    return first[:72]
 
 
 def _apply_task_event(card: StreamingCard, event: dict) -> None:
@@ -119,7 +134,7 @@ def _apply_task_event(card: StreamingCard, event: dict) -> None:
         return
 
     if state_ == "input-required":
-        card.update_status("等待应答…", "orange")
+        card.update_status("⏸️ 等待应答…（TUI 或这里）", "orange")
         card.set_actions(_input_required_actions(event, str(event.get("taskId", ""))))
         card.flush_now()
         return
@@ -136,7 +151,7 @@ def _apply_task_event(card: StreamingCard, event: dict) -> None:
         return
     # working 下的流式过程
     if ntype == "reasoning":
-        card.update_reasoning()
+        card.set_reasoning(str(meta.get("text", "")))
     elif ntype == "tool":
         name = str(meta.get("tool", "") or "工具调用")
         st = str(meta.get("tool_state", "running"))
@@ -145,7 +160,6 @@ def _apply_task_event(card: StreamingCard, event: dict) -> None:
         if isinstance(input_, dict):
             detail = str(input_.get("command") or input_.get("cmd") or input_.get("description") or "")
         card.set_tool(str(meta.get("call_id", "")), name, st, detail[:60])
-        card.status_text = "执行工具中…"
     elif ntype == "text":
         mode = str(meta.get("mode", "replace"))
         incoming = str(meta.get("text", ""))
@@ -155,9 +169,9 @@ def _apply_task_event(card: StreamingCard, event: dict) -> None:
             card.set_reply((card.reply_text or "") + incoming)
         else:
             card.set_reply(incoming)
-        card.status_text = "回答中…"
+        card.update_status("⏳ 正在生成回复", "blue")
     elif state_ == "working":
-        card.update_status("执行中…", "blue")
+        card.update_status("⏳ 正在生成回复", "blue")
 
 
 def _input_required_actions(event: dict, task_id: str) -> list[dict]:
@@ -224,7 +238,7 @@ async def _on_monitor_event(workspace_id: str, payload: dict) -> None:
     if not chats:
         return
     # 只推 monitor_on 的窗口（chats_watching_workspace 已按选中+开关过滤）
-    card_title = await _monitor_title(workspace_id, payload)
+    ws_label = await _monitor_title(workspace_id, payload)
     for chat_id in chats:
         card = manager().get(round_key)
         if card is None:
@@ -232,23 +246,24 @@ async def _on_monitor_event(workspace_id: str, payload: dict) -> None:
             # 避免开一张没有提问内容的空卡——注意必须 continue 不能 return，多窗口会互相吞）
             if mtype not in ("user", "user-text"):
                 continue
-            card = StreamingCard(None, chat_id, round_key, title=card_title)
-            card.gw = _manager.gw
-            card.status_text = "新对话"
-            card.header_template = "blue"
             question = str(payload.get("text", ""))
-            if question:
-                card.set_reply(f"**👤 提问**\n{question[:600]}")
+            title = _question_title(question) or ws_label
+            card = StreamingCard(None, chat_id, round_key, title=title)
+            card.gw = _manager.gw
+            card.status_text = "⏳ 正在生成回复"
+            card.header_template = "blue"
             if not await card.open():
                 card.degraded = True
             card.start()
             manager().register(round_key, card)
         if mtype == "user-text":
             q = str(payload.get("text", ""))
-            if q:
-                card.set_reply(f"**👤 提问**\n{q[:600]}")
+            if q and card.title == ws_label:
+                # 开轮时还没拉到提问文本，标题占位是会话标签——首行提问补为标题
+                card.title = _question_title(q) or card.title
+                card._dirty.set()
         elif mtype == "reasoning":
-            card.update_reasoning()
+            card.set_reasoning(str(payload.get("text", "")))
         elif mtype == "tool":
             name = str(payload.get("tool") or payload.get("title") or "工具调用")
             st = str(payload.get("toolState") or "")
@@ -257,13 +272,13 @@ async def _on_monitor_event(workspace_id: str, payload: dict) -> None:
             card.set_tool(call_id, name, st, detail)
         elif mtype == "text":
             card.set_reply(str(payload.get("text", "")))
-            card.status_text = "回答中…"
+            card.update_status("⏳ 正在生成回复", "blue")
         elif mtype in ("permission", "question"):
-            card.update_status("等待应答…（TUI 或这里）", "orange")
+            card.update_status("⏸️ 等待应答…（TUI 或这里）", "orange")
             card.set_actions(_monitor_actions(round_key, mtype, payload))
             card.flush_now()
         elif mtype == "replied":
-            card.update_status("已应答，继续执行…", "blue")
+            card.update_status("✅ 已应答，继续执行…", "blue")
             card.set_actions([])
             card.flush_now()
         elif mtype == "idle":
@@ -286,7 +301,7 @@ def _tool_detail(input_: object) -> str:
 
 
 async def _monitor_title(workspace_id: str, payload: dict) -> str:
-    """监控卡标题：用会话标题（心跳上报的 session_title），可读性优先于会话 id。"""
+    """监控卡标题占位：会话标题（心跳上报）> 会话 id 截断。user-text 到达后会被提问首行替换。"""
     from server.db import engine
     from sqlmodel import Session
     from server import models
@@ -301,7 +316,7 @@ async def _monitor_title(workspace_id: str, payload: dict) -> str:
         pass
     if not title:
         title = f"会话 {str(payload.get('sessionId', ''))[:8]}"
-    return f"👀 {title[:40]} · 实时对话"
+    return f"{title[:40]}（实时）"
 
 
 def _monitor_actions(round_key: str, itype: str, payload: dict) -> list[dict]:
