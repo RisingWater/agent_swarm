@@ -310,13 +310,9 @@ class FeishuGateway:
         except Exception as e:  # noqa: BLE001
             log.error("中断任务失败 %s: %s", task_id[:8], e)
             ok = False
-        card = bridge.manager().get(task_id)
-        if card is not None:
-            if ok:
-                card.finish("canceled")
-            else:
-                card.update_status("中断失败（任务可能已结束）", "grey")
-            card.flush_now()
+        rc = bridge.manager().get(task_id)
+        if rc is not None:
+            rc.abort_result(ok)
 
     async def _handle_card_reply(self, value: dict, open_id: str, chat_id: str) -> None:
         """权限/提问按钮应答：走与 web reply 相同的 DataPart 链路。"""
@@ -352,11 +348,9 @@ class FeishuGateway:
         if not ok:
             await self.send_text(chat_id, f"❌ 应答失败：{msg}")
             return
-        card = bridge.manager().get(task_id)
-        if card is not None:
-            card.update_status("已应答，继续执行…", "blue")
-            card.set_actions([])
-            card.flush_now()
+        rc = bridge.manager().get(task_id)
+        if rc is not None:
+            rc.set_round_buttons([])
 
     async def _handle_select_submit(self, chat_id: str, open_id: str, workspace_id: str) -> tuple[str | None, str]:
         """处理选择提交。返回 (工作区名, 类型)；失败返回 (None, "")（错误已发文本）。"""
