@@ -11,6 +11,7 @@ from server.db import engine
 from sqlmodel import Session
 
 from . import cards, state, workspaces
+from .cards import command_menu_card
 
 log = logging.getLogger("nexus-feishu")
 
@@ -48,23 +49,37 @@ async def handle_message(
     user_id = state.user_id_by_open_id(open_id)
     lower = text.lower()
 
-    # 未绑定：只允许 bind / help，其余一律宣传卡
+    # 未绑定：只允许 bind / help，其余一律宣传卡（/ 开头的其他斜杠命令 → 菜单卡）
     if not user_id:
         if lower.startswith("/swarm bind"):
             await _cmd_bind(chat_id, chat_type, open_id, text, send_text)
         elif lower.startswith("/swarm help") or lower == "/swarm":
             await send_text(chat_id, HELP)
+        elif _is_command_like(lower):
+            await _send_menu(chat_id, chat_type, user_id, send_card)
         else:
             await send_card(chat_id, cards.promo_card())
         return
 
-    # 已绑定指令分发
-    if lower.startswith("/swarm") or lower == "/swarm":
+    # / 开头 = 指令（/swarm 或其他斜杠命令）；其他 → 下发任务
+    if lower.startswith("/"):
         await _dispatch_command(chat_id, chat_type, user_id, open_id, text, send_text, send_card)
         return
 
     # 普通文本 → 下发任务
     await _dispatch_task(chat_id, chat_type, user_id, text, send_text, send_card)
+
+
+def _is_command_like(lower: str) -> bool:
+    """/ 开头且非 /swarm 系 = 其他斜杠命令（/a、/todo…）→ 出命令菜单卡。"""
+    return lower.startswith("/") and not lower.startswith("/swarm")
+
+
+async def _send_menu(chat_id, chat_type, user_id, send_card) -> None:
+    await send_card(chat_id, command_menu_card(
+        _status_lines(chat_id, chat_type, user_id),
+        _available_commands(chat_id, chat_type, user_id),
+    ))
 
 
 async def _cmd_bind(chat_id, chat_type, open_id, text, send_text) -> None:
@@ -89,9 +104,18 @@ async def _cmd_bind(chat_id, chat_type, open_id, text, send_text) -> None:
 
 async def _dispatch_command(chat_id, chat_type, user_id, open_id, text, send_text, send_card) -> None:
     parts = text.split()
-    cmd = parts[1].lower() if len(parts) >= 2 else "help"
+    root = parts[0].lower()
+    cmd = parts[1].lower() if len(parts) >= 2 else ""
     arg = parts[2].lower() if len(parts) >= 3 else ""
 
+    # 非 /swarm 开头的斜杠命令（/a、/todo list…）= 未知命令 → 命令菜单卡
+    if root != "/swarm":
+        await _send_menu(chat_id, chat_type, user_id, send_card)
+        return
+    # "/swarm"（无子命令）→ help
+    if not cmd:
+        await send_text(chat_id, HELP)
+        return
     if cmd == "help":
         await send_text(chat_id, HELP)
     elif cmd == "bind":
@@ -125,10 +149,7 @@ async def _dispatch_command(chat_id, chat_type, user_id, open_id, text, send_tex
     elif cmd == "status":
         await _cmd_status(chat_id, user_id, send_text)
     else:
-        await send_card(chat_id, command_menu_card(
-            _status_lines(chat_id, chat_type, user_id),
-            *_available_commands(chat_id, chat_type, user_id),
-        ))
+        await _send_menu(chat_id, chat_type, user_id, send_card)
 
 
 def _status_lines(chat_id: str, chat_type: str, user_id: str) -> list[str]:
