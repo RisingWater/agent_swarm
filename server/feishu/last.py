@@ -20,12 +20,14 @@ async def send_task_accepted(chat_id: str, snap: dict, send_text) -> None:
 
 
 def _last_task_round(user_id: str, workspace_id: str) -> tuple[models.A2aTask | None, list[dict]]:
-    """取该工作区最近一个任务轮：返回 (task, events)。事件按 id 升序。"""
+    """取该工作区最近一个**轮次**（含前台监控轮 caller=monitor，按 created_at/更新时间最新优先）。
+
+    返回 (task, events)。事件按 id 升序。
+    """
     with Session(engine) as session:
         task = session.exec(
             select(models.A2aTask)
             .where(models.A2aTask.workspace_id == workspace_id)
-            .where(models.A2aTask.caller != "monitor")
             .order_by(models.A2aTask.created_at.desc())  # type: ignore[attr-defined]
         ).first()
         if task is None:
@@ -42,11 +44,24 @@ def _last_task_round(user_id: str, workspace_id: str) -> tuple[models.A2aTask | 
 
 
 def _fmt_tool(ev: dict) -> str | None:
-    meta = (ev.get("metadata") or {}).get("nexus") or {}
-    if meta.get("type") != "tool":
-        return None
-    state_ = meta.get("toolState") or meta.get("state") or ""
-    title = meta.get("title") or meta.get("tool") or "工具调用"
+    """任务事件（metadata.nexus 平级字段）与监控事件（扁平 tool/title/toolState）统一解析。"""
+    meta = (ev.get("metadata") or {}).get("nexus")
+    if isinstance(meta, dict):
+        if meta.get("type") != "tool":
+            return None
+        state_ = str(meta.get("tool_state") or meta.get("toolState") or "")
+        title = str(meta.get("tool") or meta.get("title") or "工具调用")
+        input_ = meta.get("input")
+        if isinstance(input_, dict):
+            cmd = input_.get("command") or input_.get("cmd") or input_.get("description")
+            if cmd:
+                title = f"{title}：{str(cmd)[:60]}"
+    else:
+        # 监控事件：{type:"tool", tool?, title?, toolState?}
+        if ev.get("type") != "tool":
+            return None
+        state_ = str(ev.get("toolState") or ev.get("tool_state") or "")
+        title = str(ev.get("title") or ev.get("tool") or "工具调用")
     icon = {"running": "⚙️", "completed": "✅", "error": "❌"}.get(state_, "⚙️")
     return f"{icon} {title}"
 
@@ -74,14 +89,16 @@ async def send_last(chat_id: str, user_id: str, send_card, send_text) -> None:
     texts: list[str] = []
     for ev in events:
         kind = ev.get("kind")
-        if kind == "monitor":
+        is_monitor_task = task.caller == "monitor"
+        if is_monitor_task:
+            # 监控轮事件 payload 是扁平结构 {type, text, tool, ...}（payload 里没有 kind 字段）
             mtype = ev.get("type", "")
             if mtype == "reasoning":
                 t = ev.get("text", "")
                 if t:
                     thinking.append(t)
             elif mtype == "tool":
-                s = _fmt_tool({"metadata": {"nexus": ev}})
+                s = _fmt_tool(ev)
                 if s:
                     tools.append(s)
             elif mtype == "text":
@@ -89,9 +106,28 @@ async def send_last(chat_id: str, user_id: str, send_card, send_text) -> None:
                 if t:
                     texts.append(t)
         elif kind == "status":
-            meta = (ev.get("metadata") or {}).get("nexus") or {}
-            ntype = meta.get("type", "")
-            if ntype == "reasoning" and meta.get("text"):
+            all_meta = ev.get("metadata") or {}
+            meta = all_meta.get("nexus") or {}
+            meta_dict = all_meta if isinstance(meta, str) else {}
+            ntype = str(meta) if isinstance(meta, str) else meta.get("type", "")
+            if isinstance(meta, str):
+                # A2A 任务事件：metadata.nexus 是字符串标签（text/reasoning/tool），
+                # 细节字段（text/tool/tool_state/input）在 metadata 平级
+                if meta == "reasoning" and meta_dict.get("text"):
+                    thinking.append(meta_dict["text"])
+                elif meta == "tool":
+                    state_ = str(meta_dict.get("tool_state") or "running")
+                    name = str(meta_dict.get("tool") or "工具调用")
+                    input_ = meta_dict.get("input")
+                    if isinstance(input_, dict):
+                        cmd = input_.get("command") or input_.get("cmd") or input_.get("description")
+                        if cmd:
+                            name = f"{name}：{str(cmd)[:60]}"
+                    icon = {"running": "⚙️", "completed": "✅", "error": "❌"}.get(state_, "⚙️")
+                    tools.append(f"{icon} {name}")
+                elif meta == "text" and meta_dict.get("text"):
+                    texts.append(meta_dict["text"])
+            elif ntype == "reasoning" and meta.get("text"):
                 thinking.append(meta["text"])
             elif ntype == "tool":
                 s = _fmt_tool(ev)

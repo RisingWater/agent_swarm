@@ -290,7 +290,7 @@ class FeishuGateway:
     @staticmethod
     def _toast(content: str) -> P2CardActionTriggerResponse:
         resp = P2CardActionTriggerResponse()
-        resp.toast = CallBackToast(card_ids=None, toast_type="success", content=content[:20])
+        resp.toast = CallBackToast({"type": "success", "content": content[:20]})
         return resp
 
     async def _handle_abort(self, value: dict, open_id: str, chat_id: str) -> None:

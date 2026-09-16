@@ -84,8 +84,11 @@ class StreamingCard:
         """创建 cardkit 卡片并发送到聊天。失败返回 False（调用方降级纯文本）。"""
         try:
             loop = asyncio.get_running_loop()
+            # cardkit v1 create 要求 type="card_json" + data=JSON 字符串
+            # （传裸 dict 报 99992402 field validation failed，实测 2026-09-16）
             body = CreateCardRequestBody.builder() \
-                .data(self._schema()) \
+                .type("card_json") \
+                .data(json.dumps(self._schema(), ensure_ascii=False)) \
                 .build()
             req = CreateCardRequest.builder().request_body(body).build()
             resp = await loop.run_in_executor(None, self.gw.lark.cardkit.v1.card.create, req)
@@ -210,12 +213,19 @@ class StreamingCard:
         return "\n".join(self.tool_lines)
 
     def _actions_element(self) -> dict | None:
+        """按钮列：schema 2.0 卡片**不支持 tag:action**，按 opencode-feishu 的
+        column_set/column 包裹（cardkit create 实测 99992402 unsupported tag action）。"""
         if not self.actions:
             return None
         return {
-            "tag": "action",
+            "tag": "column_set",
             "element_id": ELEM_ACTIONS,
-            "actions": self.actions,
+            "flex_mode": "none",
+            "background_style": "default",
+            "columns": [
+                {"tag": "column", "width": "weighted", "weight": 1, "elements": [a]}
+                for a in self.actions
+            ],
         }
 
     async def _render_loop(self) -> None:
@@ -252,9 +262,10 @@ class StreamingCard:
         ok = True
         for elem_id, content in updates:
             try:
+                # sequence 必填（自增，幂等去重用），缺省报 99992402
                 body = ContentCardElementRequestBody.builder() \
                     .content(content) \
-                    .uuid(f"{self.task_id}-{elem_id}-{self.seq}") \
+                    .sequence(self.seq + 1) \
                     .build()
                 req = ContentCardElementRequest.builder() \
                     .card_id(self.card_id) \
@@ -266,10 +277,10 @@ class StreamingCard:
                 if not resp.success():
                     log.error("cardkit element 更新失败 %s: %s", elem_id, resp.msg)
                     ok = False
+                self.seq += 1
             except Exception as e:  # noqa: BLE001
                 log.error("cardkit element 更新异常 %s: %s", elem_id, e)
                 ok = False
-            self.seq += 1
         if not ok:
             self._degrade()
 
