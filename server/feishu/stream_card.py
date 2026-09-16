@@ -67,10 +67,12 @@ class StreamingCard:
         self.seq = 0
         self.closed = False
         self.degraded = False  # cardkit 不可用时降级为纯文本收尾
+        self._fail_streak = 0  # 连续渲染失败计数（瞬时网络抖动容忍 2 次）
         # 视图状态
         self.status_text = "已受理"
         self.reply_text = ""
         self.tool_lines: list[str] = []
+        self._tool_states: dict[str, tuple[str, str, str]] = {}  # callId → (name, state, detail)
         self.actions: list[dict] = []
         self.header_template = RUNNING_TEMPLATES["queued"]
         self._dirty = asyncio.Event()
@@ -162,10 +164,33 @@ class StreamingCard:
         self.status_text = "执行工具中…"
         self._dirty.set()
 
-    def set_reply(self, full_text: str) -> None:
-        if full_text:
-            self.reply_text = full_text
+    def set_tool(self, call_id: str, name: str, state_: str, detail: str = "") -> None:
+        """按 callId 维护工具状态 map（running → completed 原地翻新，对齐 opencode-feishu）。
+
+        相同 (name, state, detail) 的重复事件不置 dirty（插件 part 事件会重放多次，
+        减少 cardkit 调用是防 degraded 的关键——参考 opencode-feishu debounce 设计）。
+        """
+        if not call_id:
+            call_id = f"anon-{len(self._tool_states)}"
+        if self._tool_states.get(call_id) == (name, state_, detail):
+            return
+        self._tool_states[call_id] = (name, state_, detail)
+        self.status_text = "执行工具中…"
         self._dirty.set()
+
+    def _render_tools(self) -> list[str]:
+        """工具区 markdown 行：✅/❌/⚙️ + 工具名 + 命令摘要，稳定顺序按首次出现。"""
+        lines = []
+        for call_id, (name, state_, detail) in self._tool_states.items():
+            icon = {"completed": "✅", "error": "❌"}.get(state_, "⚙️")
+            line = f"{icon} {name}" + (f"：{detail}" if detail else "")
+            lines.append(line)
+        return lines[-12:]
+
+    def set_reply(self, full_text: str) -> None:
+        if full_text and full_text != self.reply_text:
+            self.reply_text = full_text
+            self._dirty.set()
 
     def set_actions(self, actions: list[dict]) -> None:
         self.actions = actions
@@ -208,6 +233,8 @@ class StreamingCard:
         return "_等待 agent 输出…_"
 
     def _tools_md(self) -> str:
+        if self._tool_states:
+            return "\n".join(self._render_tools())
         if not self.tool_lines:
             return " "
         return "\n".join(self.tool_lines)
@@ -279,10 +306,16 @@ class StreamingCard:
                     ok = False
                 self.seq += 1
             except Exception as e:  # noqa: BLE001
-                log.error("cardkit element 更新异常 %s: %s", elem_id, e)
+                # 网络/SSL 抖动等瞬时异常：不更新 sequence，下轮重试；连续 3 轮失败才降级
+                log.warning("cardkit element 更新异常 %s: %s", elem_id, e)
                 ok = False
         if not ok:
-            self._degrade()
+            self._fail_streak += 1
+            if self._fail_streak >= 3:
+                log.error("cardkit 连续 %s 轮更新失败，降级纯文本: %s", self._fail_streak, self.title)
+                self._degrade()
+        else:
+            self._fail_streak = 0
 
     def _degrade(self) -> None:
         """cardkit 更新失败：降级——后续终态用纯文本发一条收尾消息。"""

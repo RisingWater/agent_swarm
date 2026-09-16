@@ -140,27 +140,11 @@ def _apply_task_event(card: StreamingCard, event: dict) -> None:
     elif ntype == "tool":
         name = str(meta.get("tool", "") or "工具调用")
         st = str(meta.get("tool_state", "running"))
-        icon = {"completed": "✅", "error": "❌"}.get(st, "⚙️")
         input_ = meta.get("input")
         detail = ""
         if isinstance(input_, dict):
             detail = str(input_.get("command") or input_.get("cmd") or input_.get("description") or "")
-        line = f"{icon} {name}" + (f"：{detail[:60]}" if detail else "")
-        call_id = str(meta.get("call_id", ""))
-        # 同一 call_id 更新原行（running → completed），否则追加
-        replaced = False
-        if call_id:
-            for i, old in enumerate(card.tool_lines):
-                if f"call:{call_id}" in old:
-                    card.tool_lines[i] = f"{line} call:{call_id}"
-                    replaced = True
-                    break
-            if not replaced:
-                card.append_tool(f"{line} call:{call_id}")
-            else:
-                card._dirty.set()
-        else:
-            card.append_tool(line)
+        card.set_tool(str(meta.get("call_id", "")), name, st, detail[:60])
         card.status_text = "执行工具中…"
     elif ntype == "text":
         mode = str(meta.get("mode", "replace"))
@@ -240,13 +224,15 @@ async def _on_monitor_event(workspace_id: str, payload: dict) -> None:
     if not chats:
         return
     # 只推 monitor_on 的窗口（chats_watching_workspace 已按选中+开关过滤）
+    card_title = await _monitor_title(workspace_id, payload)
     for chat_id in chats:
         card = manager().get(round_key)
         if card is None:
-            # 监控卡懒建：user/user-text 开轮时建
+            # 监控卡懒建：user/user-text 开轮时建（其他事件先到：等 user-text 补齐再建，
+            # 避免开一张没有提问内容的空卡——注意必须 continue 不能 return，多窗口会互相吞）
             if mtype not in ("user", "user-text"):
-                return
-            card = StreamingCard(None, chat_id, round_key, title=f"👀 {payload.get('sessionId', '')[:8]} 实时对话")
+                continue
+            card = StreamingCard(None, chat_id, round_key, title=card_title)
             card.gw = _manager.gw
             card.status_text = "新对话"
             card.header_template = "blue"
@@ -264,10 +250,11 @@ async def _on_monitor_event(workspace_id: str, payload: dict) -> None:
         elif mtype == "reasoning":
             card.update_reasoning()
         elif mtype == "tool":
-            title = payload.get("title") or "工具调用"
-            st = payload.get("toolState") or ""
-            icon = {"completed": "✅", "error": "❌"}.get(st, "⚙️")
-            card.append_tool(f"{icon} {title}")
+            name = str(payload.get("tool") or payload.get("title") or "工具调用")
+            st = str(payload.get("toolState") or "")
+            call_id = str(payload.get("callId") or "")
+            detail = _tool_detail(payload.get("input"))
+            card.set_tool(call_id, name, st, detail)
         elif mtype == "text":
             card.set_reply(str(payload.get("text", "")))
             card.status_text = "回答中…"
@@ -283,6 +270,38 @@ async def _on_monitor_event(workspace_id: str, payload: dict) -> None:
             card.finish("completed")
             card.flush_now()
             asyncio.get_running_loop().call_later(600, lambda: manager().drop(round_key))
+
+
+def _tool_detail(input_: object) -> str:
+    """工具入参摘要（bash→command，其他→description/首字段），对齐任务卡样式。"""
+    if not isinstance(input_, dict):
+        return ""
+    cmd = input_.get("command") or input_.get("cmd") or input_.get("description")
+    if cmd:
+        return str(cmd)[:60]
+    for v in input_.values():
+        if isinstance(v, str) and v.strip():
+            return v[:60]
+    return ""
+
+
+async def _monitor_title(workspace_id: str, payload: dict) -> str:
+    """监控卡标题：用会话标题（心跳上报的 session_title），可读性优先于会话 id。"""
+    from server.db import engine
+    from sqlmodel import Session
+    from server import models
+
+    title = ""
+    try:
+        with Session(engine) as session:
+            ws = session.get(models.Workspace, workspace_id)
+            if ws is not None:
+                title = str(ws.session_title or "")
+    except Exception:  # noqa: BLE001
+        pass
+    if not title:
+        title = f"会话 {str(payload.get('sessionId', ''))[:8]}"
+    return f"👀 {title[:40]} · 实时对话"
 
 
 def _monitor_actions(round_key: str, itype: str, payload: dict) -> list[dict]:
