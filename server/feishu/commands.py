@@ -77,10 +77,15 @@ def _is_command_like(lower: str) -> bool:
 
 
 async def _send_menu(chat_id, chat_type, user_id, send_card) -> None:
-    await send_card(chat_id, command_menu_card(
-        _status_lines(chat_id, chat_type, user_id),
-        _available_commands(chat_id, chat_type, user_id),
-    ))
+    await send_card(chat_id, build_menu_card(chat_id, user_id))
+
+
+def build_menu_card(chat_id: str, user_id: str) -> dict:
+    """按当前状态构建命令菜单卡（gateway toggle 回调原地换卡也用它）。"""
+    return command_menu_card(
+        _status_lines(chat_id, "p2p", user_id),
+        _available_commands(chat_id, "p2p", user_id),
+    )
 
 
 async def _cmd_bind(chat_id, chat_type, open_id, text, send_text) -> None:

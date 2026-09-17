@@ -33,6 +33,10 @@ from lark_oapi.ws.const import (
 
 from . import cards, commands, state
 
+
+async def _null_send(_chat_id: str, _payload: str) -> None:
+    """toggle 按钮路径的哑发送：结果通过回调换卡反馈，不再另发文本/卡。"""
+
 log = logging.getLogger("nexus-feishu")
 
 
@@ -272,8 +276,19 @@ class FeishuGateway:
             # 2) 普通按钮（value 内 action 字段路由）
             act = value.get("action", "")
             if act == "cmd":
-                # 命令菜单按钮：把按钮携带的命令文本回灌 handle_message 重放执行
+                # 命令菜单按钮：把按钮携带的命令文本回灌 handle_message 重放执行。
+                # 开关行（监控/简报）特殊：翻转后用回调返回值原地替换原卡，
+                # 上滑点旧菜单卡也能看到最新状态（不必重新输入 /swarm）。
                 cmd_text = str(value.get("cmd", ""))
+                if cmd_text.startswith("/swarm monitor") or cmd_text.startswith("/swarm brief"):
+                    user_id = state.user_id_by_open_id(operator)
+                    await commands.handle_message(
+                        chat_id, "p2p", operator, cmd_text,
+                        send_text=_null_send, send_card=_null_send,
+                    )
+                    if user_id:
+                        return self._card_response(commands.build_menu_card(chat_id, user_id))
+                    return P2CardActionTriggerResponse()
                 if cmd_text:
                     await commands.handle_message(
                         chat_id, "p2p", operator, cmd_text,
