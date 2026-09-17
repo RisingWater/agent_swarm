@@ -412,13 +412,16 @@ function AccountPage({ toast }: { toast: (m: string) => void }) {
   )
 }
 
-/** 飞书机器人品牌图标（内联 SVG，吸蓝底白字风格） */
+/** 飞书品牌图标（官方 SVG，web/public/feishu.svg） */
 function FeishuIcon({ size = 18 }: { size?: number }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden
-      style={{ borderRadius: 5, background: "#3370ff", flexShrink: 0 }}>
-      <path fill="#fff" d="M6.3 4.5h5.9c1 2.2.4 4.7-1.3 6.3l-1.6 1.5 4.9 5.2c.5.6.1 1.5-.7 1.5H8.9c-.3 0-.5-.1-.7-.3L3.4 13c-.4-.5-.4-1.3 0-1.8l1.9-2.1c-.9-1.6-.8-3.4.1-4.6h.9Zm6.9.1c2.5.4 4.6 2 5.8 4.2l1.6 2.6c.3.5.2 1.1-.2 1.5l-3.7 3.9-4.6-4.9 1.4-1.3c1.2-1.2 1.7-2.9 1.3-4.5l-.6-1.5Z"/>
-    </svg>
+    <img
+      src="/feishu.svg"
+      alt="飞书"
+      width={size}
+      height={size}
+      style={{ borderRadius: 5, flexShrink: 0 }}
+    />
   )
 }
 
