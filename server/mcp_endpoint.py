@@ -345,6 +345,9 @@ def list_workspaces(include_offline: bool = False) -> dict:
 
     Args:
         include_offline: 是否包含离线工作区（默认 false）
+
+    发起互调时：a2a_call 的 from_workspace 参数传**你所在的工作区 ID**
+    （调用方 agent 无法被服务端自动识别，传入后调用记录才会显示真实发起方）。
     """
     user = get_user()
     session = next(get_session())
@@ -384,7 +387,7 @@ CALL_TIMEOUT_SECONDS = int(os.environ.get("AGENT_SWARM_CALL_TIMEOUT", "3600"))
 
 
 @mcp.tool()
-async def a2a_call(target: str, message: str, context_id: str = "") -> dict:
+async def a2a_call(target: str, message: str, context_id: str = "", from_workspace: str = "") -> dict:
     """通过 A2A 协议给另一个 agent 发任务（支持内部工作区与外部 A2A agent）。
 
     用 list_workspaces 找内部工作区（传 workspace ID），或直接传外部 agent 的
@@ -394,12 +397,19 @@ async def a2a_call(target: str, message: str, context_id: str = "") -> dict:
         target: 内部工作区 ID，或外部 A2A agent 端点 URL
         message: 任务指令，尽量具体（涉及文件写绝对路径）
         context_id: 可选，延续之前的会话上下文（多轮任务）
+        from_workspace: 你（发起方）所在的工作区 ID（list_workspaces 可查）。
+            传入后调用记录会显示真实发起方；缺省时发起方标注为"agent（未注明）"
     """
     from server.nexus_a2a import call_external
 
     user = get_user()
     session = next(get_session())
     try:
+        # 发起方校验：必须是当前用户的工作区（防伪造归属）
+        from_ws_valid = False
+        if from_workspace:
+            from_ws = session.get(models.Workspace, from_workspace)
+            from_ws_valid = from_ws is not None and from_ws.user_id == user.id
         if target.startswith("http://") or target.startswith("https://"):
             # 外部 A2A agent：message/send 非流式，等终态返回
             task_id, ctx, status = await call_external(target, message, context_id=context_id)
@@ -408,6 +418,7 @@ async def a2a_call(target: str, message: str, context_id: str = "") -> dict:
                 context_id=ctx,
                 external_url=target,
                 caller="agent",
+                from_workspace_id=from_workspace if from_ws_valid else "",
                 message=message,
                 status=status if status in ("queued", "working", "input-required", "completed", "failed", "canceled") else "working",
             )
@@ -438,6 +449,7 @@ async def a2a_call(target: str, message: str, context_id: str = "") -> dict:
             context_id=context_id or shortuuid.uuid(),
             workspace_id=tgt.id,
             caller="agent",
+            from_workspace_id=from_workspace if from_ws_valid else "",
             message=message,
             status="queued",
         )

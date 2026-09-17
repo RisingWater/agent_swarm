@@ -11,22 +11,29 @@ router = APIRouter(prefix="/api/calls", tags=["calls"])
 
 def call_out(call: models.A2aTask, session: Session) -> dict:
     tgt_ws = session.get(models.Workspace, call.workspace_id) if call.workspace_id else None
-    # 发起方：内部互调 = 目标工作区自身（agent 在该工作区里发起 a2a_call）；
-    # web 中枢/外部 URL = caller 渠道标注（nexus-web / agent / ...）；
-    # monitor（前台监控轮）= 工作区自己（发送和接收都是它）
-    if call.caller == "monitor" and tgt_ws is not None:
+    from_ws = session.get(models.Workspace, call.from_workspace_id) if call.from_workspace_id else None
+    # 发起方优先级：
+    # 1) from_workspace_id（a2a_call 显式传入的真实发起工作区）
+    # 2) monitor（前台监控轮）= 工作区自己（发送和接收都是它）
+    # 3) agent 互调但发起方未注明 → "agent（发起方未注明）"，不再拿目标工作区冒充
+    # 4) 其余 = caller 渠道标注（nexus-web / a2a-client / ...）
+    if from_ws is not None:
+        caller_name = from_ws.name
+        caller_path = from_ws.path
+    elif call.caller == "monitor" and tgt_ws is not None:
         caller_name = f"{tgt_ws.name} (monitor)"
         caller_path = tgt_ws.path
     elif call.workspace_id and call.caller in ("", "agent"):
-        caller_name = f"{tgt_ws.name} (agent)" if tgt_ws else "agent"
-        caller_path = tgt_ws.path if tgt_ws else ""
+        caller_name = "agent（发起方未注明）"
+        caller_path = ""
     else:
         caller_name = call.caller or "a2a-client"
         caller_path = call.external_url or ""
+    caller_id = call.from_workspace_id if from_ws is not None else (call.workspace_id or "")
     return {
         "id": call.id,
         "monitor": call.caller == "monitor",
-        "caller": {"id": call.workspace_id or "", "name": caller_name, "path": caller_path},
+        "caller": {"id": caller_id, "name": caller_name, "path": caller_path},
         "target": {"id": tgt_ws.id, "name": tgt_ws.name, "path": tgt_ws.path} if tgt_ws else None,
         "external_url": call.external_url or None,
         "instruction": call.message,

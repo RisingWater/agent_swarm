@@ -99,6 +99,7 @@ class A2aTask(SQLModel, table=True):
     id: str = Field(primary_key=True)
     context_id: str = Field(index=True)  # A2A contextId（同一会话链多轮任务共享）
     workspace_id: str = Field(default="", index=True)  # 执行方工作区（内部任务）
+    from_workspace_id: str = Field(default="")  # 发起方工作区（agent 互调时由 a2a_call 传入）
     external_url: str = Field(default="")  # 外部 A2A agent 端点（外部任务）
     caller: str = Field(default="")  # 调用方标注（agent / nexus-web / nexus-feishu / ...）
     message: str = Field(default="", sa_column=Column(Text))  # 初始指令文本
