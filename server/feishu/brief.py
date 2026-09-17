@@ -84,14 +84,18 @@ def brief_card(task: models.A2aTask, workspace_name: str) -> dict:
 
 
 async def _on_event(workspace_id: str, event: dict) -> None:
-    if event.get("kind") != "status-update":
-        return
-    status_obj = event.get("status") or {}
-    state_ = str(status_obj.get("state", ""))
-    if state_ not in ("completed", "failed"):
-        return
-    task_id = str(event.get("taskId", ""))
-    if not task_id or not workspace_id:
+    task_id = ""
+    state_ = ""
+    if event.get("kind") == "status-update":
+        # A2A 任务终态事件（web/agent/A2A 下发 + 被顶替的旧前台轮）
+        state_ = str((event.get("status") or {}).get("state", ""))
+        task_id = str(event.get("taskId", ""))
+    elif not event.get("kind") and event.get("type") == "idle":
+        # 监控轮 idle 收尾：handle_monitor_event 通知 listeners 的就是原始监控 payload，
+        # 没有合成的 status-update——简报在这里补抓（否则监控轮完成永远不推简报）
+        state_ = "completed"
+        task_id = str(event.get("roundKey", ""))
+    if state_ not in ("completed", "failed") or not task_id or not workspace_id:
         return
     with Session(engine) as session:
         task = session.get(models.A2aTask, task_id)
