@@ -105,44 +105,47 @@ def select_card(workspaces: list[dict], current_wid: str = "") -> dict:
 
 
 def command_menu_card(status_lines: list[str], state_items: list[tuple[str, str]]) -> dict:
-    """未知指令时的命令菜单卡：头部状态摘要 + 每个合法命令一个按钮，点击即执行。
+    """未知指令时的命令菜单卡：头部状态摘要 + 每个合法命令一行一钮，点击即执行。
 
     status_lines: 状态摘要行（绑定账号/工作区/监控，替代 status 命令）。
     state_items: [(label, command_text)]，由 commands 按当前状态过滤生成。
-    旧版模板卡（promo_card/select_card 同款）：action 按钮布局用 column_set 两列排，
+    旧版模板卡（promo_card/select_card 同款）：每行一个 column_set 单列按钮，
     value.action="cmd" 携带完整命令文本（gateway 路由回 handle_message 执行）。
+    监控/简报开关行做成 toggle 样式：开=primary（蓝），关=default（灰）——
+    飞书卡片不支持原生 switch 组件（switch_element 实测 not support tag）。
     """
     if not state_items:
-        elements = [{
+        elements: list[dict] = [{
             "tag": "div",
             "text": {"tag": "lark_md", "content": "当前没有可用的命令。"},
         }]
     else:
         status_md = "\n".join(status_lines) if status_lines else ""
-        intro = f"{status_md}\n\n---\n\n点击按钮直接执行：" if status_md else "点击按钮直接执行："
+        intro = f"{status_md}\n\n---\n\n点击直接执行：" if status_md else "点击直接执行："
         elements = [{
             "tag": "div",
             "text": {"tag": "lark_md", "content": intro},
         }]
-        buttons = []
         for label, cmd in state_items:
-            buttons.append({
-                "tag": "button",
-                "text": {"tag": "plain_text", "content": label[:20]},
-                "type": "default",
-                "value": {"action": "cmd", "cmd": cmd},
-            })
-        # 按钮两列排布（column_set 支持旧版卡）
-        for i in range(0, len(buttons), 2):
-            row_buttons = buttons[i:i + 2]
+            # 开关行（监控/简报）：按钮自带状态语义，蓝=开（点击关闭），灰=关（点击开启）
+            # 开关行（监控/简报）：label 形如 "监控：开启/关闭"——开=primary 蓝（点击关闭），关=default 灰
+            is_on = label.endswith("开启")
+            btn_type = "primary" if is_on else "default"
             elements.append({
                 "tag": "column_set",
-                "flex_mode": "bisect",
+                "flex_mode": "none",
                 "background_style": "default",
-                "columns": [
-                    {"tag": "column", "width": "weighted", "weight": 1, "elements": [b]}
-                    for b in row_buttons
-                ],
+                "columns": [{
+                    "tag": "column",
+                    "width": "weighted",
+                    "weight": 1,
+                    "elements": [{
+                        "tag": "button",
+                        "text": {"tag": "plain_text", "content": label[:20]},
+                        "type": btn_type,
+                        "value": {"action": "cmd", "cmd": cmd},
+                    }],
+                }],
             })
     return {
         "config": {"wide_screen_mode": True},
