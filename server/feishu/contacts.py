@@ -39,16 +39,17 @@ def resolve_names(gateway, open_ids: list[str]) -> dict[str, str]:
             body = BasicBatchUserRequestBody.builder().user_ids(pending).build()
             req = BasicBatchUserRequest.builder().request_body(body).user_id_type("open_id").build()
             resp = _client.contact.v3.user.basic_batch(req)
+            # 注意：SDK 返回的 data.users 是 BasicUser **列表**（user_id/name 字段），不是 dict
             if resp.success() and resp.data and resp.data.users:
-                users = resp.data.users or {}
+                by_id: dict[str, str] = {}
+                for u in resp.data.users:
+                    uid = (getattr(u, "user_id", "") or "").strip()
+                    name = (getattr(u, "name", "") or "").strip()
+                    if uid:
+                        by_id[uid] = name
                 for oid in pending:
-                    u = users.get(oid)
-                    name = (getattr(u, "name", "") or "").strip() if u is not None else ""
-                    _cache[oid] = name or _fallback(oid)
+                    _cache[oid] = by_id.get(oid) or _fallback(oid)
                     out[oid] = _cache[oid]
-                # 查询响应里没有的 id 也标记回退，避免每次重复请求
-                for oid in pending:
-                    _cache.setdefault(oid, _fallback(oid))
             else:
                 log.warning("飞书用户名解析失败: %s %s", resp.code, resp.msg)
                 for oid in pending:
