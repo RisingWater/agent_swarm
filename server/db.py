@@ -41,6 +41,10 @@ def _migrate() -> None:
             ev_cols = {r[1] for r in con.execute("PRAGMA table_info(a2a_events)")}
             if "round_key" not in ev_cols:
                 con.execute("ALTER TABLE a2a_events ADD COLUMN round_key TEXT DEFAULT ''")
+        if "feishu_chats" in {r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}:
+            chat_cols = {r[1] for r in con.execute("PRAGMA table_info(feishu_chats)")}
+            if "brief_on" not in chat_cols:
+                con.execute("ALTER TABLE feishu_chats ADD COLUMN brief_on INTEGER DEFAULT 1")
         # 旧用户没有明文（哈希不可逆）：补发新 key，旧 key 立即失效
         from server import models
 

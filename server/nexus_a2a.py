@@ -339,9 +339,26 @@ async def handle_monitor_event(workspace_id: str, payload: dict) -> None:
     mtype = str(payload.get("type", ""))
     if not round_key or not mtype:
         return
+    superseded: list[models.A2aTask] = []  # 新轮开轮时被收尾的旧前台轮（事务外通知）
     with Session(engine) as session:
         task = session.get(models.A2aTask, round_key)
         if task is None:
+            # 前台轮唯一性：一个工作区同时只有一个前台轮。新轮开轮时把旧的前台轮
+            # （caller=monitor 且未终态）就地收尾——插件侧 monRounds 直接覆盖旧轮不发
+            # idle，旧轮会永远停在 working，只能靠这里关（idle 先到的已终态，幂等跳过）。
+            stale = session.exec(
+                select(models.A2aTask)
+                .where(models.A2aTask.workspace_id == workspace_id)
+                .where(models.A2aTask.caller == "monitor")
+                .where(models.A2aTask.status.not_in(list(TERMINAL_STATES)))  # type: ignore[attr-defined]
+            ).all()
+            for old in stale:
+                if old.id == round_key:
+                    continue
+                old.status = "completed"
+                old.done_at = models.utcnow()
+                session.add(old)
+                superseded.append(old.model_copy())
             # 轮次首事件：建监控轮任务行（user 开轮；其他事件先到也容忍，文本后补）
             task = models.A2aTask(
                 id=round_key,
@@ -391,6 +408,17 @@ async def handle_monitor_event(workspace_id: str, payload: dict) -> None:
         session.add(task)
         session.commit()
     await _push_web(workspace_id, payload, "monitor")
+    # 被新轮顶替的旧前台轮：web 条目收尾 + 通知内部监听者（feishu 时间线卡 finalize）
+    for old in superseded:
+        ev = {"kind": "status-update", "taskId": old.id,
+              "status": {"state": "completed", "superseded": True}}
+        await _push_web(workspace_id, ev)
+        await _push_web(workspace_id, {"type": "task", "task": {**task_obj(old), "status": "completed"}})
+        for listener in internal_listeners:
+            try:
+                await listener(workspace_id, ev)
+            except Exception:
+                pass
     # 内部监听者（feishu 等）
     for listener in internal_listeners:
         try:

@@ -82,9 +82,13 @@ class FeishuGateway:
 
     async def start(self) -> None:
         self._main_loop = asyncio.get_running_loop()
-        from . import bridge
+        from . import bridge, brief, state
 
         bridge.bind_gateway(self)
+        brief.set_gateway(self)
+        brief.bind_listener()
+        # web 账号页修改窗口设置后主动通知飞书窗口
+        state.set_notify_hook(self.send_text)
         handler = lark.EventDispatcherHandler.builder("", "") \
             .register_p2_im_message_receive_v1(self._bridge(lambda d: self._on_message(d))) \
             .register_p2_card_action_trigger(self._bridge_card(lambda d: self._on_card_action(d))) \
@@ -120,9 +124,10 @@ class FeishuGateway:
     def stop(self) -> None:
         # SDK 未暴露优雅关闭：daemon 线程随进程退出即可；解除事件桥
         try:
-            from . import bridge
+            from . import brief, bridge
 
             bridge.unbind_gateway()
+            brief.unbind_listener()
         except Exception:  # noqa: BLE001
             pass
         log.info("飞书网关停止（随进程）")

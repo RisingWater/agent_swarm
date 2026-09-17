@@ -149,4 +149,5 @@ class FeishuChat(SQLModel, table=True):
     user_id: str = Field(default="", index=True)  # 最后操作者（绑定校验用；群聊=管理员）
     workspace_id: str = Field(default="", index=True)  # 当前选中（空=未选）
     monitor_on: bool = Field(default=False)  # 前台会话监控同步开关（默认关）
+    brief_on: bool = Field(default=True)  # 任务完成简报开关（默认开；飞书自己下发的任务不推）
     updated_at: datetime = Field(default_factory=utcnow)

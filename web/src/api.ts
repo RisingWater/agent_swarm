@@ -130,4 +130,41 @@ export const api = {
       first_id: number
       has_more: boolean
     }>,
+
+  /** 聊天工具绑定（账号页）：绑定分组 + 每窗口的选中工作区/监控/简报设置 */
+  chatBinds: () => request("/api/chat-binds") as Promise<ChatBindInfo>,
+
+  /** 修改窗口设置（切换工作区/监控/简报），飞书端会收到通知 */
+  updateChatBind: (chatId: string, patch: ChatBindPatch) =>
+    request(`/api/chat-binds/${encodeURIComponent(chatId)}`, {
+      method: "PUT",
+      body: JSON.stringify(patch),
+    }) as Promise<ChatBindChat>,
+}
+
+/** 聊天工具绑定 */
+export interface ChatBindChat {
+  chat_id: string
+  chat_type: string
+  workspace_id: string
+  workspace_name: string
+  monitor_on: boolean
+  brief_on: boolean
+}
+
+export interface ChatBindGroup {
+  open_id: string
+  bound_at: string | null
+  chats: ChatBindChat[]
+}
+
+export interface ChatBindInfo {
+  bindings: ChatBindGroup[]
+  unbound_chats: ChatBindChat[]
+}
+
+export interface ChatBindPatch {
+  workspace_id?: string
+  monitor_on?: boolean
+  brief_on?: boolean
 }

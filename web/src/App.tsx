@@ -2,7 +2,16 @@
 import { useEffect, useState, useCallback, useRef, type ReactNode } from "react"
 import Markdown from "react-markdown"
 import remarkGfm from "remark-gfm"
-import { api, pageOrigin, type Workspace, type WorkspaceCall, type User } from "./api"
+import {
+  api,
+  pageOrigin,
+  type Workspace,
+  type WorkspaceCall,
+  type User,
+  type ChatBindInfo,
+  type ChatBindChat,
+  type ChatBindPatch,
+} from "./api"
 
 const maskKey = (k: string) => "*".repeat(k.length - 2) + k.slice(-2)
 
@@ -379,7 +388,7 @@ function LoginPage({ onLogin, onClose }: { onLogin: (token: string) => void; onC
 // ---------------- 账号（左侧二级菜单：API Key / 修改密码） ----------------
 
 function AccountPage({ toast }: { toast: (m: string) => void }) {
-  const [tab, setTab] = useState<"apikey" | "password">("apikey")
+  const [tab, setTab] = useState<"apikey" | "password" | "chatbinds">("apikey")
   return (
     <div className="subpage">
       <aside className="subpage-toc">
@@ -387,14 +396,142 @@ function AccountPage({ toast }: { toast: (m: string) => void }) {
         <a className={`subpage-item${tab === "apikey" ? " active" : ""}`} onClick={() => setTab("apikey")}>
           API Key
         </a>
+        <a className={`subpage-item${tab === "chatbinds" ? " active" : ""}`} onClick={() => setTab("chatbinds")}>
+          聊天工具绑定
+        </a>
         <a className={`subpage-item${tab === "password" ? " active" : ""}`} onClick={() => setTab("password")}>
           修改密码
         </a>
       </aside>
       <div className="subpage-body">
-        {tab === "apikey" ? <ApiKeyPanel toast={toast} /> : <PasswordForm toast={toast} />}
+        {tab === "apikey" && <ApiKeyPanel toast={toast} />}
+        {tab === "chatbinds" && <ChatBindPanel toast={toast} />}
+        {tab === "password" && <PasswordForm toast={toast} />}
       </div>
     </div>
+  )
+}
+
+/** 飞书机器人品牌图标（内联 SVG，吸蓝底白字风格） */
+function FeishuIcon({ size = 18 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden
+      style={{ borderRadius: 5, background: "#3370ff", flexShrink: 0 }}>
+      <path fill="#fff" d="M6.3 4.5h5.9c1 2.2.4 4.7-1.3 6.3l-1.6 1.5 4.9 5.2c.5.6.1 1.5-.7 1.5H8.9c-.3 0-.5-.1-.7-.3L3.4 13c-.4-.5-.4-1.3 0-1.8l1.9-2.1c-.9-1.6-.8-3.4.1-4.6h.9Zm6.9.1c2.5.4 4.6 2 5.8 4.2l1.6 2.6c.3.5.2 1.1-.2 1.5l-3.7 3.9-4.6-4.9 1.4-1.3c1.2-1.2 1.7-2.9 1.3-4.5l-.6-1.5Z"/>
+    </svg>
+  )
+}
+
+function ChatBindPanel({ toast }: { toast: (m: string) => void }) {
+  const [info, setInfo] = useState<ChatBindInfo | null>(null)
+  const [workspaces, setWorkspaces] = useState<Workspace[]>([])
+  const [saving, setSaving] = useState("")
+
+  const refresh = useCallback(() => {
+    api.chatBinds().then(setInfo).catch((e) => toast(e.message))
+  }, [toast])
+  useEffect(() => {
+    refresh()
+    api.workspaces().then(setWorkspaces).catch(() => {})
+  }, [refresh])
+
+  const update = async (chatId: string, patch: ChatBindPatch) => {
+    setSaving(chatId)
+    try {
+      await api.updateChatBind(chatId, patch)
+      toast("已保存，飞书端会收到通知")
+      refresh()
+    } catch (e: any) {
+      toast(e.message)
+    } finally {
+      setSaving("")
+    }
+  }
+
+  const onlineWs = workspaces.filter((w) => w.status === "online")
+
+  const renderChat = (c: ChatBindChat) => (
+    <div key={c.chat_id} style={{
+      border: "1px solid var(--border)", borderRadius: 8, padding: "10px 14px",
+      marginBottom: 10, display: "flex", flexDirection: "column", gap: 8,
+      opacity: saving === c.chat_id ? 0.6 : 1,
+    }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
+        <span style={{ color: "var(--text-weak)" }}>
+          {c.chat_type === "group" ? "群聊" : "私聊"} · {c.chat_id.slice(0, 14)}…
+        </span>
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+        <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13 }}>
+          工作区
+          <select
+            value={c.workspace_id}
+            onChange={(e) => update(c.chat_id, { workspace_id: e.target.value })}
+            style={{ padding: "4px 8px", borderRadius: 6, border: "1px solid var(--border)", background: "var(--bg)" }}
+          >
+            <option value="">（未选择）</option>
+            {workspaces.map((w) => (
+              <option key={w.id} value={w.id}>
+                {w.name}（{w.agent_type || "未知"}{w.status === "online" ? "" : "，离线"}）
+              </option>
+            ))}
+          </select>
+        </label>
+        <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, cursor: "pointer" }}>
+          <input
+            type="checkbox"
+            checked={c.monitor_on}
+            onChange={(e) => update(c.chat_id, { monitor_on: e.target.checked })}
+          />
+          监控模式{c.monitor_on ? "（开）" : "（关）"}
+        </label>
+        <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, cursor: "pointer" }}>
+          <input
+            type="checkbox"
+            checked={c.brief_on}
+            onChange={(e) => update(c.chat_id, { brief_on: e.target.checked })}
+          />
+          简报模式{c.brief_on ? "（开）" : "（关）"}
+        </label>
+      </div>
+      {onlineWs.length === 0 && workspaces.length > 0 && (
+        <span style={{ fontSize: 12, color: "var(--text-weak)" }}>当前没有在线的工作区（下拉仍可选择，任务会在工作区上线后可派发）</span>
+      )}
+    </div>
+  )
+
+  if (!info) return <p className="section-label">[ loading… ]</p>
+  if (!info.bindings.length && !info.unbound_chats.length) {
+    return (
+      <>
+        <p className="section-label">[ 聊天工具绑定 ]</p>
+        <p style={{ fontSize: 13, color: "var(--text-weak)" }}>
+          还没有绑定聊天工具。在飞书里给机器人发送 <code>/swarm bind as_你的密钥</code> 完成绑定
+          （密钥在「API Key」页复制），绑定后这里会显示绑定账号与窗口设置。
+        </p>
+      </>
+    )
+  }
+  return (
+    <>
+      <p className="section-label">[ 聊天工具绑定 ]</p>
+      {info.bindings.map((g) => (
+        <div key={g.open_id} style={{ marginBottom: 22 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+            <FeishuIcon />
+            <b style={{ fontSize: 14 }}>飞书</b>
+            <span style={{ fontSize: 12, color: "var(--text-weak)" }}>
+              {g.open_id.slice(0, 12)}… · {g.chats.length} 个窗口
+            </span>
+          </div>
+          {g.chats.map(renderChat)}
+        </div>
+      ))}
+      <p style={{ fontSize: 12, color: "var(--text-weak)", marginTop: 4 }}>
+        修改会即时生效，飞书窗口会收到一条变更通知。监控模式 = TUI 对话按时间线实时同步；
+        简报模式 = 任务完成后推送一张结果摘要卡。
+      </p>
+    </>
   )
 }
 
@@ -624,6 +761,13 @@ function HomePage({ toast, loggedIn, onGoAccount, onOpenLogin, onGoDocs }: { toa
           </div>
           <div className="home-card">
             <div className="home-card-head">
+              <FeatureIcon kind="chat" />
+              <h3>即时聊天工具接入</h3>
+            </div>
+            <p>绑定飞书后，直接在聊天里给 agent 派任务：按轮次时间线实时围观思考与工具调用，任务完成后收到<b>结果简报</b>，权限请求远程点选应答。</p>
+          </div>
+          <div className="home-card">
+            <div className="home-card-head">
               <FeatureIcon kind="pulse" />
               <h3>在线状态与心跳</h3>
             </div>
@@ -647,6 +791,7 @@ function HomePage({ toast, loggedIn, onGoAccount, onOpenLogin, onGoDocs }: { toa
           <li>让一个 agent 去另一个仓库执行测试、汇总结果</li>
           <li>在网页「中枢」里给任意在线 agent 直接下达指令，实时围观它干活</li>
           <li>开启监控模式，把 TUI 里和 agent 的日常对话实时同步到网页，随时远程回看</li>
+          <li>绑定飞书等即时聊天工具，在聊天里派活、看进度、收完成简报</li>
           <li>集中管理所有 AI 工作区的用途说明、备注与在线状态</li>
           <li>回溯每一次跨 agent 调用的指令与结果（调用记录）</li>
         </ul>
@@ -814,7 +959,7 @@ function SupportedAgents() {
 }
 
 /** 特性卡黑白线性图标（与 SwarmMark 同风格：currentColor 描边） */
-function FeatureIcon({ kind }: { kind: "mcp" | "swarm" | "pulse" | "shield" | "terminal" | "eye" }) {
+function FeatureIcon({ kind }: { kind: "mcp" | "swarm" | "pulse" | "shield" | "terminal" | "eye" | "chat" }) {
   const common = {
     width: 22,
     height: 22,
@@ -826,6 +971,14 @@ function FeatureIcon({ kind }: { kind: "mcp" | "swarm" | "pulse" | "shield" | "t
     strokeLinejoin: "round" as const,
     "aria-hidden": true,
   }
+  if (kind === "chat")
+    return (
+      <svg {...common}>
+        {/* 聊天气泡 = 即时聊天工具接入 */}
+        <path d="M21 12a8 8 0 0 1-8 8H4l2.5-2.5A8 8 0 1 1 21 12Z" />
+        <path d="M8.5 10.5h7M8.5 14h4.5" />
+      </svg>
+    )
   if (kind === "mcp")
     return (
       <svg {...common}>
@@ -887,6 +1040,7 @@ const DOC_SECTIONS = [
   { id: "register", title: "注册工作区" },
   { id: "concepts", title: "核心概念" },
   { id: "commands", title: "命令" },
+  { id: "chat", title: "即时聊天工具" },
   { id: "mcp", title: "MCP 工具" },
   { id: "web", title: "Web 管理" },
   { id: "faq", title: "FAQ" },
@@ -1094,6 +1248,59 @@ agent: (a2a_call) → 对方 TUI 实时出现任务 → 执行 → 结果自动�
               <tr><td>权限 / 提问实时应答（input-required）</td><td>✅</td><td>—</td></tr>
             </tbody>
           </table>
+        </section>
+
+        <section id="doc-chat" className="docs-section">
+          <h2>即时聊天工具</h2>
+          <p>
+            把虫群接进你日常使用的聊天工具：在聊天里直接给 agent 派任务、实时围观
+            思考与工具调用的时间线，任务完成后收到<b>结果简报</b>，权限请求/AI 提问
+            直接点按钮应答。所有设置也可以在网页「账号 → 聊天工具绑定」里管理。
+          </p>
+          <h3>支持的聊天工具</h3>
+          <table>
+            <thead><tr><th>聊天工具</th><th>绑定方式</th><th>能力</th></tr></thead>
+            <tbody>
+              <tr>
+                <td>飞书</td>
+                <td>给机器人发 <code>/swarm bind as_你的密钥</code>（密钥在「API Key」页复制）</td>
+                <td>派任务 / 时间线直播 / 完成简报 / 监控同步 / 权限应答</td>
+              </tr>
+            </tbody>
+          </table>
+          <h3>聊天命令</h3>
+          <p>
+            在聊天窗口里发送以下命令（<code>/swarm</code> + 未知命令会返回一张
+            <b>命令菜单卡</b>，按当前状态列出可点按钮，点一下即执行）：
+          </p>
+          <table>
+            <thead><tr><th>命令</th><th>说明</th></tr></thead>
+            <tbody>
+              <tr><td><code>/swarm bind as_xxx</code></td><td>绑定平台账号（API Key 页复制的密钥）</td></tr>
+              <tr><td><code>/swarm unbind</code></td><td>解绑账号</td></tr>
+              <tr><td><code>/swarm list</code></td><td>列出我的工作区（在线/类型）</td></tr>
+              <tr><td><code>/swarm select</code></td><td>选择当前窗口使用的工作区（下拉卡）</td></tr>
+              <tr><td><code>/swarm status</code></td><td>当前绑定/工作区/监控/简报状态</td></tr>
+              <tr><td><code>/swarm monitor on|off</code></td><td>前台会话实时同步：开启后 TUI 里的对话按时间线推到这个窗口（默认关）</td></tr>
+              <tr><td><code>/swarm brief on|off</code></td><td>任务完成简报：工作区的任务（网页/agent/A2A 下发）完成后推一张结果卡片（默认开）</td></tr>
+              <tr><td><code>/swarm last</code></td><td>最近一轮问答摘要（单卡：提问 + 最终回答）</td></tr>
+            </tbody>
+          </table>
+          <h3>两种推送模式</h3>
+          <ul>
+            <li>
+              <b>时间线直播（监控模式）</b>——你在 TUI 里和 agent 的对话按轮次推成一组小卡：
+              用户卡 → 💭 思考过程 → 每个工具调用一张卡（命令/输出）→ 🤖 最终答复，权限请求直接点按钮。
+            </li>
+            <li>
+              <b>完成简报（简报模式，默认开）</b>——网页中枢、其他 agent、A2A 外部调用下发的任务
+              完成或失败后，推一张摘要卡（来源/提问/回答）。当前窗口开着监控时，该工作区的监控轮
+              不再重复发简报（时间线已是全程详情）。
+            </li>
+          </ul>
+          <p>
+            直接发普通文本 = 给当前选中的工作区派任务；未选择工作区时会先弹出选择卡。
+          </p>
         </section>
 
         <section id="doc-mcp" className="docs-section">

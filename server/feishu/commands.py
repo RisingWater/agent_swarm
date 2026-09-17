@@ -24,6 +24,7 @@ HELP = """🐝 **agent_swarm 指令**
 /swarm select — 选择当前窗口使用的工作区
 /swarm status — 当前状态
 /swarm monitor on|off — 前台会话实时同步开关（默认关）
+/swarm brief on|off — 任务完成简报开关（默认开）
 /swarm last — 最后一次问答细节
 
 绑定后直接发文本 = 给选中工作区派任务。"""
@@ -139,21 +140,19 @@ async def _dispatch_command(chat_id, chat_type, user_id, open_id, text, send_tex
     elif cmd == "select":
         rows = workspaces.list_workspaces(user_id)
         await send_card(chat_id, cards.select_card(rows))
-    elif cmd == "status":
-        await _cmd_status(chat_id, user_id, send_text)
     elif cmd == "monitor":
         await _cmd_monitor(chat_id, chat_type, user_id, arg, send_text)
+    elif cmd == "brief":
+        await _cmd_brief(chat_id, chat_type, user_id, arg, send_text)
     elif cmd == "last":
         from .last import send_last
         await send_last(chat_id, user_id, send_card, send_text)
-    elif cmd == "status":
-        await _cmd_status(chat_id, user_id, send_text)
     else:
         await _send_menu(chat_id, chat_type, user_id, send_card)
 
 
 def _status_lines(chat_id: str, chat_type: str, user_id: str) -> list[str]:
-    """菜单卡头部状态行：绑定账号 / 关联工作区 / 监控开关（未绑定返回空）。"""
+    """菜单卡头部状态行：绑定账号 / 关联工作区 / 监控与简报开关（未绑定返回空）。"""
     if not user_id:
         return []
     lines = []
@@ -169,7 +168,9 @@ def _status_lines(chat_id: str, chat_type: str, user_id: str) -> list[str]:
         icon = "🟢" if online else "⚪"
         lines.append(f"{icon} {ws.name}（{ws.agent_type or '未知'}）— {'在线' if online else '离线'}")
         chat = state.get_chat(chat_id)
-        lines.append(f"👀 监控：{'开' if chat and chat.monitor_on else '关'}")
+        monitor = "开" if chat and chat.monitor_on else "关"
+        brief = "开" if chat is None or chat.brief_on else "关"
+        lines.append(f"👀 监控：{monitor} · 📨 简报：{brief}")
     return lines
 
 
@@ -195,6 +196,12 @@ def _available_commands(chat_id: str, chat_type: str, user_id: str) -> list[tupl
             if monitor_on else ("监控：开启", "/swarm monitor on")
         )
         items.append(("最后一次问答", "/swarm last"))
+    # 简报默认开，未选中工作区也可切换（对新选中的工作区生效）
+    brief_on = bool(chat is None or chat.brief_on)
+    items.append(
+        ("简报：关闭", "/swarm brief off")
+        if brief_on else ("简报：开启", "/swarm brief on")
+    )
     return items
 
 
@@ -208,7 +215,8 @@ async def _cmd_status(chat_id, user_id, send_text) -> None:
         online = ws_online(ws.id)
         icon = "🟢" if online else "⚪"
         lines.append(f"{icon} {ws.name}（{ws.agent_type or '未知'}）— {'在线' if online else '离线'}")
-        lines.append(f"👀 监控：{'开' if chat and chat.monitor_on else '关'}")
+        brief = "开" if chat is None or chat.brief_on else "关"
+        lines.append(f"👀 监控：{'开' if chat and chat.monitor_on else '关'} · 📨 简报：{brief}")
     await send_text(chat_id, "\n".join(lines))
 
 
@@ -225,6 +233,17 @@ async def _cmd_monitor(chat_id, chat_type, user_id, arg, send_text) -> None:
         await send_text(chat_id, "已关闭前台会话实时同步。")
     else:
         await send_text(chat_id, "用法：`/swarm monitor on` 或 `/swarm monitor off`")
+
+
+async def _cmd_brief(chat_id, chat_type, user_id, arg, send_text) -> None:
+    if arg == "on":
+        state.update_chat(chat_id, chat_type, user_id, brief_on=True)
+        await send_text(chat_id, "📨 已开启任务完成简报：工作区的任务（网页/agent/A2A 下发）完成后会推送结果卡片。")
+    elif arg == "off":
+        state.update_chat(chat_id, chat_type, user_id, brief_on=False)
+        await send_text(chat_id, "已关闭任务完成简报。")
+    else:
+        await send_text(chat_id, "用法：`/swarm brief on` 或 `/swarm brief off`")
 
 
 def _current_ws(chat_id: str, user_id: str) -> models.Workspace | None:

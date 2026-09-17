@@ -96,8 +96,44 @@ def chats_watching_workspace(workspace_id: str) -> list[models.FeishuChat]:
         ).all())
 
 
+def brief_chats_for_workspace(workspace_id: str, exclude_chat_ids: set[str]) -> list[models.FeishuChat]:
+    """简报推送目标：选中该工作区、brief_on 且不在排除列表的窗口。"""
+    with Session(engine) as session:
+        rows = list(session.exec(
+            select(models.FeishuChat).where(
+                models.FeishuChat.workspace_id == workspace_id,
+                models.FeishuChat.brief_on == True,  # noqa: E712
+            )
+        ).all())
+    return [r for r in rows if r.chat_id not in exclude_chat_ids]
+
+
+# web 端修改窗口设置后的飞书通知 hook（gateway.start 时注入 send_text）
+_notify_hook = None
+
+
+def set_notify_hook(fn) -> None:
+    global _notify_hook
+    _notify_hook = fn
+
+
+async def notify_chat(chat_id: str, text: str) -> None:
+    """web 端修改设置后主动通知对应飞书窗口；hook 未注册（网关未启动）时静默跳过。"""
+    if _notify_hook is None:
+        return
+    try:
+        await _notify_hook(chat_id, text)
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def chat_bindings_for_user(user_id: str) -> list[models.FeishuChat]:
     with Session(engine) as session:
         return list(session.exec(
             select(models.FeishuChat).where(models.FeishuChat.user_id == user_id)
         ).all())
+
+
+def chats_for_user(user_id: str) -> list[models.FeishuChat]:
+    """web 账号页：该用户名下所有聊天窗口（含未选工作区的）。"""
+    return chat_bindings_for_user(user_id)
