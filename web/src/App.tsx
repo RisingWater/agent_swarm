@@ -522,9 +522,9 @@ function ChatBindPanel({ toast }: { toast: (m: string) => void }) {
         <div key={g.open_id} style={{ marginBottom: 22 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
             <FeishuIcon />
-            <b style={{ fontSize: 14 }}>飞书</b>
+            <b style={{ fontSize: 14 }}>飞书{g.feishu_name ? ` · ${g.feishu_name}` : ""}</b>
             <span style={{ fontSize: 12, color: "var(--text-weak)" }}>
-              {g.open_id.slice(0, 12)}… · {g.chats.length} 个窗口
+              {g.feishu_name ? g.open_id.slice(0, 12) + "…" : ""}{g.chats.length} 个窗口
             </span>
           </div>
           {g.chats.map(renderChat)}

@@ -10,7 +10,7 @@ from sqlmodel import Session, select
 from server import models
 from server.auth import get_current_user
 from server.db import get_session
-from server.feishu import state
+from server.feishu import contacts, state
 
 router = APIRouter(prefix="/api/chat-binds", tags=["chat-binds"])
 
@@ -46,9 +46,14 @@ def list_chat_binds(
     chats = session.exec(
         select(models.FeishuChat).where(models.FeishuChat.user_id == user.id)
     ).all()
+    # open_id → 飞书真实用户名（contact:user.basic_profile:readonly；未授权/失败回退 id 前缀）
+    from server.feishu.brief import _gw_ref
+
+    names = contacts.resolve_names(_gw_ref(), [b.open_id for b in bindings])
     # 窗口按 user_id 维度归属（无 open_id 列）：有绑定时全部归绑定组，否则归 unbound
     groups = [{
         "open_id": b.open_id,
+        "feishu_name": names.get(b.open_id, ""),
         "bound_at": b.bound_at.isoformat() if b.bound_at else None,
         "chats": [_chat_out(c, session) for c in chats],
     } for b in bindings]

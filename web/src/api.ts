@@ -154,6 +154,8 @@ export interface ChatBindChat {
 
 export interface ChatBindGroup {
   open_id: string
+  /** 飞书真实用户名（权限不可用/解析失败时为空，前端回退 open_id 前缀） */
+  feishu_name: string
   bound_at: string | null
   chats: ChatBindChat[]
 }
