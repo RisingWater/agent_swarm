@@ -109,11 +109,18 @@ async def _on_event(workspace_id: str, event: dict) -> None:
         if ws is not None:
             ws_name = ws.name
         card_task = task.model_copy()
-    # 监控轮：monitor_on 的窗口有时间线详情，排除掉；其他窗口照发简报
-    exclude: set[str] = set()
-    if card_task.caller == "monitor":
-        exclude = {c.chat_id for c in state.chats_watching_workspace(workspace_id)}
-    chats = state.brief_chats_for_workspace(workspace_id, exclude)
+    # 排除规则：
+    # 1) 开了监控的窗口对**其选中的工作区**不收简报（监控时间线已是全程详情）——
+    #    对其他工作区的任务仍收简报
+    # 2) 监控轮（caller=monitor）在其选中工作区上开监控的窗口本来就被规则 1 排除，
+    #    简报发给其余 brief_on 窗口
+    # 简报是全局的：brief_on 的所有窗口都收，不按"选中工作区"过滤
+    exclude = {
+        c.chat_id
+        for c in state.chats_watching_workspace(workspace_id)
+        if c.workspace_id == workspace_id
+    }
+    chats = state.brief_chats_all(exclude)
     if not chats:
         return
     gw = _gw_ref()

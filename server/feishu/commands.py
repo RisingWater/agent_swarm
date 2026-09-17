@@ -80,12 +80,15 @@ async def _send_menu(chat_id, chat_type, user_id, send_card) -> None:
     await send_card(chat_id, build_menu_card(chat_id, user_id))
 
 
-def build_menu_card(chat_id: str, user_id: str) -> dict:
-    """按当前状态构建命令菜单卡（gateway toggle 回调原地换卡也用它）。"""
-    return command_menu_card(
-        _status_lines(chat_id, "p2p", user_id),
-        _available_commands(chat_id, "p2p", user_id),
-    )
+def build_menu_card(chat_id: str, user_id: str, notice: str = "") -> dict:
+    """按当前状态构建命令菜单卡（gateway toggle 回调原地换卡也用它）。
+
+    notice: 顶部提示行（如 toggle 点击后的"切换成功…"），空则不显示。
+    """
+    status = _status_lines(chat_id, "p2p", user_id)
+    if notice:
+        status = [f"✅ {notice}", *status]
+    return command_menu_card(status, _available_commands(chat_id, "p2p", user_id))
 
 
 async def _cmd_bind(chat_id, chat_type, open_id, text, send_text) -> None:

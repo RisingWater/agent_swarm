@@ -287,7 +287,13 @@ class FeishuGateway:
                         send_text=_null_send, send_card=_null_send,
                     )
                     if user_id:
-                        return self._card_response(commands.build_menu_card(chat_id, user_id))
+                        # 提示行 + 原卡替换：点击后菜单卡显示"切换成功，当前为 xx"
+                        parts = cmd_text.split()
+                        kind_name = "监控模式" if parts[1] == "monitor" else "简报模式"
+                        turned_on = len(parts) > 2 and parts[2] == "on"
+                        notice = f"切换成功，{kind_name}已{'打开' if turned_on else '关闭'}"
+                        return self._card_response(
+                            commands.build_menu_card(chat_id, user_id, notice=notice))
                     return P2CardActionTriggerResponse()
                 if cmd_text:
                     await commands.handle_message(

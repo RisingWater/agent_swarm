@@ -96,8 +96,19 @@ def chats_watching_workspace(workspace_id: str) -> list[models.FeishuChat]:
         ).all())
 
 
+def brief_chats_all(exclude_chat_ids: set[str]) -> list[models.FeishuChat]:
+    """简报推送目标：brief_on 的所有窗口（简报是全局的，不按选中工作区过滤）。"""
+    with Session(engine) as session:
+        rows = list(session.exec(
+            select(models.FeishuChat).where(
+                models.FeishuChat.brief_on == True,  # noqa: E712
+            )
+        ).all())
+    return [r for r in rows if r.chat_id not in exclude_chat_ids]
+
+
 def brief_chats_for_workspace(workspace_id: str, exclude_chat_ids: set[str]) -> list[models.FeishuChat]:
-    """简报推送目标：选中该工作区、brief_on 且不在排除列表的窗口。"""
+    """按选中工作区过滤的简报目标（保留备用：工作区维度定向推送）。"""
     with Session(engine) as session:
         rows = list(session.exec(
             select(models.FeishuChat).where(
