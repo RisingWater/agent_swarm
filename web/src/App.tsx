@@ -15,6 +15,30 @@ import {
 
 const maskKey = (k: string) => "*".repeat(k.length - 2) + k.slice(-2)
 
+/** 复制文本到剪贴板。navigator.clipboard 仅在安全上下文（HTTPS/localhost）存在，
+ *  自托管部署常用 http://IP:port 访问 → 回退 execCommand 方案。返回是否成功。 */
+async function copyText(text: string): Promise<boolean> {
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text)
+      return true
+    }
+  } catch { /* 落到 fallback */ }
+  try {
+    const ta = document.createElement("textarea")
+    ta.value = text
+    ta.style.position = "fixed"
+    ta.style.opacity = "0"
+    document.body.appendChild(ta)
+    ta.select()
+    const ok = document.execCommand("copy")
+    document.body.removeChild(ta)
+    return ok
+  } catch {
+    return false
+  }
+}
+
 /** 结果文本（多为 markdown）渲染；无内容返回 null */
 function Md({ text }: { text: string | null | undefined }) {
   if (!text?.trim()) return null
@@ -567,9 +591,8 @@ function ApiKeyPanel({ toast }: { toast: (m: string) => void }) {
         <Btn variant="icon" title={showKey ? "hide" : "show"} onClick={() => setShowKey(!showKey)}>
           <EyeIcon off={!showKey} />
         </Btn>
-        <Btn variant="icon" title="copy" onClick={() => {
-          navigator.clipboard.writeText(key)
-          toast("已复制")
+        <Btn variant="icon" title="copy" onClick={async () => {
+          toast(await copyText(key) ? "已复制" : "复制失败，请手动选择复制")
         }}>⧉</Btn>
         <ConfirmWrap text="重置后旧 Key 立即失效，所有 agent 将断开连接。确认？" onOk={reset}>
           <Btn size="sm" variant="danger">reset</Btn>
@@ -701,9 +724,8 @@ function HomePage({ toast, loggedIn, onGoAccount, onOpenLogin, onGoDocs }: { toa
             {loggedIn && !key ? "# 正在获取 api key…" : installCmd}
           </span>
           {loggedIn && (
-            <Btn variant="icon" title="copy" onClick={() => {
-              navigator.clipboard.writeText(installCmd)
-              toast("安装命令已复制")
+            <Btn variant="icon" title="copy" onClick={async () => {
+              toast(await copyText(installCmd) ? "安装命令已复制" : "复制失败，请手动选择复制")
             }}>⧉</Btn>
           )}
         </div>
