@@ -1,12 +1,11 @@
 # 构建服务端 Docker 镜像并推送到 GHCR（GitHub Container Registry，GitHub 官方镜像仓库）。
 #
 # 触发：
-# - push 到 dev 分支 → ghcr.io/risingwater/agent-swarm:dev
 # - push tag v*      → ghcr.io/risingwater/agent-swarm:v1.2.3 + :latest
-# - 手动触发（workflow_dispatch）
+# - 手动触发（workflow_dispatch，默认出 :dev）
 #
 # 镜像拉取（服务器上）:
-#   docker pull ghcr.io/risingwater/agent-swarm:dev
+#   docker pull ghcr.io/risingwater/agent-swarm:latest
 # 私有仓库首次拉取需登录：
 #   echo <GITHUB_TOKEN> | docker login ghcr.io -u <用户名> --password-stdin
 
@@ -14,7 +13,6 @@ name: docker-image
 
 on:
   push:
-    branches: [dev]
     tags: ["v*"]
   workflow_dispatch:
 
@@ -48,9 +46,9 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=ref,event=branch
             type=semver,pattern={{version}}
             type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+            type=raw,value=dev,enable=${{ github.event_name == 'workflow_dispatch' }}
 
       - name: Build and push
         uses: docker/build-push-action@v6
