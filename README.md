@@ -56,7 +56,7 @@ Build the image locally:
 docker build -t agent-swarm -f docker/Dockerfile .
 ```
 
-> Versioning: pushing a `v*` tag publishes `:latest` plus a version tag; a manual run from the Actions page publishes `:dev`.
+> Versioning: pushing a `v*` / `release*` tag publishes `:latest` plus a version tag; `alpha*` / `beta*` tags publish pre-release tags; a manual run from the Actions page publishes `:dev`.
 
 ### Option 2: Run from source
 

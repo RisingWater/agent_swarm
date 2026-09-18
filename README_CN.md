@@ -54,7 +54,7 @@ docker run -d --name agent-swarm -p 8700:8700 \
 docker build -t agent-swarm -f docker/Dockerfile .
 ```
 
-> 版本策略：push `v*` tag → `:latest` + 版本号 tag；Actions 页手动触发 → `:dev`。
+> 版本策略：push `v*` / `release*` tag → `:latest` + 版本号 tag；`alpha*` / `beta*` tag → 预发布 tag；Actions 页手动触发 → `:dev`。
 
 ### 方式二：源码启动
 
