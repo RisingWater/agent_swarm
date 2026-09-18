@@ -2,10 +2,15 @@
 import { useCallback, useEffect, useState } from "react"
 import { adminApi, type AdminStats, type AdminUser, type AdminWorkspace } from "./api"
 import { copyText } from "./copy"
-import { Btn, Modal } from "./App"
+import { Btn, Modal, SearchBox } from "./App"
 
 function fmtDate(iso: string): string {
   return iso.slice(0, 10)
+}
+
+/** 大小写不敏感子串匹配 */
+function hit(haystack: unknown, q: string): boolean {
+  return !q || String(haystack ?? "").toLowerCase().includes(q.toLowerCase())
 }
 
 /** 近 30 天指令折线（内联 SVG，零依赖） */
@@ -115,6 +120,8 @@ function PanelPage({ toast, onLogout }: { toast: (m: string) => void; onLogout: 
   const [users, setUsers] = useState<AdminUser[]>([])
   const [workspaces, setWorkspaces] = useState<AdminWorkspace[]>([])
   const [resetPwd, setResetPwd] = useState<{ user: string; password: string } | null>(null)
+  const [userQuery, setUserQuery] = useState("")
+  const [wsQuery, setWsQuery] = useState("")
 
   const refresh = useCallback(() => {
     adminApi.stats().then(setStats).catch((e) => toast(e.message))
@@ -166,10 +173,13 @@ function PanelPage({ toast, onLogout }: { toast: (m: string) => void; onLogout: 
         {tab === "users" && (
           <>
             <p className="section-label">[ 用户 ]</p>
+            <SearchBox value={userQuery} onChange={setUserQuery} placeholder="搜索用户名 / 飞书 ID…" />
             <table className="admin-table">
               <thead><tr><th>用户名</th><th>创建时间</th><th>绑定飞书 ID</th><th></th></tr></thead>
               <tbody>
-                {users.map((u) => (
+                {users.filter((u) =>
+                  hit(u.username, userQuery) || u.feishu_ids.some((f) => hit(f, userQuery)),
+                ).map((u) => (
                   <tr key={u.id}>
                     <td><b>{u.username}</b></td>
                     <td>{fmtDate(u.created_at)}</td>
@@ -191,12 +201,17 @@ function PanelPage({ toast, onLogout }: { toast: (m: string) => void; onLogout: 
         )}
         {tab === "workspaces" && (
           <>
-            <p className="section-label">[ 工作区 ]</p>            <table className="admin-table">
+            <p className="section-label">[ 工作区 ]</p>
+            <SearchBox value={wsQuery} onChange={setWsQuery} placeholder="搜索 ID / 名字 / 归属用户 / 用途 / 会话…" />
+            <table className="admin-table">
               <thead>
                 <tr><th>ID</th><th>名字</th><th>归属用户</th><th>用途</th><th>会话</th><th>状态</th><th>24h 调用</th></tr>
               </thead>
               <tbody>
-                {workspaces.map((w) => (
+                {workspaces.filter((w) =>
+                  hit(w.id, wsQuery) || hit(w.name, wsQuery) || hit(w.owner, wsQuery)
+                  || hit(w.purpose, wsQuery) || hit(w.session_title, wsQuery) || hit(w.agent_type, wsQuery),
+                ).map((w) => (
                   <tr key={w.id}>
                     <td title={w.id} style={{ fontSize: 12 }}>{w.id.slice(0, 10)}…</td>
                     <td><b>{w.name}</b>{w.agent_type ? <span style={{ color: "var(--text-weak)", fontSize: 12 }}> · {w.agent_type}</span> : null}</td>

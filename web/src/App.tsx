@@ -28,7 +28,7 @@ function Md({ text }: { text: string | null | undefined }) {
 }
 
 /** 表格上方搜索框（纯前端过滤） */
-function SearchBox({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder: string }) {
+export function SearchBox({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder: string }) {
   return (
     <div className="search-box">
       <svg className="search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
