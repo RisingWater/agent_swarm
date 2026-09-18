@@ -98,7 +98,7 @@ agent: (调用 a2a_call) → 对方 TUI 实时出现任务 → 执行 → 结果
 ## Docker 部署
 
 镜像由 GitHub Actions 自动构建并推送到 GHCR（GitHub 官方镜像仓库，`.github/workflows/docker-image.yml`）：
-push 到 `dev` 分支更新 `:dev`，push `v*` tag 更新 `:latest` 与版本号 tag。
+push `v*` tag 更新 `:latest` 与版本号 tag；也可在 Actions 页面手动触发（出 `:dev`）。
 
 ```bash
 # 一键（推荐）：拉取 GHCR 镜像启动
