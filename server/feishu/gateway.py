@@ -31,7 +31,7 @@ from lark_oapi.ws.const import (
     HEADER_TYPE,
 )
 
-from . import cards, commands, state
+from . import cards, commands, perm_card, state
 
 
 async def _null_send(_chat_id: str, _payload: str) -> None:
@@ -91,6 +91,8 @@ class FeishuGateway:
         bridge.bind_gateway(self)
         brief.set_gateway(self)
         brief.bind_listener()
+        perm_card.set_gateway(self)
+        perm_card.bind_listener()
         # web 账号页修改窗口设置后主动通知飞书窗口
         state.set_notify_hook(self.send_text)
         handler = lark.EventDispatcherHandler.builder("", "") \
@@ -128,10 +130,11 @@ class FeishuGateway:
     def stop(self) -> None:
         # SDK 未暴露优雅关闭：daemon 线程随进程退出即可；解除事件桥
         try:
-            from . import brief, bridge
+            from . import brief, bridge, perm_card
 
             bridge.unbind_gateway()
             brief.unbind_listener()
+            perm_card.unbind_listener()
         except Exception:  # noqa: BLE001
             pass
         log.info("飞书网关停止（随进程）")
@@ -305,7 +308,10 @@ class FeishuGateway:
                 await self._handle_abort(value, operator, chat_id)
                 return self._toast("中断请求已发送")
             if act == "feishu_reply":
-                await self._handle_card_reply(value, operator, chat_id)
+                ok = await self._handle_card_reply(value, operator, chat_id)
+                if ok and perm_card.is_active(str(value.get("taskId", ""))):
+                    # 权限单卡：回调替换原卡为"已应答"（其他窗口走 working 事件补提示卡）
+                    return self._card_response(perm_card.answered_card(str(value.get("taskId", ""))))
                 return self._toast("已应答")
             if act == "reply_hint":
                 return self._toast("直接在输入框发送回答即可")
@@ -349,17 +355,17 @@ class FeishuGateway:
         if rc is not None:
             rc.abort_result(ok)
 
-    async def _handle_card_reply(self, value: dict, open_id: str, chat_id: str) -> None:
-        """权限/提问按钮应答：走与 web reply 相同的 DataPart 链路。"""
+    async def _handle_card_reply(self, value: dict, open_id: str, chat_id: str) -> bool:
+        """权限/提问按钮应答：走与 web reply 相同的 DataPart 链路。返回是否成功。"""
         from . import bridge
 
         user_id = state.user_id_by_open_id(open_id)
         if not user_id:
-            return
+            return False
         task_id = str(value.get("taskId", ""))
         reply = str(value.get("reply", ""))
         if not task_id or not reply:
-            return
+            return False
         # 任务属主校验
         from server.db import engine
         from sqlmodel import Session
@@ -368,11 +374,11 @@ class FeishuGateway:
         with Session(engine) as session:
             task = session.get(models.A2aTask, task_id)
             if task is None:
-                return
+                return False
             ws = session.get(models.Workspace, task.workspace_id) if task.workspace_id else None
             if ws is None or ws.user_id != user_id:
                 await self.send_text(chat_id, "❌ 无权应答该任务。")
-                return
+                return False
         try:
             from server.nexus_a2a import reply_task_from_feishu
 
@@ -382,10 +388,11 @@ class FeishuGateway:
             ok, msg = False, str(e)
         if not ok:
             await self.send_text(chat_id, f"❌ 应答失败：{msg}")
-            return
+            return False
         rc = bridge.manager().get(task_id)
         if rc is not None:
             rc.set_round_buttons([])
+        return True
 
     async def _handle_select_submit(self, chat_id: str, open_id: str, workspace_id: str) -> tuple[str | None, str]:
         """处理选择提交。返回 (工作区名, 类型)；失败返回 (None, "")（错误已发文本）。"""

@@ -10,7 +10,7 @@ from server.db import init_db
 from server.api import auth, me, workspaces, calls, chat_binds
 from server.download import routes as download_routes
 from server.mcp_endpoint import build_mcp_asgi_app, mcp_lifespan
-from server.nexus_a2a import router as nexus_a2a_router, _reap_loop
+from server.nexus_a2a import router as nexus_a2a_router
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
@@ -41,12 +41,10 @@ def create_app() -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         async with mcp_lifespan():
-            reap_task = asyncio.create_task(_reap_loop())  # 卡死 working 任务周期收割
             feishu = _start_feishu()
             try:
                 yield
             finally:
-                reap_task.cancel()
                 if feishu is not None:
                     feishu.stop()
 
