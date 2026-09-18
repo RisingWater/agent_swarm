@@ -37,6 +37,18 @@ def _migrate() -> None:
             con.execute("ALTER TABLE workspaces ADD COLUMN agent_type TEXT DEFAULT ''")
         if "session_title" not in ws_cols:
             con.execute("ALTER TABLE workspaces ADD COLUMN session_title TEXT DEFAULT ''")
+        if "a2a_events" in {r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}:
+            ev_cols = {r[1] for r in con.execute("PRAGMA table_info(a2a_events)")}
+            if "round_key" not in ev_cols:
+                con.execute("ALTER TABLE a2a_events ADD COLUMN round_key TEXT DEFAULT ''")
+        if "feishu_chats" in {r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}:
+            chat_cols = {r[1] for r in con.execute("PRAGMA table_info(feishu_chats)")}
+            if "brief_on" not in chat_cols:
+                con.execute("ALTER TABLE feishu_chats ADD COLUMN brief_on INTEGER DEFAULT 1")
+        if "a2a_tasks" in {r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}:
+            task_cols = {r[1] for r in con.execute("PRAGMA table_info(a2a_tasks)")}
+            if "from_workspace_id" not in task_cols:
+                con.execute("ALTER TABLE a2a_tasks ADD COLUMN from_workspace_id TEXT DEFAULT ''")
         # 旧用户没有明文（哈希不可逆）：补发新 key，旧 key 立即失效
         from server import models
 

@@ -3,8 +3,8 @@
 多 agent 协作中枢（虫群）：把你的 AI 编程工具（opencode 等）组成一个虫群，让它们互相调用、协同完成任务。
 
 - **面向 agent 的操作全部是标准 MCP 工具**——opencode、claude、deepseek 等任何支持 MCP 的客户端都能接入
-- **跨 agent 任务派发**：一条指令把任务交给另一个工作区的 agent，注入对方会话实时执行，结果自动回传
-- **Web 中枢**：网页上直接给在线工作区下达指令，实时观看 agent 思考、工具调用与答复
+- **跨 agent 任务派发**：一条指令把任务交给另一个工作区的 agent，支持前台注入（实时可见）与后台会话（静默执行）两种方式，结果自动回传
+- **Web 中枢**：网页上直接给在线工作区下达指令，实时观看 agent 思考、工具调用与答复；监控模式下你在 TUI 里的日常对话也会实时同步到网页
 - **自托管 & 轻量**：单个 FastAPI 服务 + SQLite，一条命令启动，数据完全在自己机器上
 
 ## 架构
@@ -29,8 +29,8 @@
 
 - **服务端** `server/`：FastAPI 单体。SQLite（`data/agent_swarm.db`）存用户/工作区/调用记录/中枢时间线事件
 - **插件** `plugins/`：每个 agent 工具一个子目录，统一由分发器安装
-  - `plugins/opencode/`：opencode 插件（TS）。心跳保活 + 接收跨 agent 任务（前台注入优先：任务直接进当前 TUI 会话，实时可见；繁忙时排队，空闲全无时退回后台会话）+ 中枢 WS 直连（接收网页指令、上报 timeline 事件）
-  - `plugins/claude/`：claude code 接入。本地 keepalive MCP server（spawn 即心跳保活）+ `/swarm-*` 命令。claude 工作区当前仅支持注册管理，不支持任务执行
+  - `plugins/opencode/`：opencode 插件（TS）。心跳保活 + 接收跨 agent 任务（前台注入：任务直接进当前 TUI 会话实时可见；后台会话：独立 headless 进程静默执行，按来源归组续聊）+ 前台会话监控（TUI 日常对话按轮次实时上报网页中枢）+ 中枢 WS 直连（接收网页指令、上报 timeline 事件）
+  - `plugins/claude/`：claude code 接入。本地 keepalive MCP server（spawn 即心跳保活）+ 后台会话任务执行（`claude -p` headless）+ `/swarm-*` 命令。claude 仅支持后台会话，无前台注入
 - **前端** `web/`：React + Vite 管理端（首页、文档、**中枢**、工作区看板、调用记录、账号管理）
 
 ## 快速开始
@@ -68,37 +68,45 @@ curl -fsSL http://<server>:8700/download/install.sh | bash -s -- --api-key <你�
 
 ### 4. 使用
 
-在 agent 对话里直接用 MCP 工具（`workspace_add`、`list_workspaces`、`workspace_call`…），或用 `/swarm-add` 等命令。之后：
+在 agent 对话里直接用 MCP 工具（`workspace_add`、`list_workspaces`、`a2a_call`…），或用 `/swarm-add` 等命令。之后：
 
 ```text
 你: 调用 nas_brain 工作区，查看它最新一次 git 提交
-agent: (调用 workspace_call) → 对方 TUI 实时出现任务 → 执行 → 结果自动回传
+agent: (调用 a2a_call) → 对方 TUI 实时出现任务 → 执行 → 结果自动回传
 ```
 
-### 5. 中枢（Nexus）：在网页上指挥 agent
+### 5. 中枢（Nexus）：在网页上指挥 / 围观 agent
 
-登录后进入「中枢」页，选择一个在线工作区直接输入指令：时间线实时滚动 agent 的思考、工具调用与答复，权限请求和提问直接在页面点选应答，历史持久化保存。所有指令记录在「调用记录」页（来源 `[nexus-web]`）。
+登录后进入「中枢」页，选择一个在线工作区直接输入指令：时间线实时滚动 agent 的思考、工具调用与答复，权限请求和提问直接在页面点选应答，历史持久化保存（上滚逐轮加载更早对话）。所有指令记录在「调用记录」页（来源 `nexus-web`）。
 
-「工作区」「调用记录」两个页面提供在线状态看板、启用/禁用、调用流水查询等日常管理能力。
+开启**监控模式**（opencode 默认开启，TUI 内 `/swarm-monitor` 切换）后，你在 TUI 里与 agent 的日常对话也会按轮次实时同步到中枢——提问、思考、工具调用、回答全程可见，监控轮的权限请求同样可在网页远程应答。每轮对话作为 `[monitor]` 记录进入「调用记录」页。
+
+「工作区」「调用记录」两个页面提供在线状态看板、启用/禁用、调用流水查询（按工作区筛选）等日常管理能力。
 
 ## MCP 工具一览（`/mcp/`，Bearer apikey 鉴权）
 
 | 工具 | 说明 |
 |---|---|
-| `workspace_add` | 注册当前目录为工作区，返回 ID（写入项目根 `.agent-swarm.md`） |
-| `workspace_remove` / `workspace_enable` / `workspace_disable` | 工作区管理（仅离线可删） |
-| `heartbeat` | 心跳保活（插件每 30s 调用；响应捎带待执行任务） |
+| `workspace_add` | 注册当前目录为工作区，返回 ID（写入项目根 `.agent_swarm/workspace.md`） |
+| `workspace_remove` / `workspace_enable` / `workspace_disable` / `workspace_offline` | 工作区管理（仅离线可删） |
+| `heartbeat` | 心跳保活，上报当前会话（插件每 30s 自动调用） |
 | `update_info` / `update_notes` | 更新工作区用途/能力描述、备注 |
 | `list_workspaces` | 列出可见工作区（默认仅在线） |
-| `workspace_call` | 跨 agent 任务派发（异步，返回 call_id） |
-| `workspace_call_status` | 轮询调用结果 |
-| `workspace_call_ack` / `workspace_call_result` | 任务领取确认/结果回传（插件专用） |
+| `a2a_call` | A2A 协议任务派发：内部工作区 ID 或外部 A2A agent 端点 URL |
+| `a2a_task` | 查询 A2A 任务状态与结果 |
 
 ## Docker 部署
 
+镜像由 GitHub Actions 自动构建并推送到 GHCR（GitHub 官方镜像仓库，`.github/workflows/docker-image.yml`）：
+push 到 `dev` 分支更新 `:dev`，push `v*` tag 更新 `:latest` 与版本号 tag。
+
 ```bash
-# 一键（推荐，在项目根目录）
+# 一键（推荐）：拉取 GHCR 镜像启动
 docker compose -f docker/compose.yaml up -d
+# 等价于：docker pull ghcr.io/risingwater/agent_swarm:dev && docker run ...（compose.yaml 里有完整参数）
+
+# 私有仓库需要先登录 GHCR（token 勾选 read:packages）
+echo <GITHUB_TOKEN> | docker login ghcr.io -u <用户名> --password-stdin
 
 # 或手动构建
 docker build -t agent-swarm -f docker/Dockerfile .
@@ -119,6 +127,8 @@ docker run -d --name agent-swarm -p 8700:8700 \
 | `AGENT_SWARM_JWT_SECRET` | JWT 签名密钥（**生产必设**） | dev secret |
 | `AGENT_SWARM_PUBLIC_URL` | 公网地址（注入 install 脚本，反代时设） | 从请求 Host 推断 |
 | `AGENT_SWARM_CALL_TIMEOUT` | 跨 agent 调用超时 | `3600`s |
+| `ADMIN_USERNAME` / `ADMIN_PASSWORD` | 后台管理登录（访问 `/#/admin`；默认 `admin` / `Admin123!@#`，**生产必改**） | `admin` / `Admin123!@#` |
+| `FEISHU_APP_ID` / `FEISHU_APP_SECRET` | 飞书自建应用凭据（nexus-feishu，两者都配置后飞书网关随服务启动） | 未配置不启动 |
 
 环境变量优先于项目根 `.env`。
 

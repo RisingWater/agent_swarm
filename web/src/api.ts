@@ -51,6 +51,7 @@ export const pageOrigin = window.location.origin
 /** A2A 任务（调用记录页 / a2a_call 历史） */
 export interface WorkspaceCall {
   id: string
+  monitor?: boolean
   caller: { id: string; name: string; path: string } | null
   target: { id: string; name: string; path: string } | null
   external_url?: string | null
@@ -100,7 +101,8 @@ export const api = {
   enableWorkspace: (id: string) => request(`/api/workspaces/${id}/enable`, { method: "POST" }),
   deleteWorkspace: (id: string) => request(`/api/workspaces/${id}`, { method: "DELETE" }),
 
-  calls: () => request("/api/calls") as Promise<WorkspaceCall[]>,
+  calls: (workspaceId = "") =>
+    request(`/api/calls${workspaceId ? `?workspace_id=${encodeURIComponent(workspaceId)}` : ""}`) as Promise<WorkspaceCall[]>,
   deleteCall: (id: string) => request(`/api/calls/${id}`, { method: "DELETE" }),
 
   /** web 中枢：以用户身份向工作区下发 A2A 任务（非流式下发，事件走 /ws/nexus 订阅） */
@@ -120,4 +122,120 @@ export const api = {
   /** 清空工作区任务历史（事件+任务记录） */
   clearWorkspaceHistory: (workspaceId: string) =>
     request(`/api/nexus/${workspaceId}/history`, { method: "DELETE" }) as Promise<{ ok: boolean }>,
+
+  /** 中枢时间线向上滚动分页：before_id 之前最近一轮的事件 */
+  fetchRounds: (workspaceId: string, beforeId: number) =>
+    request(`/api/nexus/${workspaceId}/rounds?before_id=${beforeId}`) as Promise<{
+      events: unknown[]
+      first_id: number
+      has_more: boolean
+    }>,
+
+  /** 聊天工具绑定（账号页）：绑定分组 + 每窗口的选中工作区/监控/简报设置 */
+  chatBinds: () => request("/api/chat-binds") as Promise<ChatBindInfo>,
+
+  /** 修改窗口设置（切换工作区/监控/简报），飞书端会收到通知 */
+  updateChatBind: (chatId: string, patch: ChatBindPatch) =>
+    request(`/api/chat-binds/${encodeURIComponent(chatId)}`, {
+      method: "PUT",
+      body: JSON.stringify(patch),
+    }) as Promise<ChatBindChat>,
+}
+
+/** 聊天工具绑定 */
+export interface ChatBindChat {
+  chat_id: string
+  chat_type: string
+  workspace_id: string
+  workspace_name: string
+  monitor_on: boolean
+  brief_on: boolean
+}
+
+export interface ChatBindGroup {
+  open_id: string
+  /** 飞书真实用户名（权限不可用/解析失败时为空，前端回退 open_id 前缀） */
+  feishu_name: string
+  bound_at: string | null
+  chats: ChatBindChat[]
+}
+
+export interface ChatBindInfo {
+  bindings: ChatBindGroup[]
+  unbound_chats: ChatBindChat[]
+}
+
+export interface ChatBindPatch {
+  workspace_id?: string
+  monitor_on?: boolean
+  brief_on?: boolean
+}
+
+// ────────────── 后台管理（独立登录） ──────────────
+
+export interface AdminStats {
+  users: number
+  workspaces_total: number
+  workspaces_online: number
+  tasks_total: number
+  daily_tasks: { date: string; count: number }[]
+}
+
+export interface AdminUser {
+  id: string
+  username: string
+  created_at: string
+  feishu_ids: string[]
+}
+
+export interface AdminWorkspace {
+  id: string
+  name: string
+  path: string
+  owner: string
+  purpose: string
+  agent_type: string
+  online: boolean
+  status: string
+  session_id: string
+  session_title: string
+  calls_24h: number
+}
+
+async function adminRequest(path: string, options: RequestInit = {}) {
+  const token = localStorage.getItem("swarm_admin_token") ?? ""
+  const rsp = await fetch(`${BASE}${path}`, {
+    ...options,
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", ...(options.headers ?? {}) },
+  })
+  const body = await rsp.json().catch(() => ({}))
+  if (rsp.status === 401) {
+    localStorage.removeItem("swarm_admin_token")
+    throw new Error(body.detail ?? "登录已过期，请重新登录")
+  }
+  if (!rsp.ok) throw new Error(body.detail ?? `请求失败 (${rsp.status})`)
+  return body
+}
+
+export const adminApi = {
+  async login(username: string, password: string) {
+    const rsp = await fetch(`${BASE}/api/admin/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password }),
+    })
+    const body = await rsp.json()
+    if (!rsp.ok) throw new Error(body.detail ?? "登录失败")
+    localStorage.setItem("swarm_admin_token", body.token)
+    return body as { token: string }
+  },
+  logout: () => localStorage.removeItem("swarm_admin_token"),
+  stats: () => adminRequest("/api/admin/stats") as Promise<AdminStats>,
+  users: () => adminRequest("/api/admin/users") as Promise<{ users: AdminUser[] }>,
+  resetPassword: (userId: string) =>
+    adminRequest(`/api/admin/users/${encodeURIComponent(userId)}/reset-password`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    }) as Promise<{ ok: boolean; new_password: string }>,
+  workspaces: () => adminRequest("/api/admin/workspaces") as Promise<{ workspaces: AdminWorkspace[] }>,
 }

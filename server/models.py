@@ -99,6 +99,7 @@ class A2aTask(SQLModel, table=True):
     id: str = Field(primary_key=True)
     context_id: str = Field(index=True)  # A2A contextId（同一会话链多轮任务共享）
     workspace_id: str = Field(default="", index=True)  # 执行方工作区（内部任务）
+    from_workspace_id: str = Field(default="")  # 发起方工作区（agent 互调时由 a2a_call 传入）
     external_url: str = Field(default="")  # 外部 A2A agent 端点（外部任务）
     caller: str = Field(default="")  # 调用方标注（agent / nexus-web / nexus-feishu / ...）
     message: str = Field(default="", sa_column=Column(Text))  # 初始指令文本
@@ -112,12 +113,42 @@ class A2aTask(SQLModel, table=True):
 
 
 class A2aEvent(SQLModel, table=True):
-    """A2A 任务事件持久化（StatusUpdate / ArtifactUpdate，web 刷新后回放）。"""
+    """A2A 任务事件持久化（StatusUpdate / ArtifactUpdate，web 刷新后回放）。
+
+    round_key：轮次分组键。任务事件 = task_id；前台监控事件 = mon-<sid>-<msg>。
+    中枢回放/滚动分页按此列分组（最新一轮优先，向上滚动加载更早的轮）。
+    """
     __tablename__ = "a2a_events"
 
     id: Optional[int] = Field(default=None, primary_key=True)
     task_id: str = Field(index=True)
     workspace_id: str = Field(default="", index=True)  # 内部任务才有（外部任务为空串）
-    kind: str  # status / artifact（A2A 事件判别符）
+    kind: str  # status / artifact / monitor（A2A 事件判别符）
+    round_key: str = Field(default="", index=True)  # 轮次分组键（监控/任务轮）
     payload: str = Field(default="{}", sa_column=Column(Text))  # 事件 JSON（camelCase，原样存储）
     created_at: datetime = Field(default_factory=utcnow)
+
+
+class FeishuBinding(SQLModel, table=True):
+    """飞书用户 ↔ 平台账号绑定（open_id 唯一；一个飞书人只能绑一个账号）。"""
+    __tablename__ = "feishu_bindings"
+
+    open_id: str = Field(primary_key=True)  # 飞书 open_id（app 维度稳定）
+    user_id: str = Field(foreign_key="users.id", index=True)
+    bound_at: datetime = Field(default_factory=utcnow)
+
+
+class FeishuChat(SQLModel, table=True):
+    """飞书聊天窗口状态：每个窗口（p2p / 群）当前选中的工作区与监控开关。
+
+    p2p 窗口 chat_id 即会话 id；群聊按群维度选中（同群共用一个选中工作区）。
+    """
+    __tablename__ = "feishu_chats"
+
+    chat_id: str = Field(primary_key=True)
+    chat_type: str = Field(default="p2p")  # p2p / group
+    user_id: str = Field(default="", index=True)  # 最后操作者（绑定校验用；群聊=管理员）
+    workspace_id: str = Field(default="", index=True)  # 当前选中（空=未选）
+    monitor_on: bool = Field(default=False)  # 前台会话监控同步开关（默认关）
+    brief_on: bool = Field(default=True)  # 任务完成简报开关（默认开；飞书自己下发的任务不推）
+    updated_at: datetime = Field(default_factory=utcnow)

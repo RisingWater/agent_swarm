@@ -43,10 +43,11 @@ COPY deploy/ ./deploy/
 # 前端构建产物（main.py 自动探测 web/dist 并挂为静态站点）
 COPY --from=web-builder /build/dist/ ./web/dist/
 
-# 打包插件分发包（/download/plugin.tar.gz），排除 node_modules
+# 打包插件分发到镜像内置路径 /app/plugin-dist/（download 端点按 data/ → plugin-dist/ 顺序查找）。
+# 不放 /app/data：容器里 /app/data 常被外部卷挂载覆盖，放那里镜像内置文件会被藏掉。
 COPY plugins/ ./plugins/
-RUN mkdir -p data \
-    && tar -czf data/agent-swarm-plugin.tar.gz \
+RUN mkdir -p plugin-dist \
+    && tar -czf plugin-dist/agent-swarm-plugin.tar.gz \
        -C . \
        --exclude='node_modules' --exclude='types' --exclude='*.tsbuildinfo' \
        plugins \

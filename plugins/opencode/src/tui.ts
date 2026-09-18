@@ -12,7 +12,7 @@
  *   /swarm-disable  自动禁用
  *
  * server 地址与 apikey 读 ~/.config/opencode/agent-swarm.json（与 server 插件共用配置）；
- * workspace ID 读/写项目根（api.state.path.worktree）的 .agent-swarm.md。
+ * workspace ID 读/写项目根（api.state.path.worktree）的 .agent_swarm/workspace.md。
  */
 
 import type { TuiPlugin } from "@opencode-ai/plugin/tui"
@@ -29,6 +29,7 @@ interface SwarmCfg {
   apiKey?: string
   executionMode?: string
   backgroundCommand?: string
+  monitor?: boolean
 }
 
 const loader = () => process.getBuiltinModule?.("node:fs")
@@ -86,10 +87,15 @@ async function swarmApi<T>(path: string, method = "GET", body?: unknown): Promis
   }
 }
 
-/** 项目根的 .agent-swarm.md 读写 */
+/** 项目根的 .agent_swarm/workspace.md 读写 */
 function swarmFile(worktree: string) {
-  const path = `${worktree.replace(/[\\/]+$/, "")}/.agent-swarm.md`
+  const root = worktree.replace(/[\\/]+$/, "")
   const fs = loader()!
+  const exists = (p: string) => {
+    try { fs.statSync(p); return true } catch { return false }
+  }
+  const dir = `${root}/.agent_swarm`
+  const path = `${dir}/workspace.md`
   const read = (): string => {
     try {
       return fs.readFileSync(path, "utf8")
@@ -97,9 +103,15 @@ function swarmFile(worktree: string) {
       return ""
     }
   }
+  const mkdir = () => {
+    if (!exists(dir)) {
+      try { fs.mkdirSync(dir, { recursive: true }) } catch { /* 已存在竞态 */ }
+    }
+  }
   /** 文件不存在则按模板创建（WORKSPACE_ID/PURPOSE/CAPABILITIES 占位行） */
   const ensure = (workspaceId: string) => {
     if (read() === "") {
+      mkdir()
       fs.writeFileSync(
         path,
         `# agent_swarm\n\nPURPOSE: \nCAPABILITIES: \nWORKSPACE_ID: ${workspaceId}\n`,
@@ -122,6 +134,7 @@ function swarmFile(worktree: string) {
     } else {
       text = text.replace(/\s*$/, "") + `\n${key}: ${value}\n`
     }
+    mkdir()
     fs.writeFileSync(path, text)
   }
   const getLine = (key: string): string => {
@@ -184,6 +197,40 @@ const tui: TuiPlugin = async (api) => {
       },
     },
     {
+      title: "Swarm: Monitor TUI Session",
+      value: "swarm.monitor",
+      description: "切换前台会话实时监控（对话轮次上报 web 中枢）",
+      slash: { name: "swarm-monitor" },
+      onSelect: (dialog) => {
+        const cfg = readCfg()
+        dialog?.replace(() =>
+          api.ui.DialogSelect({
+            title: "前台会话实时监控",
+            options: [
+              { title: `${cfg.monitor !== false ? "● " : "○ "}开启（TUI 对话实时上报中枢）`, value: "on" },
+              { title: `${cfg.monitor === false ? "● " : "○ "}关闭`, value: "off" },
+            ],
+            get current() {
+              return cfg.monitor === false ? "off" : "on"
+            },
+            onSelect: (opt) => {
+              const next = String(opt.value) === "on"
+              if (writeCfg({ ...readCfg(), monitor: next })) {
+                api.ui.toast({
+                  variant: "success",
+                  message: `实时监控: ${next ? "开启" : "关闭"}（立即生效）`,
+                  duration: 5000,
+                })
+              } else {
+                toastErr("写入配置失败")
+              }
+              dialog?.clear()
+            },
+          }),
+        )
+      },
+    },
+    {
       title: "Swarm: Remove Workspace",
       value: "swarm.remove",
       description: "删除本目录注册的工作区（仅离线可删）",
@@ -192,7 +239,7 @@ const tui: TuiPlugin = async (api) => {
         dialog?.clear()
         const wid = file.getLine("WORKSPACE_ID")
         if (!wid) {
-          toastErr(".agent-swarm.md 没有 WORKSPACE_ID（本目录未注册）")
+          toastErr(".agent_swarm/workspace.md 没有 WORKSPACE_ID（本目录未注册）")
           return
         }
         const rsp = await swarmApi(`/api/workspaces/${wid}`, "DELETE")
@@ -217,7 +264,7 @@ const tui: TuiPlugin = async (api) => {
         dialog?.clear()
         const wid = file.getLine("WORKSPACE_ID")
         if (!wid) {
-          toastErr(".agent-swarm.md 没有 WORKSPACE_ID")
+          toastErr(".agent_swarm/workspace.md 没有 WORKSPACE_ID")
           return
         }
         const rsp = await swarmApi(`/api/workspaces/${wid}/disable`, "POST")
@@ -234,7 +281,7 @@ const tui: TuiPlugin = async (api) => {
         dialog?.clear()
         const wid = file.getLine("WORKSPACE_ID")
         if (!wid) {
-          toastErr(".agent-swarm.md 没有 WORKSPACE_ID")
+          toastErr(".agent_swarm/workspace.md 没有 WORKSPACE_ID")
           return
         }
         const rsp = await swarmApi(`/api/workspaces/${wid}/enable`, "POST")

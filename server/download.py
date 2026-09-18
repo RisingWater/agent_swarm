@@ -10,16 +10,29 @@ from starlette.responses import FileResponse, PlainTextResponse, Response
 from starlette.routing import Route
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-PLUGIN_TGZ = PROJECT_ROOT / "data" / "agent-swarm-plugin.tar.gz"
+# 插件包查找顺序：本机开发包（data/，start.sh 打包）→ Docker 镜像内置包（/app/plugin-dist/，
+# 不放 data/ 是因为容器里 /app/data 常被外部挂载覆盖，镜像内置文件会被藏掉）
+PLUGIN_TGZ_CANDIDATES = [
+    PROJECT_ROOT / "data" / "agent-swarm-plugin.tar.gz",
+    Path("/app/plugin-dist/agent-swarm-plugin.tar.gz"),
+]
 INSTALL_SH = PROJECT_ROOT / "deploy" / "install.sh"
 INSTALL_PS1 = PROJECT_ROOT / "deploy" / "install.ps1"
 
 
+def _plugin_tgz() -> Path | None:
+    for p in PLUGIN_TGZ_CANDIDATES:
+        if p.exists():
+            return p
+    return None
+
+
 async def plugin_tarball(request: Request) -> FileResponse:
-    if not PLUGIN_TGZ.exists():
+    tgz = _plugin_tgz()
+    if tgz is None:
         return PlainTextResponse("plugin package not found, restart server to build it", 404)
     return FileResponse(
-        PLUGIN_TGZ,
+        tgz,
         media_type="application/gzip",
         filename="agent-swarm-plugin.tar.gz",
     )

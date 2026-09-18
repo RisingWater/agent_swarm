@@ -48,6 +48,8 @@ command -v node >/dev/null || { echo "错误: 未找到 node（keepalive 需要�
 # 1. 复制插件文件到安装目录 + 写配置（keepalive.mjs 读取）
 mkdir -p "$INSTALL_DIR"
 [ -f "$SRC/keepalive.mjs" ] && cp -f "$SRC/keepalive.mjs" "$INSTALL_DIR/"
+[ -f "$SRC/nexus_a2a.mjs" ] && cp -f "$SRC/nexus_a2a.mjs" "$INSTALL_DIR/"
+[ -f "$SRC/background.mjs" ] && cp -f "$SRC/background.mjs" "$INSTALL_DIR/"
 cat > "$INSTALL_DIR/config.json" <<EOF
 {
   "serverUrl": "$SERVER",
@@ -56,14 +58,14 @@ cat > "$INSTALL_DIR/config.json" <<EOF
 EOF
 chmod 600 "$INSTALL_DIR/config.json"
 
-# 2. 注册 remote MCP（工具直连；幂等：已存在则跳过）
+# 2. 注册 remote MCP（工具直连；已存在也删除重装，确保 URL/apikey 更新到最新）
 MCP_LIST="$(claude mcp list 2>/dev/null || true)"
 if echo "$MCP_LIST" | grep -Eq '^[[:space:]]*agent-swarm[[:space:]]*:'; then
-    echo "==> mcp agent-swarm 已注册，跳过"
-else
-    claude mcp add --scope user --transport http agent-swarm "$SERVER/mcp/" --header "Authorization: Bearer $API_KEY"
-    echo "==> 已注册 remote MCP agent-swarm"
+    claude mcp remove --scope user agent-swarm >/dev/null 2>&1 || true
+    echo "==> 已移除旧注册，重新注册 remote MCP agent-swarm"
 fi
+claude mcp add --scope user --transport http agent-swarm "$SERVER/mcp/" --header "Authorization: Bearer $API_KEY"
+echo "==> 已注册 remote MCP agent-swarm"
 
 # 3. 注册本地 keepalive MCP（spawn 保活进程；幂等）
 KEEPALIVE="$INSTALL_DIR/keepalive.mjs"

@@ -48,18 +48,20 @@ $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 # 1. 复制插件文件到安装目录 + 写配置（keepalive.mjs 读取）
 New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
 Copy-Item -Path (Join-Path $Src "keepalive.mjs") -Destination $InstallDir -Force -ErrorAction SilentlyContinue
+Copy-Item -Path (Join-Path $Src "nexus_a2a.mjs") -Destination $InstallDir -Force -ErrorAction SilentlyContinue
+Copy-Item -Path (Join-Path $Src "background.mjs") -Destination $InstallDir -Force -ErrorAction SilentlyContinue
 $cfg = @{ serverUrl = $Server; apiKey = $ApiKey } | ConvertTo-Json
 [IO.File]::WriteAllText((Join-Path $InstallDir "config.json"), $cfg, $utf8NoBom)
 
-# 2. 注册 remote MCP（工具直连；幂等：已存在则跳过）
+# 2. 注册 remote MCP（工具直连；已存在也删除重装，确保 URL/apikey 更新到最新）
 $mcpList = & claude mcp list 2>&1 | Out-String
 if ($mcpList -match "(?m)^\s*agent-swarm\s*:") {
-    Write-Host "==> mcp agent-swarm 已注册，跳过"
-} else {
-    & claude mcp add --scope user --transport http agent-swarm "$Server/mcp/" --header "Authorization: Bearer $ApiKey"
-    if ($LASTEXITCODE -ne 0) { throw "claude mcp add agent-swarm failed" }
-    Write-Host "==> 已注册 remote MCP agent-swarm"
+    & claude mcp remove --scope user agent-swarm 2>$null | Out-Null
+    Write-Host "==> 已移除旧注册，重新注册 remote MCP agent-swarm"
 }
+& claude mcp add --scope user --transport http agent-swarm "$Server/mcp/" --header "Authorization: Bearer $ApiKey"
+if ($LASTEXITCODE -ne 0) { throw "claude mcp add agent-swarm failed" }
+Write-Host "==> 已注册 remote MCP agent-swarm"
 
 # 3. 注册本地 keepalive MCP（spawn 保活进程；幂等）
 $keepalive = Join-Path $InstallDir "keepalive.mjs"

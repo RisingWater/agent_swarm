@@ -19,4 +19,4 @@ node_modules/
 .env
 .DS_Store
 data/
-.agent-swarm-sessions.json
+.agent_swarm/

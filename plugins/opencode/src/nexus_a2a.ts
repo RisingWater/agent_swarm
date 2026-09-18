@@ -14,6 +14,8 @@ export interface NexusA2AClient {
   close: () => void
   isReady: () => boolean
   send: (obj: Record<string, unknown>) => boolean
+  /** 前台会话监控事件上报（{"type":"monitor",...}；断连入缓冲，重连补发） */
+  sendMonitor: (payload: Record<string, unknown>) => void
 }
 
 export interface A2aTaskRef {
@@ -31,10 +33,11 @@ export interface A2aOptions {
   onTask: (task: A2aTaskRef, text: string, caller: string, serverSessionId?: string) => Promise<string | null>
   /** 收到 input-required 续聊应答（权限/提问），由服务端转成 message/send DataPart */
   onReply: (task: A2aTaskRef, data: { type: string; requestId: string; reply?: string; answers?: string[][] }) => Promise<void>
-  /** 权限请求答复（A2A input-required 续聊，data.type=permission） */
-  onPermissionReply: (requestId: string, reply: "once" | "always" | "reject") => Promise<void>
+  /** 权限请求答复（A2A input-required 续聊，data.type=permission）。
+   *  replyTaskId = 应答归属的轮次（监控轮 roundKey / A2A 轮 taskId），供应答后补状态事件 */
+  onPermissionReply: (requestId: string, reply: "once" | "always" | "reject", replyTaskId?: string) => Promise<void>
   /** 问答回答（data.type=question），answers 为 [[value], ...] */
-  onQuestionReply: (requestId: string, answers: string[][]) => Promise<void>
+  onQuestionReply: (requestId: string, answers: string[][], replyTaskId?: string) => Promise<void>
   /** 服务端转发的取消请求 */
   onTaskCancel?: (taskId: string) => void
   log: (msg: string) => void
@@ -138,15 +141,18 @@ export function toolStatus(
   })
 }
 
-/** 思考/文本流式片段（opencode part → metadata.nexus=text/reasoning） */
+/** 思考/文本流式片段（opencode part → metadata.nexus=text/reasoning）。
+ *  mode: "replace"=全量快照（前端覆盖渲染），"append"=增量 delta（前端拼接累积）。
+ *  opencode part 事件是全量快照；claude stream-json delta 是增量。 */
 export function streamStatus(
   task: A2aTaskRef,
   kind: "text" | "reasoning",
   partId: string,
   text: string,
+  mode: "replace" | "append" = "replace",
 ): A2aEvent {
   return statusUpdate(task, "working", {
-    metadata: { nexus: kind, part_id: partId, text },
+    metadata: { nexus: kind, part_id: partId, text, mode },
   })
 }
 
@@ -174,6 +180,9 @@ export function startNexusA2AClient(options: A2aOptions): NexusA2AClient {
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null
   let pingTimer: ReturnType<typeof setInterval> | null = null
   let reconnectDelay = 1_000
+  /** WS 断连期间的 event/monitor 缓冲（重连后补发，上限防内存失控） */
+  const pendingMessages: Array<Record<string, unknown>> = []
+  const MAX_PENDING_MESSAGES = 2000
 
   function send(obj: Record<string, unknown>): boolean {
     if (!ws || ws.readyState !== WebSocket.OPEN) return false
@@ -182,6 +191,19 @@ export function startNexusA2AClient(options: A2aOptions): NexusA2AClient {
       return true
     } catch {
       return false
+    }
+  }
+
+  /** event/monitor 发送：断连时入缓冲，重连后 flush */
+  function sendMessage(obj: Record<string, unknown>): void {
+    if (send(obj)) return
+    if (pendingMessages.length < MAX_PENDING_MESSAGES) pendingMessages.push(obj)
+  }
+
+  function flushPendingMessages(): void {
+    while (pendingMessages.length) {
+      if (!send(pendingMessages[0])) break // 又断了，剩下的下次发
+      pendingMessages.shift()
     }
   }
 
@@ -218,6 +240,7 @@ export function startNexusA2AClient(options: A2aOptions): NexusA2AClient {
         ready = true
         reconnectDelay = 1_000
         startPing()
+        flushPendingMessages()
         log("nexus a2a ready")
         break
       case "hello_err":
@@ -255,12 +278,14 @@ export function startNexusA2AClient(options: A2aOptions): NexusA2AClient {
           if (dataPart) {
             const type = String(dataPart.type ?? "")
             const requestId = String(dataPart.requestId ?? dataPart.request_id ?? "")
-            log(`a2a reply ${task.taskId.slice(0, 8)}: ${type} ${requestId.slice(0, 12)}`)
+            // dataPart.taskId = 轮次归属（监控轮 = roundKey；A2A 轮 = taskId），供应答后补状态事件
+            const replyTaskId = String(dataPart.taskId ?? "") || task.taskId
+            log(`a2a reply ${replyTaskId.slice(0, 8)}: ${type} ${requestId.slice(0, 12)}`)
             const run =
               type === "permission"
-                ? onPermissionReply(requestId, String(dataPart.reply ?? "once") as "once" | "always" | "reject")
+                ? onPermissionReply(requestId, String(dataPart.reply ?? "once") as "once" | "always" | "reject", replyTaskId)
                 : type === "question"
-                  ? onQuestionReply(requestId, (Array.isArray(dataPart.answers) ? dataPart.answers : []) as string[][])
+                  ? onQuestionReply(requestId, (Array.isArray(dataPart.answers) ? dataPart.answers : []) as string[][], replyTaskId)
                   : Promise.reject(new Error(`unknown reply type: ${type}`))
             run
               .then(() => send({ type: "rpc", id, payload: { jsonrpc: "2.0", id, result: { ok: true } } }))
@@ -381,5 +406,6 @@ export function startNexusA2AClient(options: A2aOptions): NexusA2AClient {
     },
     isReady: () => ready,
     send,
+    sendMonitor: (payload) => sendMessage({ type: "monitor", payload }),
   }
 }

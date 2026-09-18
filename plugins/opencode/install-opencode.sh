@@ -102,32 +102,16 @@ chmod 600 "$GLOBAL_CFG"
 echo "    已写入插件配置: $GLOBAL_CFG"
 
 # 4. 注册：a) mcp.agent-swarm 配置（工具直连 MCP）b) 插件（心跳保活）
-MCP_BLOCK=$(cat <<EOF
-    "agent-swarm": {
-      "type": "remote",
-      "url": "$SERVER/mcp/",
-      "enabled": true,
-      "headers": {
-        "Authorization": "Bearer $API_KEY"
-      }
-    }
-EOF
-)
 OC_CONFIG="$HOME/.config/opencode/opencode.jsonc"
 [ -f "$HOME/.config/opencode/opencode.json" ] && OC_CONFIG="$HOME/.config/opencode/opencode.json"
 if [ -f "$PWD/opencode.json" ] || [ -f "$PWD/opencode.jsonc" ]; then
     OC_CONFIG="$PWD/opencode.jsonc"
     [ -f "$PWD/opencode.json" ] && OC_CONFIG="$PWD/opencode.json"
 fi
-
-node - "$OC_CONFIG" "$SERVER/mcp/" "$MCP_BLOCK" <<'NODE'
+node - "$OC_CONFIG" "$SERVER/mcp/" "$API_KEY" <<'NODE'
 const fs = require("fs")
-const [cfgPath, mcpUrl, mcpBlock] = process.argv.slice(2)
+const [cfgPath, mcpUrl, apiKey] = process.argv.slice(2)
 let text = fs.existsSync(cfgPath) ? fs.readFileSync(cfgPath, "utf-8") : "{\n}\n"
-if (text.includes(mcpUrl)) {
-    console.log("==> mcp.agent-swarm 已配置，跳过")
-    process.exit(0)
-}
 // 剥 JSONC 注释（感知字符串字面量：file:// 等字符串内的 // 不能当注释）
 function stripJsoncComments(s) {
     let out = ""
@@ -144,24 +128,30 @@ function stripJsoncComments(s) {
         }
         if (c === '"') { inStr = true; out += c; continue }
         if (c === "/" && n === "/") { inLine = true; i++; continue }
-        if (c === "/" && n === "*") { inBlock = true; i++; continue }
+        if (c === "/" && n === "*") { inBlock = true; i++ }
         out += c
     }
     return out
 }
-// 在 mcp 对象中插入 agent-swarm；没有 mcp 字段则插到最外层 { 后
-const m = text.match(/("mcp"\s*:\s*\{)([\s\S]*?)(\n  \})/)
-let out
-if (m) {
-    const inner = m[2]
-    const stripped = stripJsoncComments(inner).trim()
-    const needComma = stripped && !stripped.endsWith(",")
-    const newInner = (needComma ? inner.replace(/[ \t\r]+$/, "") + "," : inner) + "\n" + mcpBlock
-    out = text.replace(m[0], () => m[1] + newInner + m[3])
-} else {
-    out = text.replace(/^\s*\{/, () => "{\n  \"mcp\": {\n" + mcpBlock + "\n  },\n")
+// 读改写走 JSON 往返（parse → 对象操作 → stringify），杜绝文本手术写出坏 JSON
+// （曾用正则插入，第二次运行替换分支把嵌套 headers 的 } 误当对象结尾，配置文件被写坏）
+const mcpEntry = {
+    type: "remote",
+    url: mcpUrl,
+    enabled: true,
+    headers: { Authorization: `Bearer ${apiKey}` },
 }
-fs.writeFileSync(cfgPath, out)
+const stripped = stripJsoncComments(text)
+let cfg
+try {
+    cfg = JSON.parse(stripped || "{}")
+} catch (e) {
+    console.error(`错误: ${cfgPath} 不是合法 JSON(C)（${e.message}），不覆盖，请手工修正后重跑`)
+    process.exit(1)
+}
+cfg.mcp = cfg.mcp || {}
+cfg.mcp["agent-swarm"] = mcpEntry
+fs.writeFileSync(cfgPath, JSON.stringify(cfg, null, 2) + "\n")
 console.log(`==> 已写入 mcp.agent-swarm 到 ${cfgPath}`)
 NODE
 
@@ -196,28 +186,17 @@ function stripJsoncComments(s) {
     }
     return out
 }
-// 在 plugin 数组中插入新项：逗号插在最后一个非空非注释项的末尾
-const m = text.match(/("plugin"\s*:\s*\[)([\s\S]*?)(\])/)
-let out
-if (m) {
-    const inner = m[2]
-    // 去掉注释与空白后判断是否需要逗号（字符串感知，file:// 不误伤）
-    const stripped = stripJsoncComments(inner).trim()
-    const needComma = stripped && !stripped.endsWith(",")
-    let newInner
-    if (needComma) {
-        // 找到最后一个非空白/非注释字符（应为 " 或 ]），在其后补逗号
-        const tail = inner.replace(/[ \t\n\r]+$/, "")          // 去尾部空白
-        newInner = tail + ",\n    \"" + pluginRef + "\"\n  "
-    } else {
-        newInner = inner + "\n    \"" + pluginRef + "\"\n  "
-    }
-    out = text.replace(m[0], () => m[1] + newInner + m[3])
-} else {
-    // 没有 plugin 字段：插到最外层 { 后（保留 ], 后逗号——其后还有其他字段，合法）
-    out = text.replace(/^\s*\{/, () => "{\n  \"plugin\": [\n    \"" + pluginRef + "\"\n  ],\n")
+// JSON 往返读改写（同 mcp 注册：杜绝文本手术产出坏 JSON）
+let cfg
+try {
+    cfg = JSON.parse(stripJsoncComments(text) || "{}")
+} catch (e) {
+    console.error(`警告: ${cfgPath} 不是合法 JSON(C)（${e.message}），跳过插件注册`)
+    process.exit(0)
 }
-fs.writeFileSync(cfgPath, out)
+if (!Array.isArray(cfg.plugin)) cfg.plugin = cfg.plugin ? [cfg.plugin] : []
+if (!cfg.plugin.includes(pluginRef)) cfg.plugin.push(pluginRef)
+fs.writeFileSync(cfgPath, JSON.stringify(cfg, null, 2) + "\n")
 console.log(`==> 已注册插件 ${pluginRef}`)
 NODE
 }

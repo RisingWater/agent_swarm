@@ -1947,3 +1947,550 @@ table.ws-grid th {
 }
 
 /* 用途展开：完整显示所有行，不限制高度（无滚动条） */
+
+
+/* ===== claude 中枢终端（.claude-tui）：独立作用域，与 opencode 的 .tui 完全分开 =====
+   布局/控件尺寸/字体与 .tui 同构（由 .tui 规则机械复制生成），配色为 claude 暖黑 + 橙色系。
+   ⚠️ 修改 .tui 布局时同步调整此处（两边不共用选择器）。 */
+
+.nexus-terminal.claude-tui .nexus-head-session { color: #c98a4b; }
+
+.nexus-terminal.claude-tui .nexus-footer {
+  border-top-color: #3a2c1f;
+  background: #201812;
+}
+
+.nexus-terminal.claude-tui .nexus-footer-session { color: #b8793f; }
+
+.nexus-terminal.claude-tui .nexus-footer-main { color: #e8964a; }
+
+.nexus-terminal.claude-tui .nexus-footer-dim { color: #6a5a4a; }
+
+.nexus-terminal.claude-tui {
+  background: #1a1310;
+  border-color: #3a2c1f;
+  color: #e8e2da;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.nexus-terminal.claude-tui .nexus-terminal-head {
+  background: #201812;
+  border-bottom-color: #3a2c1f;
+  font-size: 12px;
+  align-items: center;
+}
+
+.nexus-terminal.claude-tui .nexus-terminal-head .agent-type-ico {
+  display: inline-flex;
+  align-items: center;
+  margin: 0;
+  vertical-align: middle;
+}
+
+.nexus-terminal.claude-tui .nexus-terminal-head .agent-type-ico svg {
+  display: block;
+}
+
+.nexus-terminal.claude-tui .nexus-head-title { color: #fff; }
+
+.nexus-terminal.claude-tui .nexus-head-status.on { color: #e8964a; }
+
+.nexus-terminal.claude-tui .nexus-head-status.off { color: #6a5a4a; }
+
+.nexus-terminal.claude-tui .nexus-head-clear { color: #6a5a4a; }
+
+.nexus-terminal.claude-tui .nexus-head-clear:hover { color: #fff; }
+
+.nexus-terminal.claude-tui .nexus-timeline {
+  gap: 10px;
+}
+
+.nexus-terminal.claude-tui .nexus-timeline::-webkit-scrollbar { width: 8px; }
+
+.nexus-terminal.claude-tui .nexus-timeline::-webkit-scrollbar-thumb { background: #3a2c1f; border-radius: 4px; }
+
+.nexus-terminal.claude-tui .nexus-waiting { color: #6a5a4a; font-size: 12.5px; }
+
+.nexus-terminal.claude-tui .tl-assistant {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  max-width: none;
+  align-self: auto;
+}
+
+.nexus-terminal.claude-tui .tl-tool-box {
+  background: #201812;
+  border: 1px solid #35281c;
+  border-radius: 0;
+  padding: 8px 12px;
+  align-self: stretch;
+}
+
+.nexus-terminal.claude-tui .tl-tool-box.running {
+  border-color: #3a3325;
+}
+
+.nexus-terminal.claude-tui .tl-tool .tl-tool-name,
+.nexus-terminal.claude-tui .tl-tool-box .tl-tool-name { color: #d9a05f; font-weight: 600; }
+
+.nexus-terminal.claude-tui .tl-tool-box.running .tl-tool-name { color: #e8b271; }
+
+.nexus-terminal.claude-tui .tl-tool-box .tl-tool-output {
+  margin: 8px 0 0;
+  padding: 0;
+  background: none;
+  border: none;
+  border-radius: 0;
+  color: #b8a48c;
+  white-space: pre-wrap;
+  word-break: break-all;
+  /* 覆盖兜底控件的限高滚动：TUI 输出不做内部滚动 */
+  max-height: none;
+  overflow: visible;
+  overflow-x: visible;
+  overflow-y: visible;
+}
+
+.nexus-terminal.claude-tui .tl-tool-output.clamped {
+  max-height: 220px;
+  overflow: hidden;
+}
+
+.nexus-terminal.claude-tui .tl-tool-output.expanded {
+  max-height: none;
+  overflow: visible;
+}
+
+.nexus-terminal.claude-tui .tl-error {
+  display: flex;
+  gap: 8px;
+  color: #e07b7b;
+  font-size: 12.5px;
+  align-self: auto;
+  max-width: none;
+}
+
+.nexus-terminal.claude-tui .tl-ask {
+  border-color: #4a3822;
+  background: #201812;
+}
+
+.nexus-terminal.claude-tui .tl-ask-head { color: #e8e2da; font-size: 12.5px; }
+
+.nexus-terminal.claude-tui .tl-ask-head b { color: #fff; }
+
+.nexus-terminal.claude-tui .tl-ask-body { color: #a89880; font-size: 12px; }
+
+.nexus-terminal.claude-tui .tl-ask-btn { background: #2a1f16; border-color: #4a3822; color: #d8d8d8; }
+
+.nexus-terminal.claude-tui .tl-ask-btn:hover { border-color: #8a6a42; color: #fff; }
+
+.nexus-terminal.claude-tui .tl-ask-btn.danger { color: #e07b7b; border-color: #5a2e2e; }
+
+.nexus-terminal.claude-tui .nexus-input-row {
+  border-top-color: #3a2c1f;
+  position: relative;
+  padding-left: 28px;
+  align-items: center;
+}
+
+.nexus-terminal.claude-tui .nexus-input-row::before {
+  content: "";
+  position: absolute;
+  left: 16px;
+  top: 8px;
+  bottom: 8px;
+  width: 3px;
+  border-radius: 2px;
+  background: #d97757;
+}
+
+.nexus-terminal.claude-tui .nexus-input-row:focus-within::before {
+  background: #e8964a;
+  box-shadow: 0 0 6px rgba(217, 119, 87, 0.5);
+}
+
+.nexus-terminal.claude-tui .nexus-input {
+  color: #f0ebe4;
+  caret-color: #e8e2da;
+}
+
+.nexus-terminal.claude-tui .nexus-input::placeholder { color: #6a5a4a; }
+
+.nexus-terminal.claude-tui .nexus-send { border-color: #4a3822; color: #b8a48c; }
+
+.nexus-terminal.claude-tui .nexus-send:hover:not(:disabled) { border-color: #8a6a42; color: #fff; }
+
+/* --- claude-tui 补充：无 .tui 前缀的全局控件在暖黑底下的配色对齐 --- */
+
+.nexus-terminal.claude-tui .tl-user-box { background: #241a13; border-color: #3a2c1f; }
+.nexus-terminal.claude-tui .tl-user-box::before { background: #d97757; }
+.nexus-terminal.claude-tui .tl-user-text { color: #eae4dc; }
+.nexus-terminal.claude-tui .tl-dot { color: #e8964a; }
+.nexus-terminal.claude-tui .tl-assistant-text { color: #f0ebe4; }
+.nexus-terminal.claude-tui .tl-assistant-text pre { background: #241a13; border-color: #35281c; }
+.nexus-terminal.claude-tui .tl-assistant-text code { background: #2e2118; }
+.nexus-terminal.claude-tui .tl-assistant-text a { color: #d97757; }
+.nexus-terminal.claude-tui .tl-assistant-text table { border-color: #3a2c1f; }
+.nexus-terminal.claude-tui .tl-assistant-text th,
+.nexus-terminal.claude-tui .tl-assistant-text td { border-color: #3a2c1f; }
+.nexus-terminal.claude-tui .tl-thought { color: #8a7a6a; }
+.nexus-terminal.claude-tui .tl-thought summary:hover { color: #b8a48c; }
+.nexus-terminal.claude-tui .tl-thought-body { border-left-color: #3a2c1f; color: #a89880; }
+.nexus-terminal.claude-tui .tl-tool-glyph { color: #8a7a6a; }
+.nexus-terminal.claude-tui .tl-tool-args { color: #8a7a6a; }
+.nexus-terminal.claude-tui .tl-tool-head .tl-tool-ellipsis { color: #e8b271; }
+.nexus-terminal.claude-tui .tl-tool-output-wrap .tl-tool-output { color: #b8a48c; }
+.nexus-terminal.claude-tui .tl-error-mark { color: #e07b7b; }
+.nexus-terminal.claude-tui .tl-error-text { color: #e07b7b; }
+.nexus-terminal.claude-tui .tl-ask-glyph { color: #d97757; }
+.nexus-terminal.claude-tui .tl-ask-done { color: #e8964a; }
+.nexus-terminal.claude-tui .nexus-statusline { color: #e8b271; }
+.nexus-terminal.claude-tui .nexus-status-dim { color: #6a5a4a; }
+.nexus-terminal.claude-tui .nexus-spinner { color: #e8b271; }
+
+/* --- claude-tui 时间线控件（模仿 claude code CLI）：> 用户 / ● 大点条目 / ⎿ 输出，无框 --- */
+
+.nexus-terminal.claude-tui .cl-user {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  align-self: stretch;
+}
+
+.nexus-terminal.claude-tui .cl-prompt {
+  color: #d97757;
+  font-weight: 700;
+  flex: 0 0 auto;
+}
+
+.nexus-terminal.claude-tui .cl-user-text {
+  color: #eae4dc;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* ● 条目通用：大点 + 内容体（悬点缩进） */
+.nexus-terminal.claude-tui .cl-entry {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  align-self: stretch;
+}
+
+.nexus-terminal.claude-tui .cl-dot {
+  color: #e8964a;
+  font-size: 14px;
+  line-height: 1.5;
+  flex: 0 0 auto;
+}
+
+.nexus-terminal.claude-tui .cl-entry-body {
+  min-width: 0;
+  flex: 1;
+  color: #f0ebe4;
+}
+
+.nexus-terminal.claude-tui .cl-assistant-md { word-break: break-word; }
+
+/* 可折叠条目（thinking / list·read 摘要）：一行 + expand */
+.nexus-terminal.claude-tui .cl-fold summary {
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+}
+
+.nexus-terminal.claude-tui .cl-fold summary::-webkit-details-marker { display: none; }
+
+.nexus-terminal.claude-tui .cl-fold-label { color: #e8e2da; }
+
+.nexus-terminal.claude-tui .cl-expand {
+  background: none;
+  border: none;
+  padding: 0;
+  font-family: inherit;
+  color: #d97757;
+  font-size: 12px;
+  text-decoration: underline;
+  margin-left: 6px;
+  cursor: pointer;
+}
+
+.nexus-terminal.claude-tui .cl-expand:hover { color: #e8964a; }
+
+.nexus-terminal.claude-tui .cl-fold-body {
+  margin-top: 6px;
+  padding: 6px 10px;
+  border-left: 2px solid #3a2c1f;
+  color: #a89880;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 12.5px;
+}
+
+/* 工具行 */
+.nexus-terminal.claude-tui .cl-tool-line {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+}
+
+.nexus-terminal.claude-tui .cl-tool-name {
+  color: #d9a05f;
+  font-weight: 600;
+  word-break: break-all;
+}
+
+.nexus-terminal.claude-tui .cl-ellipsis { color: #e8b271; }
+
+/* ⎿ 输出块：缩进 + ⎿ 视觉（伪元素），直角无框 */
+.nexus-terminal.claude-tui .cl-hook-wrap { margin-top: 4px; }
+
+.nexus-terminal.claude-tui .cl-hook-output {
+  margin: 0;
+  padding: 0 0 0 22px;
+  background: none;
+  border: none;
+  border-radius: 0;
+  color: #a89880;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-all;
+  position: relative;
+}
+
+.nexus-terminal.claude-tui .cl-hook-output::before {
+  content: "⎿";
+  position: absolute;
+  left: 4px;
+  color: #8a7a6a;
+}
+
+.nexus-terminal.claude-tui .cl-hook-output.clamped {
+  max-height: 160px;
+  overflow: hidden;
+}
+
+.nexus-terminal.claude-tui .cl-done { color: #e8964a; }
+
+/* 错误文本 */
+.nexus-terminal.claude-tui .cl-error-text { color: #e07b7b; white-space: pre-wrap; word-break: break-word; }
+
+/* ask 卡（无框，沿用暖色） */
+.nexus-terminal.claude-tui .cl-ask-head { color: #e8e2da; }
+.nexus-terminal.claude-tui .cl-ask-head b { color: #fff; }
+.nexus-terminal.claude-tui .cl-ask-body { color: #a89880; font-size: 12.5px; margin-top: 2px; }
+
+.nexus-terminal.claude-tui .cl-ask-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.nexus-terminal.claude-tui .cl-ask-btn {
+  background: #2a1f16;
+  border: 1px solid #4a3822;
+  border-radius: 6px;
+  color: #d8d0c4;
+  font-family: inherit;
+  font-size: 12px;
+  padding: 4px 12px;
+  cursor: pointer;
+}
+
+.nexus-terminal.claude-tui .cl-ask-btn:hover { border-color: #8a6a42; color: #fff; }
+
+.nexus-terminal.claude-tui .cl-ask-btn.primary {
+  background: #d97757;
+  border-color: #d97757;
+  color: #1a1310;
+  font-weight: 600;
+}
+
+.nexus-terminal.claude-tui .cl-ask-btn.primary:hover { background: #e8964a; border-color: #e8964a; }
+
+.nexus-terminal.claude-tui .cl-ask-btn.danger { color: #e07b7b; border-color: #5a2e2e; }
+
+/* --- claude-tui：markdown 渲染内的亮色背景透明化（.md 全局样式用 var(--bg-weak)，暖黑底下刺眼） --- */
+
+.nexus-terminal.claude-tui .md code {
+  background: transparent;
+  border-color: #3a2c1f;
+  color: #e8b271;
+}
+
+.nexus-terminal.claude-tui .md pre {
+  background: transparent;
+  border-color: #35281c;
+}
+
+.nexus-terminal.claude-tui .md pre code {
+  background: transparent;
+  border: none;
+  color: #d8d0c4;
+}
+
+.nexus-terminal.claude-tui .md th {
+  background: transparent;
+  border-color: #3a2c1f;
+  color: #e8e2da;
+}
+
+.nexus-terminal.claude-tui .md td { border-color: #3a2c1f; }
+
+.nexus-terminal.claude-tui .md blockquote {
+  border-left-color: #d97757;
+  color: #a89880;
+}
+
+.nexus-terminal.claude-tui .md a { color: #d97757; }
+
+.nexus-terminal.claude-tui .md hr { border-color: #3a2c1f; }
+
+/* 输入区/头部等残留的全局浅背景透明化 */
+.nexus-terminal.claude-tui .nexus-input-row { background: transparent; }
+.nexus-terminal.claude-tui .nexus-timeline { background: transparent; }
+.nexus-terminal.claude-tui .nexus-terminal-head,
+.nexus-terminal.claude-tui .nexus-footer { background: #201812; }
+
+/* ---------- 中枢页：固定视口高度布局（控件高度不随内容变化，页面无滚动条） ---------- */
+
+.nexus-page {
+  display: flex;
+  flex-direction: column;
+  /* 视口 - 顶栏64 - main上padding48 - 下padding80 */
+  height: calc(100vh - 192px);
+  min-height: 480px;
+}
+
+.nexus-page .nexus-terminal {
+  flex: 1;
+  min-height: 0; /* flex 允许收缩，timeline 内部滚动 */
+  max-height: none;
+}
+
+.nexus-page .nexus-timeline {
+  flex: 1;
+  min-height: 0;
+  max-height: none; /* 高度由终端 flex 决定，不再用 62vh 上限 */
+}
+
+.nexus-timeline-wrap {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  display: flex;
+}
+
+.nexus-timeline-wrap .nexus-timeline {
+  flex: 1;
+  min-height: 0;
+}
+
+/* 浮动回到底部按钮：仅当时间线可滚动且视口离底较远时出现 */
+.nexus-jump-bottom {
+  position: absolute;
+  right: 18px;
+  bottom: 16px;
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--bg-strong);
+  color: var(--text);
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
+  z-index: 5;
+}
+
+.nexus-jump-bottom:hover {
+  background: var(--bg-strong-hover);
+}
+
+/* 调用记录页清空按钮：浅色背景，hover 变红（danger 语义） */
+.calls-clear-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 7px 12px;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-weak);
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+/* 文档页表格：命令/工具列固定宽度不换行 */
+.docs-section table th:first-child,
+.docs-section table td:first-child {
+  white-space: nowrap;
+  width: 1%;
+}
+
+.docs-section table td:first-child code {
+  white-space: nowrap;
+}
+
+/* ────────────── 后台管理（#/admin） ────────────── */
+.admin-login-page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.admin-login-card {
+  width: min(360px, 92vw);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 28px 26px;
+  background: var(--bg);
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.admin-login-card input {
+  width: 100%;
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 14px;
+  box-sizing: border-box;
+}
+.admin-login-card input:focus {
+  outline: none;
+  border-color: var(--accent, #4a7dff);
+}
+.admin-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.admin-table th,
+.admin-table td {
+  text-align: left;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+.admin-table th {
+  color: var(--text-weak);
+  font-weight: 500;
+  font-size: 12px;
+}

@@ -14,6 +14,8 @@ export interface ExtendedSwarmConfig extends SwarmConfig {
   executionMode: ExecutionMode
   /** 后台执行器：auto = 按本插件宿主（opencode）；预留 claude 等后续扩展 */
   backgroundCommand: string
+  /** 前台会话实时监控：TUI 对话轮次经 A2A 上报 nexus（默认开） */
+  monitor: boolean
 }
 
 function readJson(path: string): Partial<SwarmConfig> & Record<string, unknown> {
@@ -45,6 +47,8 @@ export function loadConfig(): ExtendedSwarmConfig | null {
           : "foreground",
     backgroundCommand:
       (globalCfg.backgroundCommand as string) ?? (localCfg.backgroundCommand as string) ?? process.env.AGENT_SWARM_BG_CMD ?? "auto",
+    // monitor 未配置时默认开；显式 false 才关（/swarm-monitor 写 boolean）
+    monitor: (globalCfg.monitor as boolean | undefined) ?? (localCfg.monitor as boolean | undefined) ?? true,
   }
   if (!cfg.apiKey) return null
   return cfg

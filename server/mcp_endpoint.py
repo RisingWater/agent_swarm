@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 import shortuuid
 
 from mcp.server.fastmcp import FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
 from sqlmodel import select
 from starlette.requests import Request
 from starlette.responses import JSONResponse
@@ -80,6 +81,11 @@ mcp = FastMCP(
     json_response=True,
     stateless_http=True,
     streamable_http_path="/",
+    # MCP SDK 默认开 DNS rebinding 防护（Host 校验只放行 127.0.0.1/localhost），
+    # 局域网/远程客户端（10.x 等）会被 421 Misdirected Request 拒掉。
+    # 本服务有自己的 ApiKeyMiddleware 鉴权，Host 防护显式关闭。
+    # 注意：传 None 时 SDK 会在 host 为 127.0.0.1 时自动再开防护，必须显式传 disabled 实例。
+    transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
 )
 
 
@@ -96,7 +102,7 @@ def workspace_add(
     """添加（或更新）当前工作区到 agent_swarm。
 
     已存在同路径工作区时更新其描述。返回 workspace_id，客户端应把它写入
-    项目根目录 .agent-swarm.md 的 WORKSPACE_ID: 行（插件心跳依赖该文件）。
+    项目根目录 .agent_swarm/workspace.md 的 WORKSPACE_ID: 行（插件心跳依赖该文件）。
     返回 need_summary=true 表示还没有用途总结，应生成后用 update_info 回写。
 
     Args:
@@ -228,8 +234,8 @@ def heartbeat(
 
     Args:
         workspace_id: 注册时返回的工作区 ID
-        session_id: 当前 opencode 会话 ID（可选，前台任务注入需要）
-        session_title: 当前会话标题（可选，web 展示用）
+        session_id: 当前会话 ID（可选；非空时覆盖）
+        session_title: 当前会话标题（可选；非空时覆盖）
         agent_type: agent 工具类型（可选，如 opencode；重复上报会更新）
     """
     user = get_user()
@@ -240,6 +246,8 @@ def heartbeat(
             return {"ok": False, "status": "disabled", "message": "workspace is disabled"}
         ws.status = "online"
         ws.last_heartbeat = utcnow()
+        # 空值不覆盖：插件端负责尽量报最近会话（pickRecentSession 兜底），
+        # 服务端只保留最近一次非空上报，保证 web 始终有会话名可看
         if session_id:
             ws.session_id = session_id
         if session_title:
@@ -337,6 +345,9 @@ def list_workspaces(include_offline: bool = False) -> dict:
 
     Args:
         include_offline: 是否包含离线工作区（默认 false）
+
+    发起互调时：a2a_call 的 from_workspace 参数传**你所在的工作区 ID**
+    （调用方 agent 无法被服务端自动识别，传入后调用记录才会显示真实发起方）。
     """
     user = get_user()
     session = next(get_session())
@@ -376,7 +387,7 @@ CALL_TIMEOUT_SECONDS = int(os.environ.get("AGENT_SWARM_CALL_TIMEOUT", "3600"))
 
 
 @mcp.tool()
-async def a2a_call(target: str, message: str, context_id: str = "") -> dict:
+async def a2a_call(target: str, message: str, context_id: str = "", from_workspace: str = "") -> dict:
     """通过 A2A 协议给另一个 agent 发任务（支持内部工作区与外部 A2A agent）。
 
     用 list_workspaces 找内部工作区（传 workspace ID），或直接传外部 agent 的
@@ -386,12 +397,19 @@ async def a2a_call(target: str, message: str, context_id: str = "") -> dict:
         target: 内部工作区 ID，或外部 A2A agent 端点 URL
         message: 任务指令，尽量具体（涉及文件写绝对路径）
         context_id: 可选，延续之前的会话上下文（多轮任务）
+        from_workspace: 你（发起方）所在的工作区 ID（list_workspaces 可查）。
+            传入后调用记录会显示真实发起方；缺省时发起方标注为"agent（未注明）"
     """
     from server.nexus_a2a import call_external
 
     user = get_user()
     session = next(get_session())
     try:
+        # 发起方校验：必须是当前用户的工作区（防伪造归属）
+        from_ws_valid = False
+        if from_workspace:
+            from_ws = session.get(models.Workspace, from_workspace)
+            from_ws_valid = from_ws is not None and from_ws.user_id == user.id
         if target.startswith("http://") or target.startswith("https://"):
             # 外部 A2A agent：message/send 非流式，等终态返回
             task_id, ctx, status = await call_external(target, message, context_id=context_id)
@@ -400,6 +418,7 @@ async def a2a_call(target: str, message: str, context_id: str = "") -> dict:
                 context_id=ctx,
                 external_url=target,
                 caller="agent",
+                from_workspace_id=from_workspace if from_ws_valid else "",
                 message=message,
                 status=status if status in ("queued", "working", "input-required", "completed", "failed", "canceled") else "working",
             )
@@ -418,8 +437,6 @@ async def a2a_call(target: str, message: str, context_id: str = "") -> dict:
         tgt = session.get(models.Workspace, target)
         if tgt is None or tgt.user_id != user.id:
             raise ValueError(f"target workspace {target!r} not found or not visible to you")
-        if (tgt.agent_type or "").strip().lower() == "claude":
-            raise ValueError("claude workspace does not support task execution yet (keepalive only)")
         if tgt.status == "disabled":
             raise ValueError("target workspace is disabled")
         from server.nexus_a2a import ws_online as _ws_plugin_online
@@ -432,6 +449,7 @@ async def a2a_call(target: str, message: str, context_id: str = "") -> dict:
             context_id=context_id or shortuuid.uuid(),
             workspace_id=tgt.id,
             caller="agent",
+            from_workspace_id=from_workspace if from_ws_valid else "",
             message=message,
             status="queued",
         )

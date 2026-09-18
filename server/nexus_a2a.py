@@ -38,7 +38,7 @@ import shortuuid
 from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse, StreamingResponse
 from jwt import PyJWTError
-from sqlmodel import Session, select
+from sqlmodel import Session, func, select
 import jwt
 
 from server import models
@@ -223,15 +223,25 @@ def _task_broadcast(task_id: str, event_id: int, event: dict) -> None:
         q.put_nowait((event_id, event))
 
 
+# 内部事件监听者（如 nexus-feishu）：签名 async fn(workspace_id, event_dict)；
+# 在 handle_plugin_event / handle_monitor_event 持久化后调用，异常互不影响主链路
+internal_listeners: list = []
+
+
 # ---------------------------------------------------------------- 事件管道
 
 
-async def _push_web(workspace_id: str, payload: dict) -> None:
-    """把事件推给所有订阅该工作区的 web 连接。"""
+async def _push_web(workspace_id: str, payload: dict, type_: str = "event") -> None:
+    """把事件推给所有订阅该工作区的 web 连接。
+
+    type_="event"：A2A 事件（payload 为 A2A 形状）；
+    type_="monitor"：前台监控事件（payload 为 {roundKey, type, ...}，已含 monitor 语义，
+    不再包一层——曾因统一包 event 导致前端 case "monitor" 永远匹配不上，实时流全灭）。
+    """
     conns = subscribers.get(workspace_id)
     if not conns:
         return
-    msg = json.dumps({"type": "event", "payload": payload}, ensure_ascii=False)
+    msg = json.dumps({"type": type_, "payload": payload}, ensure_ascii=False)
     for conn in list(conns):
         try:
             await conn.ws.send_text(msg)
@@ -282,7 +292,7 @@ async def handle_plugin_event(workspace_id: str, event: dict) -> None:
         if task is None or task.workspace_id != workspace_id:
             return
         session.add(
-            models.A2aEvent(task_id=task.id, workspace_id=workspace_id, kind="status" if event.get("kind") == "status-update" else "artifact", payload=json.dumps(event, ensure_ascii=False)[:131072])
+            models.A2aEvent(task_id=task.id, workspace_id=workspace_id, kind="status" if event.get("kind") == "status-update" else "artifact", round_key=task.id, payload=json.dumps(event, ensure_ascii=False)[:131072])
         )
         _finalize_task(session, task, event)
         # artifact：全量文本落 task.artifact（插件每轮发全量，lastChunk=true）
@@ -299,12 +309,124 @@ async def handle_plugin_event(workspace_id: str, event: dict) -> None:
     # 广播：事件（SSE 流 / 同步等待队列）
     _task_broadcast(task_id, event_id, event)
     await _push_web(workspace_id, event)
+    # 内部监听者（feishu 等）
+    for listener in internal_listeners:
+        try:
+            await listener(workspace_id, event)
+        except Exception:
+            pass
     # 状态变化时附带推送任务快照（web 直接拿最新 status / artifact）
     if snapshot is not None and event.get("kind") == "status-update":
         await _push_web(workspace_id, {"type": "task", "task": snapshot})
     # input-required 需要任务行带上应答信息（task_obj 的 status.message）
     if state == "input-required" and snapshot is not None:
         _task_broadcast(task_id, event_id, {"kind": "task-snapshot", "task": snapshot})
+
+
+# ---------------------------------------------------------------- 前台监控（TUI 对话轮次上报）
+
+
+async def handle_monitor_event(workspace_id: str, payload: dict) -> None:
+    """插件上报的前台会话监控事件（用户在 TUI 手动对话）：落库 + 建/更新轮次任务行 + 推 web。
+
+    payload: {roundKey, sessionId, type: user|text|reasoning|tool|permission|question|idle, ...}
+    监控轮复用 a2a_tasks 表（id=roundKey，caller="monitor"），web 应答权限/提问直接走
+    现有 reply 端点（task_id=roundKey）。
+    """
+    round_key = str(payload.get("roundKey", ""))
+    mtype = str(payload.get("type", ""))
+    if not round_key or not mtype:
+        return
+    superseded: list[models.A2aTask] = []  # 新轮开轮时被收尾的旧前台轮（事务外通知）
+    with Session(engine) as session:
+        task = session.get(models.A2aTask, round_key)
+        if task is None:
+            # 前台轮唯一性：一个工作区同时只有一个前台轮。新轮开轮时把旧的前台轮
+            # （caller=monitor 且未终态）就地收尾——插件侧 monRounds 直接覆盖旧轮不发
+            # idle，旧轮会永远停在 working，只能靠这里关（idle 先到的已终态，幂等跳过）。
+            stale = session.exec(
+                select(models.A2aTask)
+                .where(models.A2aTask.workspace_id == workspace_id)
+                .where(models.A2aTask.caller == "monitor")
+                .where(models.A2aTask.status.not_in(list(TERMINAL_STATES)))  # type: ignore[attr-defined]
+            ).all()
+            for old in stale:
+                if old.id == round_key:
+                    continue
+                old.status = "completed"
+                old.done_at = models.utcnow()
+                session.add(old)
+                superseded.append(old.model_copy())
+            # 轮次首事件：建监控轮任务行（user 开轮；其他事件先到也容忍，文本后补）
+            task = models.A2aTask(
+                id=round_key,
+                context_id=round_key,
+                workspace_id=workspace_id,
+                caller="monitor",
+                message=str(payload.get("text", ""))[:8000],
+                status="working",
+                session_id=str(payload.get("sessionId", "")) or None,
+            )
+            session.add(task)
+            session.commit()
+        elif mtype == "user" and payload.get("text"):
+            return  # 已存在却收到带文本的 user（重放），忽略
+        elif mtype == "user-text":
+            # 提问文本补拉事件：更新任务行 message + 落事件表（回放时前端回填 user 条目）+ 推 web
+            task.message = str(payload.get("text", ""))[:8000]
+            session.add(task)
+        session.add(
+            models.A2aEvent(
+                task_id=round_key,
+                workspace_id=workspace_id,
+                kind="monitor",
+                round_key=round_key,
+                payload=json.dumps(payload, ensure_ascii=False)[:131072],
+            )
+        )
+        # 权限/提问 → input-required；idle → completed；text 事件累积为最终回答（artifact）
+        # 注意：input-required 期间 text/reasoning/tool 事件**不把状态推回 working**——
+        # 权限等待中仍会收到此前发起工具的收尾快照（completed/reasoning 尾帧），它们不是新活动；
+        # 误推回 working 会导致 web 应答 409（task is working）且条目状态混乱，流程看似卡死。
+        # 能离开 input-required 的只有：reply 端点（用户应答）或 idle（轮结束）。
+        if mtype in ("permission", "question") and task.status not in ("completed", "failed", "canceled"):
+            task.status = "input-required"
+        elif mtype == "replied" and task.status == "input-required":
+            # web 端应答到达（插件确认 opencode API 已受理）：离开等待态回 working。
+            # stillWaiting=true = 同轮还有别的权限/提问排队，保持 input-required
+            if not payload.get("stillWaiting"):
+                task.status = "working"
+        elif mtype == "idle" and task.status not in ("completed", "failed", "canceled"):
+            # idle = 轮结束：无论是否还在等权限（未应答即放弃/已在 TUI 处理），轮次收尾
+            task.status = "completed"
+            task.done_at = models.utcnow()
+        if mtype == "text":
+            # replace 全量快照：最后一条 text 即本轮完整回答（与 A2A artifact 同语义）
+            task.artifact = str(payload.get("text", ""))[:60000]
+        session.add(task)
+        session.commit()
+    await _push_web(workspace_id, payload, "monitor")
+    # 被新轮顶替的旧前台轮：web 条目收尾 + 通知内部监听者（feishu 时间线卡 finalize）
+    for old in superseded:
+        ev = {"kind": "status-update", "taskId": old.id,
+              "status": {"state": "completed", "superseded": True}}
+        await _push_web(workspace_id, ev)
+        await _push_web(workspace_id, {"type": "task", "task": {**task_obj(old), "status": "completed"}})
+        for listener in internal_listeners:
+            try:
+                await listener(workspace_id, ev)
+            except Exception:
+                pass
+    # 内部监听者（feishu 等）
+    for listener in internal_listeners:
+        try:
+            await listener(workspace_id, payload)
+        except Exception:
+            pass
+    with Session(engine) as session:
+        t = session.get(models.A2aTask, round_key)
+        if t is not None:
+            await _push_web(workspace_id, {"type": "task", "task": task_obj(t)})
 
 
 # ---------------------------------------------------------------- HTTP：Agent Card
@@ -491,8 +613,6 @@ async def a2a_rpc(workspace_id: str, request: Request):
         ws = session.get(models.Workspace, workspace_id)
         if ws is None or ws.user_id != user.id:
             return JSONResponse(_err(-32002, "workspace not found or not visible"), status_code=404)
-        if (ws.agent_type or "").strip().lower() == "claude":
-            return JSONResponse(_err(-32003, "claude workspace does not support task execution yet"))
         if ws.status == "disabled" or not ws_online(workspace_id):
             return JSONResponse(_err(-32004, "workspace plugin is not online"), status_code=409)
 
@@ -573,6 +693,12 @@ async def a2a_rpc(workspace_id: str, request: Request):
 
         else:
             return JSONResponse(_err(-32601, f"method not supported: {method}"))
+
+
+# 任务超时收割（reap）已彻底移除（2026-09-18 用户决定）：
+# - 后台会话不产生权限交互，不会卡死；前台会话由 idle / 新轮顶替收尾
+# - AI 互调发起方自带超时（_wait_final / a2a_task 轮询），自己会停止
+# - 插件崩溃丢终态时任务停在 working：web 调用记录页可手动取消
 
 
 async def _wait_final(task_id: str, timeout: float) -> None:
@@ -772,8 +898,6 @@ async def nexus_send(workspace_id: str, request: Request):
         ws = session.get(models.Workspace, workspace_id)
         if ws is None or ws.user_id != user.id:
             raise HTTPException(404, "workspace not found")
-        if (ws.agent_type or "").strip().lower() == "claude":
-            raise HTTPException(409, "claude workspace does not support task execution yet")
         if ws.status == "disabled":
             raise HTTPException(409, "workspace is disabled")
         # 在线判定以插件 WS 为准（WS 在线即证明工作区可用；心跳 90s 超时只影响展示态）
@@ -804,12 +928,19 @@ async def nexus_reply(workspace_id: str, request: Request):
         ws = session.get(models.Workspace, workspace_id)
         if ws is None or ws.user_id != user.id:
             raise HTTPException(403, "no permission")
-        if task.status != "input-required":
+        # 前台监控轮（caller=monitor）：状态机宽松处理——只要任务未终态就接受应答。
+        # 权限等待期间 part 快照事件多，状态可能仍在 working；且 TUI 与 web 竞答应答，
+        # 严格校验 input-required 会误伤（409 卡死用户流程）。应答转发给插件后，
+        # opencode API 找不到对应 permission 会自然报错，真实状态由插件侧兜底。
+        if task.caller == "monitor":
+            if task.status in ("completed", "failed", "canceled"):
+                raise HTTPException(409, f"task is {task.status}, cannot reply")
+        elif task.status != "input-required":
             raise HTTPException(409, f"task is {task.status}, not waiting for input")
     conn = plugins.get(workspace_id)
     if conn is None:
         raise HTTPException(409, "workspace plugin is not online")
-    data: dict = {"type": req_type, "requestId": request_id}
+    data: dict = {"type": req_type, "requestId": request_id, "taskId": task_id}
     if req_type == "permission":
         reply = str(body.get("reply", ""))
         if reply not in ("once", "always", "reject"):
@@ -838,6 +969,101 @@ async def nexus_reply(workspace_id: str, request: Request):
     if not ok:
         raise HTTPException(502, "plugin connection lost")
     return {"ok": True, "status": "working"}
+
+
+# ---------------------------------------------------------------- 飞书渠道入口（nexus-feishu）
+
+
+async def cancel_task_by_id(task_id: str, user_id: str) -> bool:
+    """按任务 ID 取消（feishu 中断按钮）。校验任务属于 user_id 的工作区。
+
+    返回是否受理（任务不存在/不属你/已终态 → False）。
+    """
+    with Session(engine) as session:
+        task = session.get(models.A2aTask, task_id)
+        if task is None:
+            return False
+        ws = session.get(models.Workspace, task.workspace_id) if task.workspace_id else None
+        if ws is None or ws.user_id != user_id:
+            return False
+        wid = task.workspace_id
+        if task.status in TERMINAL_STATES:
+            return False
+    conn = plugins.get(wid)
+    if conn is not None:
+        await _send_json(
+            conn.ws,
+            {"type": "rpc", "payload": {
+                "jsonrpc": "2.0",
+                "id": f"srv-cancel-{task_id}",
+                "method": "tasks/cancel",
+                "params": {"id": task_id},
+            }},
+        )
+    with Session(engine) as session:
+        _mark_task(session, task_id, "canceled")
+        session.commit()
+        t = session.get(models.A2aTask, task_id)
+        snap = task_obj(t) if t is not None else None
+    if snap is not None:
+        await _push_web(wid, status_event_from_snap(snap, True))
+        # 飞书/web 卡片都靠 task 快照更新终态
+        for listener in internal_listeners:
+            try:
+                await listener(wid, status_event_from_snap(snap, True))
+            except Exception:
+                pass
+    return True
+
+
+def status_event_from_snap(snap: dict, final: bool) -> dict:
+    """task_obj 快照 → status-update 事件（cancel 后广播用，绕开 ORM 会话生命周期）。"""
+    return {
+        "taskId": snap.get("id", ""),
+        "contextId": snap.get("contextId", ""),
+        "kind": "status-update",
+        "status": snap.get("status") or {"state": "canceled"},
+        "final": final,
+    }
+
+
+async def reply_task_from_feishu(task_id: str, reply: str, request_id: str) -> tuple[bool, str]:
+    """飞书卡片应答 input-required（权限 once/always/reject 或提问自由文本）。
+
+    权限复用与 web reply 相同的 DataPart 语义；提问自由文本按 answers=[text] 传递。
+    返回 (ok, message)。
+    """
+    with Session(engine) as session:
+        task = session.get(models.A2aTask, task_id)
+        if task is None:
+            return False, "task not found"
+        wid = task.workspace_id
+        itype = _input_type(task)
+    conn = plugins.get(wid)
+    if conn is None:
+        return False, "workspace plugin is not online"
+    data: dict = {"requestId": request_id or task_id, "taskId": task_id}
+    if itype == "question":
+        data["type"] = "question"
+        data["answers"] = [reply]
+    else:
+        data["type"] = "permission"
+        data["reply"] = reply if reply in ("once", "always", "reject") else "once"
+    msg = {
+        "role": "user",
+        "parts": [{"kind": "data", "data": data}],
+        "messageId": f"msg-{task_id}-feishu-{request_id or task_id}",
+        "taskId": task_id,
+        "contextId": "",
+    }
+    req = {
+        "jsonrpc": "2.0",
+        "id": f"srv-reply-feishu-{request_id or task_id}",
+        "method": "message/send",
+        "params": {"message": msg, "metadata": {"caller": "nexus-feishu-reply"}},
+    }
+    ok = await _send_json(conn.ws, {"type": "rpc", "payload": req})
+    return (True, "") if ok else (False, "plugin connection lost")
 
 
 @router.get("/api/nexus/{workspace_id}/history")
@@ -965,6 +1191,10 @@ async def ws_plugin(ws: WebSocket):
                 payload = msg.get("payload") or {}
                 if len(raw) < 256 * 1024:
                     asyncio.create_task(handle_plugin_event(plugin.workspace_id, payload))
+            elif mtype == "monitor":
+                payload = msg.get("payload") or {}
+                if len(raw) < 256 * 1024:
+                    asyncio.create_task(handle_monitor_event(plugin.workspace_id, payload))
     except WebSocketDisconnect:
         pass
     except Exception as e:  # noqa: BLE001
@@ -1039,6 +1269,86 @@ async def dispatch_queued_for(workspace_id: str) -> int:
 # ---------------------------------------------------------------- WS：web 中枢订阅
 
 
+def _latest_round_events(workspace_id: str) -> dict:
+    """最新一轮的全部事件（subscribe 回放用）。
+
+    返回 {events: [...], first_id: int}；first_id 供前端做上滚分页游标
+    （曾缺失导致首次上滚 before_id=0 又拉回最新一轮，重复重放当前内容）。
+    """
+    with Session(engine) as session:
+        latest = session.exec(
+            select(models.A2aEvent.round_key, func.max(models.A2aEvent.id).label("max_id"))
+            .where(models.A2aEvent.workspace_id == workspace_id)
+            .where(models.A2aEvent.round_key != "")
+            .group_by(models.A2aEvent.round_key)
+            .order_by(func.max(models.A2aEvent.id).desc())
+            .limit(1)
+        ).first()
+        if latest is None:
+            return {"events": [], "first_id": 0}
+        rows = session.exec(
+            select(models.A2aEvent)
+            .where(models.A2aEvent.workspace_id == workspace_id)
+            .where(models.A2aEvent.round_key == latest[0])
+            .order_by(models.A2aEvent.id)
+        ).all()
+        events = []
+        for r in rows:
+            try:
+                events.append(json.loads(r.payload))
+            except ValueError:
+                continue
+        return {"events": events, "first_id": int(rows[0].id) if rows else 0}
+
+
+@router.get("/api/nexus/{workspace_id}/rounds")
+async def nexus_rounds(workspace_id: str, request: Request, before_id: int = 0):
+    """中枢时间线向上滚动分页：before_id 之前最近一轮的全部事件（JWT 鉴权）。
+
+    返回 {events: [...], first_id: <本轮最小事件id>, has_more: bool}；
+    events 按事件 id 升序（web prepend 渲染）。has_more=false 表示没有更早的轮。
+    """
+    user = await _require_jwt_http(request)
+    with Session(engine) as session:
+        ws = session.get(models.Workspace, workspace_id)
+        if ws is None or ws.user_id != user.id:
+            raise HTTPException(404, "workspace not found")
+        cond = [models.A2aEvent.workspace_id == workspace_id, models.A2aEvent.round_key != ""]
+        if before_id > 0:
+            cond.append(models.A2aEvent.id < before_id)
+        latest = session.exec(
+            select(models.A2aEvent.round_key, func.max(models.A2aEvent.id).label("max_id"))
+            .where(*cond)
+            .group_by(models.A2aEvent.round_key)
+            .order_by(func.max(models.A2aEvent.id).desc())
+            .limit(1)
+        ).first()
+        if latest is None:
+            return {"events": [], "first_id": 0, "has_more": False}
+        rows = session.exec(
+            select(models.A2aEvent)
+            .where(models.A2aEvent.workspace_id == workspace_id)
+            .where(models.A2aEvent.round_key == latest[0])
+            .order_by(models.A2aEvent.id)
+        ).all()
+        events = []
+        for r in rows:
+            try:
+                events.append(json.loads(r.payload))
+            except ValueError:
+                continue
+        first_id = int(rows[0].id) if rows else 0
+        # 本轮之前是否还有更早的轮
+        earlier = session.exec(
+            select(models.A2aEvent.id)
+            .where(models.A2aEvent.workspace_id == workspace_id)
+            .where(models.A2aEvent.round_key != "")
+            .where(models.A2aEvent.id < first_id)
+            .limit(1)
+        ).first()
+        return {"events": events, "first_id": first_id, "has_more": earlier is not None}
+
+
 @router.websocket("/ws/nexus")
 async def ws_nexus(ws: WebSocket):
     await ws.accept()
@@ -1076,23 +1386,18 @@ async def ws_nexus(ws: WebSocket):
                 subscribers.setdefault(wid, set()).add(conn)
                 conn.workspace_id = wid
                 online = ws_online(wid)
-                # 回放历史事件（A2A 形状，web 自行归并渲染）
-                history = []
-                with Session(engine) as session:
-                    rows = session.exec(
-                        select(models.A2aEvent)
-                        .where(models.A2aEvent.workspace_id == wid)
-                        .order_by(models.A2aEvent.id)
-                        .limit(800)
-                    ).all()
-                    for r in rows:
-                        try:
-                            history.append(json.loads(r.payload))
-                        except ValueError:
-                            continue
+                # 回放最新一轮（A2A 形状 + monitor 事件，web 自行归并渲染）；
+                # 更早的轮由 web 上滚时经 /api/nexus/{wid}/rounds 分页拉取
+                replay = _latest_round_events(wid)
                 await _send_json(
                     ws,
-                    {"type": "subscribed", "workspace_id": wid, "plugin_online": online, "history": history},
+                    {
+                        "type": "subscribed",
+                        "workspace_id": wid,
+                        "plugin_online": online,
+                        "history": replay["events"],
+                        "first_id": replay["first_id"],
+                    },
                 )
             elif mtype == "unsubscribe":
                 _unsubscribe(conn)
