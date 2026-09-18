@@ -97,9 +97,16 @@ agent: (调用 a2a_call) → 对方 TUI 实时出现任务 → 执行 → 结果
 
 ## Docker 部署
 
+镜像由 GitHub Actions 自动构建并推送到 GHCR（GitHub 官方镜像仓库，`.github/workflows/docker-image.yml`）：
+push 到 `dev` 分支更新 `:dev`，push `v*` tag 更新 `:latest` 与版本号 tag。
+
 ```bash
-# 一键（推荐，在项目根目录）
+# 一键（推荐）：拉取 GHCR 镜像启动
 docker compose -f docker/compose.yaml up -d
+# 等价于：docker pull ghcr.io/risingwater/agent_swarm:dev && docker run ...（compose.yaml 里有完整参数）
+
+# 私有仓库需要先登录 GHCR（token 勾选 read:packages）
+echo <GITHUB_TOKEN> | docker login ghcr.io -u <用户名> --password-stdin
 
 # 或手动构建
 docker build -t agent-swarm -f docker/Dockerfile .
