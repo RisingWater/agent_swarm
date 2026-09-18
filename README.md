@@ -192,6 +192,17 @@ cd plugins/opencode && npm run typecheck # opencode 插件类型检查
 > 改了 `plugins/opencode/src/` 后需要重装插件并**重启 opencode** 才生效（运行中的会话持有旧代码）。
 > 含中文的 ps1 安装脚本必须保存为 UTF-8 **with BOM**（本地 PS 5.1 按 ANSI 读无 BOM 文件会乱码破坏语法）；分发器自身经 `irm | iex` 执行时由服务端以文本下发，无 BOM 要求。
 
+## 许可证
+
+[![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](./LICENSE)
+
+本项目采用**双许可**：
+
+- **开源**：[AGPL-3.0-only](./LICENSE) —— 免费，用于学习、内部工具、开源衍生（遵守全部 AGPL 义务，含网络条款：即使只提供网络服务也须开放源码）。
+- **商业闭源**：需要将本代码集成进闭源产品、以 SaaS 形式提供服务而不开放源码等场景，请购买[商业许可](./LICENSE-COMMERCIAL.md)。
+
+贡献前请阅读 [CLA.md](./CLA.md)——提交 PR 即视为同意其条款（授予版权所有者商业再许可权）。
+
 ## 安全说明
 
 - MCP 与 REST 全部走鉴权（apikey / JWT）；`/download/*` 与 `/health` 除外
