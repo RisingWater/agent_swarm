@@ -28,7 +28,7 @@ function DailyChart({ data }: { data: { date: string; count: number }[] }) {
         <g key={i}>
           <line x1={pad.l} y1={y} x2={w - pad.r} y2={y} stroke="var(--border)" strokeWidth="1" />
           <text x={pad.l - 6} y={y + 4} textAnchor="end" fontSize="10" fill="var(--text-weak)">
-            {Math.round(max * (1 - i * 0.5))}
+            {Math.round(max * (i * 0.5))}
           </text>
         </g>
       ))}
