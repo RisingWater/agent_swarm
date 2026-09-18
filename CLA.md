@@ -40,4 +40,4 @@
 
 ---
 
-**有任何疑问或需要签署正式版 CLA（企业贡献者）**，请联系：[your-contact@example.com]
+**有任何疑问或需要签署正式版 CLA（企业贡献者）**，请联系：[reatmilan@gmail.com](mailto:reatmilan@gmail.com)，或通过 GitHub 站内消息联系 [RisingWater](https://github.com/RisingWater)。
