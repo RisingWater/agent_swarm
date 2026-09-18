@@ -105,22 +105,26 @@ async def _on_event(workspace_id: str, event: dict) -> None:
         if task.caller == "nexus-feishu":
             return
         ws_name = ""
+        owner_user_id = ""
         ws = session.get(models.Workspace, workspace_id)
         if ws is not None:
             ws_name = ws.name
+            owner_user_id = ws.user_id
         card_task = task.model_copy()
+    if not owner_user_id:
+        return
     # 排除规则：
     # 1) 开了监控的窗口对**其选中的工作区**不收简报（监控时间线已是全程详情）——
     #    对其他工作区的任务仍收简报
     # 2) 监控轮（caller=monitor）在其选中工作区上开监控的窗口本来就被规则 1 排除，
     #    简报发给其余 brief_on 窗口
-    # 简报是全局的：brief_on 的所有窗口都收，不按"选中工作区"过滤
+    # 简报发任务属主名下 brief_on 的所有窗口（不按选中工作区过滤，但限属主）
     exclude = {
         c.chat_id
         for c in state.chats_watching_workspace(workspace_id)
         if c.workspace_id == workspace_id
     }
-    chats = state.brief_chats_all(exclude)
+    chats = state.brief_chats_all(owner_user_id, exclude)
     if not chats:
         return
     gw = _gw_ref()

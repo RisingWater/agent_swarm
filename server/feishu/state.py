@@ -96,11 +96,16 @@ def chats_watching_workspace(workspace_id: str) -> list[models.FeishuChat]:
         ).all())
 
 
-def brief_chats_all(exclude_chat_ids: set[str]) -> list[models.FeishuChat]:
-    """简报推送目标：brief_on 的所有窗口（简报是全局的，不按选中工作区过滤）。"""
+def brief_chats_all(owner_user_id: str, exclude_chat_ids: set[str]) -> list[models.FeishuChat]:
+    """简报推送目标：任务属主（owner_user_id）名下 brief_on 的所有窗口。
+
+    "全局"指不按选中工作区过滤；但**必须限定任务属主**——否则别的绑定用户
+    也会收到你的任务简报（2026-09-18 用户实测发现的跨用户泄漏）。
+    """
     with Session(engine) as session:
         rows = list(session.exec(
             select(models.FeishuChat).where(
+                models.FeishuChat.user_id == owner_user_id,
                 models.FeishuChat.brief_on == True,  # noqa: E712
             )
         ).all())

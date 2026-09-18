@@ -194,8 +194,12 @@ async def _on_input_required(workspace_id: str, event: dict, task_id: str) -> No
             return  # 飞书自发任务走时间线；monitor 轮时间线卡已有按钮
         ws = session.get(models.Workspace, workspace_id)
         ws_name = ws.name if ws else "工作区"
+        owner_user_id = ws.user_id if ws else ""
         card_task = task.model_copy()
-    chats = state.brief_chats_all(set())
+    if not owner_user_id:
+        return
+    # 只发任务属主名下 brief_on 的窗口（跨用户不发）
+    chats = state.brief_chats_all(owner_user_id, set())
     if not chats or _gw is None:
         return
     info = _active.get(task_id)
