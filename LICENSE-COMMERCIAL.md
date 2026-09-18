@@ -1,45 +1,45 @@
-# 商业许可说明（LICENSE-COMMERCIAL.md）
+# Commercial License (LICENSE-COMMERCIAL.md)
 
-agent_swarm 采用**双许可**模式发布：
+agent_swarm is released under a **dual-license** model:
 
-1. **AGPL-3.0-only**（免费）—— 默认许可，适用于开源场景。完整条款见根目录 [LICENSE](LICENSE)。
-2. **商业闭源许可**（付费）—— 由版权所有者单独授予，适用于不愿或无法遵守 AGPL-3.0 开源义务的商业场景。
+1. **AGPL-3.0-only** (free) — the default license for open-source use. Full terms in [LICENSE](LICENSE). (中文版说明：[LICENSE-COMMERCIAL_CN.md](./LICENSE-COMMERCIAL_CN.md))
+2. **Commercial license** (paid) — granted separately by the copyright holder, for scenarios where the AGPL-3.0 open-source obligations are not acceptable.
 
-两者互斥，按用途择一即可，无需同时遵守。
+The two are mutually exclusive: pick whichever fits your use case.
 
-## 何时需要商业许可
+## When a commercial license is required
 
-以下场景中，AGPL-3.0 的开源义务（包括网络服务条款——即使只通过网络提供服务、不分发软件，也须向用户提供修改版源码）可能不适合你的业务，此时需要购买商业许可：
+In the following scenarios the AGPL-3.0 obligations (including the network clause — even serving the software over a network without distribution requires offering your modified source) usually do not fit a business, and a commercial license is required:
 
-- 将本代码（全部或部分）**集成进闭源/专有产品**并分发，且不希望开源你的产品代码；
-- 以 **SaaS / 网络服务**形式对外提供基于本代码的服务，但**不愿开放服务端源码**（AGPL 第 13 条网络条款）；
-- 对本代码做出**修改版本**后以闭源形式分发或提供服务；
-- 在**内部商业产品**中使用，但公司政策禁止使用带传染性开源义务的许可证；
-- 需要法律层面的**担保、赔偿或技术支持**承诺。
+- Integrating this code (in whole or in part) into a **closed-source / proprietary product** and distributing it without open-sourcing your product;
+- Offering a **SaaS / network service** based on this code while **keeping your server source closed** (AGPL §13);
+- Distributing or serving a **modified version** in closed-source form;
+- Using it in an **internal commercial product** under a company policy that forbids copyleft-licensed dependencies;
+- When you need a legally binding **warranty, indemnity or support** commitment.
 
-> 个人学习、内部工具自用、开源衍生（遵守 AGPL-3.0 全部义务）等场景**无需**购买商业许可。
+> Personal learning, internal tools and open derivatives (complying with all AGPL-3.0 obligations) do **not** require a commercial license.
 
-## 商业许可授予的内容
+## What the commercial license grants
 
-购买并签署商业许可后，你可以在**不开源**的前提下：
+After purchasing and signing, you may, **without open-sourcing**:
 
-- 以闭源形式使用、修改、分发本代码或其衍生品；
-- 以 SaaS 形式运营基于本代码的服务而不开放源码；
-- 免除 AGPL-3.0 的 copyleft 与网络条款义务；
-- 获得商业化支持（可选）。
+- Use, modify and distribute this code or derivatives in closed-source form;
+- Operate a SaaS based on this code without releasing source;
+- Be relieved of the AGPL-3.0 copyleft and network-clause obligations;
+- Optionally receive commercial support.
 
-商业许可由版权所有者单独授予，具体范围、期限与价格以双方签署的书面协议为准。
+The commercial license is granted solely by the copyright holder; scope, term and pricing are defined by the signed written agreement.
 
-## 如何获取
+## How to get one
 
-有意购买商业许可请联系：
+Contact the copyright holder:
 
-- **邮箱**：[your-contact@example.com]
-- **其他方式**：[占位——GitHub 主页 / 官网链接，可自行替换]
+- **Email**: [reatmilan@gmail.com](mailto:reatmilan@gmail.com)
+- **Other**: GitHub message ([RisingWater](https://github.com/RisingWater))
 
-请在邮件中简要说明：你的使用场景、部署规模（内部/对外）、是否需要修改与再分发，以及期望的许可范围（单项目 / 公司级 / 永久 / 年度）。通常会在 3 个工作日内回复报价与协议草稿。
+Please briefly describe: your use case, deployment scale (internal / public), whether you need modifications and redistribution, and the desired licensing scope (per-project / company-wide / perpetual / annual). You will typically receive a quote and a draft agreement within 3 business days.
 
-## 注意
+## Notice
 
-- 本文件仅为**说明与入口**，不构成法律要约或合同；商业许可以正式签署的书面协议为准。
-- 在未获得商业许可前，任何对本代码的使用均视为接受 AGPL-3.0-only 的全部条款。
+- This file is an **overview and entry point**, not a legal offer or contract; the commercial license is governed by the signed written agreement.
+- Any use of this code before obtaining a commercial license is subject to the full terms of AGPL-3.0-only.
