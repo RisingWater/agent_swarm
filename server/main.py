@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from server.db import init_db
-from server.api import auth, me, workspaces, calls, chat_binds
+from server.api import auth, me, workspaces, calls, chat_binds, admin
 from server.download import routes as download_routes
 from server.mcp_endpoint import build_mcp_asgi_app, mcp_lifespan
 from server.nexus_a2a import router as nexus_a2a_router
@@ -63,6 +63,7 @@ def create_app() -> FastAPI:
     app.include_router(workspaces.router)
     app.include_router(calls.router)
     app.include_router(chat_binds.router)
+    app.include_router(admin.router)
     app.include_router(nexus_a2a_router)
 
     # 插件分发（免鉴权）

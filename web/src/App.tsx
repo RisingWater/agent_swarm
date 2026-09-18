@@ -12,32 +12,10 @@ import {
   type ChatBindChat,
   type ChatBindPatch,
 } from "./api"
+import { copyText } from "./copy"
+import { AdminPage } from "./AdminPage"
 
 const maskKey = (k: string) => "*".repeat(k.length - 2) + k.slice(-2)
-
-/** 复制文本到剪贴板。navigator.clipboard 仅在安全上下文（HTTPS/localhost）存在，
- *  自托管部署常用 http://IP:port 访问 → 回退 execCommand 方案。返回是否成功。 */
-async function copyText(text: string): Promise<boolean> {
-  try {
-    if (navigator.clipboard && window.isSecureContext) {
-      await navigator.clipboard.writeText(text)
-      return true
-    }
-  } catch { /* 落到 fallback */ }
-  try {
-    const ta = document.createElement("textarea")
-    ta.value = text
-    ta.style.position = "fixed"
-    ta.style.opacity = "0"
-    document.body.appendChild(ta)
-    ta.select()
-    const ok = document.execCommand("copy")
-    document.body.removeChild(ta)
-    return ok
-  } catch {
-    return false
-  }
-}
 
 /** 结果文本（多为 markdown）渲染；无内容返回 null */
 function Md({ text }: { text: string | null | undefined }) {
@@ -113,7 +91,7 @@ function Logo({ size = 26 }: { size?: number }) {
   )
 }
 
-function Btn(props: {
+export function Btn(props: {
   variant?: "primary" | "ghost" | "danger" | "icon"
   size?: "sm"
   disabled?: boolean
@@ -143,7 +121,7 @@ function useToast() {
   return { msg, show }
 }
 
-function Modal({
+export function Modal({
   title,
   onClose,
   children,
@@ -231,9 +209,19 @@ function Confirm({ text, onOk, onClose }: { text: string; onOk: () => void; onCl
 export type Page = "home" | "docs" | "workspaces" | "calls" | "account" | "nexus" | "login"
 
 export default function App() {
+  const { msg, show: toast } = useToast()
   const [token, setToken] = useState(localStorage.getItem("swarm_token"))
   const [page, setPage] = useState<Page>("home")
-  const { msg, show: toast } = useToast()
+
+  // 后台管理：独立 hash 路由（#/admin），独立登录，不进主导航。
+  // 注意 hooks 顺序：adminHash 判断必须在全部 hooks 声明之后（条件 return 会破坏 hooks 规则）
+  const [adminHash, setAdminHash] = useState(window.location.hash === "#/admin")
+  useEffect(() => {
+    const onHash = () => setAdminHash(window.location.hash === "#/admin")
+    window.addEventListener("hashchange", onHash)
+    return () => window.removeEventListener("hashchange", onHash)
+  }, [])
+  if (adminHash) return <AdminPage toast={toast} />
 
   const loggedIn = !!token
   const username = localStorage.getItem("swarm_user")

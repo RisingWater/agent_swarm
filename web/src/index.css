@@ -2443,3 +2443,54 @@ table.ws-grid th {
 .docs-section table td:first-child code {
   white-space: nowrap;
 }
+
+/* ────────────── 后台管理（#/admin） ────────────── */
+.admin-login-page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.admin-login-card {
+  width: min(360px, 92vw);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 28px 26px;
+  background: var(--bg);
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.admin-login-card input {
+  width: 100%;
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 14px;
+  box-sizing: border-box;
+}
+.admin-login-card input:focus {
+  outline: none;
+  border-color: var(--accent, #4a7dff);
+}
+.admin-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.admin-table th,
+.admin-table td {
+  text-align: left;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+.admin-table th {
+  color: var(--text-weak);
+  font-weight: 500;
+  font-size: 12px;
+}
