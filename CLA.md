@@ -1,43 +1,45 @@
-# 贡献者许可协议（CLA）
+# Contributor License Agreement (CLA)
 
-**简版个体贡献者许可协议 · 2026-09-18 生效**
+> **中文版**：见 [CLA_CN.md](./CLA_CN.md)。
 
-为保障 agent_swarm 的双许可模式（AGPL-3.0 + 商业许可）可持续运作，请你（"贡献者"）在提交任何 Pull Request、代码片段、文档修订或其他内容（合称"贡献"）前阅读并理解本协议。
+**Individual Contributor License Agreement (short form) · Effective 2026-09-18**
 
-> **提交 PR 即视为你已阅读、理解并同意本 CLA 的全部内容。** 如不同意，请不要提交贡献，或在提交前联系仓库维护者说明。
+To keep the dual-license model of agent_swarm (AGPL-3.0 + commercial license) sustainable, please read and understand this agreement before submitting any pull request, code snippet, documentation change, or other content (collectively, "Contributions").
 
-## 1. 贡献者声明
+> **Submitting a PR constitutes your acceptance of this CLA in full.** If you do not agree, please do not submit a contribution, or contact the maintainers beforehand.
 
-你声明并保证：
+## 1. Contributor Representations
 
-1. 你是贡献的原创作者，或有权以贡献者身份提交该贡献；
-2. 该贡献不侵犯任何第三方的知识产权或其他合法权益；
-3. 若贡献包含第三方代码，你已明确标注其来源与许可证，且该许可证与本项目双许可模式兼容。
+You represent and warrant that:
 
-## 2. 许可授予
+1. You are the original author of the Contribution, or otherwise have the right to submit it;
+2. The Contribution does not infringe any third party's intellectual property or other lawful rights;
+3. If the Contribution includes third-party code, you have clearly marked its source and license, and that license is compatible with this project's dual-license model.
 
-你授予 agent_swarm 项目**版权所有者**：
+## 2. License Grant
 
-- **永久的、全球性的、免费的、不可撤销的**许可，允许其以**任何形式**使用、复制、修改、再许可、分发你的贡献——包括但不限于：
-  - 以 **AGPL-3.0-only** 作为本项目的一部分开源发布；
-  - 以**商业闭源许可**的形式再许可给第三方（双许可模式的商业侧）。
+You grant the **copyright holder** of agent_swarm:
 
-此授权的目的是：让版权所有者能够对包含你贡献的版本进行商业授权。没有这项授权，任何包含外部贡献的版本都无法在开源许可之外再许可。
+- A **perpetual, worldwide, royalty-free, irrevocable** license to use, copy, modify, sublicense and distribute your Contribution in **any form** — including but not limited to:
+  - Publishing it as part of this project under **AGPL-3.0-only**;
+  - Relicensing it to third parties under a **closed-source commercial license** (the commercial side of the dual-license model).
 
-## 3. 版权归属
+The purpose of this grant is to enable the copyright holder to commercially license versions that include your Contribution. Without it, no version containing external contributions could be licensed outside the open-source terms.
 
-- 你**保留**所提交贡献的完整版权。
-- 本协议不转让版权，仅授予上述使用与再许可权限。
-- 你承诺不将贡献提交给与本项目互斥许可的其他项目（或自行评估该风险）。
+## 3. Copyright Ownership
 
-## 4. 免责
+- You **retain** full copyright to your Contribution.
+- This agreement does not transfer copyright; it only grants the usage and relicensing rights above.
+- You agree not to submit the same contribution to other projects under mutually exclusive licenses (or to assess that risk yourself).
 
-贡献按"现状"提供，不附带任何担保。版权所有者对包含你贡献的版本产生的任何问题不承担责任。
+## 4. Disclaimer
 
-## 5. 撤回
+Contributions are provided "as is", without warranty of any kind. The copyright holder is not liable for any issues arising from versions that include your Contribution.
 
-贡献一旦被合并进入项目主分支，相应的授权即为不可撤销（第 2 条）；撤回仅对**尚未合并**的贡献有效。
+## 5. Withdrawal
+
+Once a Contribution is merged into the project's main branch, the grant under Section 2 becomes irrevocable; withdrawal applies only to contributions **not yet merged**.
 
 ---
 
-**有任何疑问或需要签署正式版 CLA（企业贡献者）**，请联系：[reatmilan@gmail.com](mailto:reatmilan@gmail.com)，或通过 GitHub 站内消息联系 [RisingWater](https://github.com/RisingWater)。
+**Questions, or need a formal CLA (for corporate contributors)?** Contact [reatmilan@gmail.com](mailto:reatmilan@gmail.com), or message [RisingWater](https://github.com/RisingWater) on GitHub.

@@ -54,7 +54,7 @@ docker run -d --name agent-swarm -p 8700:8700 \
 docker build -t agent-swarm -f docker/Dockerfile .
 ```
 
-> 版本策略：push `v*` tag → `:latest` + 版本号 tag；Actions 页手动触发 → `:dev`。
+> 版本策略：push `v*` / `release*` tag → `:latest` + 版本号 tag；`alpha*` / `beta*` tag → 预发布 tag；Actions 页手动触发 → `:dev`。
 
 ### 方式二：源码启动
 
@@ -205,7 +205,7 @@ cd plugins/opencode && npm run typecheck # opencode 插件类型检查
 - **开源**：[AGPL-3.0-only](./LICENSE) —— 免费，用于学习、内部工具、开源衍生（遵守全部 AGPL 义务，含网络条款：即使只提供网络服务也须开放源码）。
 - **商业闭源**：需要将本代码集成进闭源产品、以 SaaS 形式提供服务而不开放源码等场景，请购买[商业许可](./LICENSE-COMMERCIAL_CN.md)（[英文版](./LICENSE-COMMERCIAL.md)）。
 
-贡献前请阅读 [CLA.md](./CLA.md)——提交 PR 即视为同意其条款（授予版权所有者商业再许可权）。
+贡献前请阅读 [CLA_CN.md](./CLA_CN.md)（[英文版](./CLA.md)）——提交 PR 即视为同意其条款（授予版权所有者商业再许可权）。
 
 ## 安全说明
 
