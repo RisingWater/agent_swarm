@@ -133,16 +133,21 @@ function PanelPage({ toast, onLogout }: { toast: (m: string) => void; onLogout: 
   }
 
   return (
-    <div className="subpage">
-      <aside className="subpage-toc">
-        <p className="section-label">[ 后台管理 ]</p>
-        <a className={`subpage-item${tab === "stats" ? " active" : ""}`} onClick={() => setTab("stats")}>面板</a>
-        <a className={`subpage-item${tab === "users" ? " active" : ""}`} onClick={() => setTab("users")}>用户</a>
-        <a className={`subpage-item${tab === "workspaces" ? " active" : ""}`} onClick={() => setTab("workspaces")}>工作区</a>
-        <a className="subpage-item" style={{ marginTop: 20, color: "var(--text-weak)" }}
-          onClick={() => { adminApi.logout(); onLogout() }}>退出登录</a>
-      </aside>
-      <div className="subpage-body">
+    <>
+      <header className="topnav">
+        <a className="topnav-logo" href="#/admin" onClick={(e) => e.preventDefault()} title="后台管理">
+          <Logo />
+          <b style={{ fontSize: 14 }}>后台管理</b>
+        </a>
+        <nav className="topnav-links">
+          <a className={tab === "stats" ? "active" : ""} onClick={() => setTab("stats")}>面板</a>
+          <a className={tab === "users" ? "active" : ""} onClick={() => setTab("users")}>用户</a>
+          <a className={tab === "workspaces" ? "active" : ""} onClick={() => setTab("workspaces")}>工作区</a>
+          <a style={{ color: "var(--text-weak)" }}
+            onClick={() => { adminApi.logout(); onLogout() }}>退出登录</a>
+        </nav>
+      </header>
+      <main className="page">
         {tab === "stats" && (
           <>
             <p className="section-label">[ 面板 ]</p>
@@ -186,8 +191,7 @@ function PanelPage({ toast, onLogout }: { toast: (m: string) => void; onLogout: 
         )}
         {tab === "workspaces" && (
           <>
-            <p className="section-label">[ 工作区 ]</p>
-            <table className="admin-table">
+            <p className="section-label">[ 工作区 ]</p>            <table className="admin-table">
               <thead>
                 <tr><th>ID</th><th>名字</th><th>归属用户</th><th>用途</th><th>会话</th><th>状态</th><th>24h 调用</th></tr>
               </thead>
@@ -213,24 +217,24 @@ function PanelPage({ toast, onLogout }: { toast: (m: string) => void; onLogout: 
             </table>
           </>
         )}
-      </div>
-      {resetPwd && (
-        <Modal onClose={() => setResetPwd(null)} title="密码已重置">
-          <p style={{ fontSize: 13 }}>
-            用户 <b>{resetPwd.user}</b> 的新密码：
-          </p>
-          <div className="keyrow">
-            <div className="keybox" style={{ userSelect: "all" }}>{resetPwd.password}</div>
-            <Btn variant="icon" title="copy" onClick={async () => {
-              toast(await copyText(resetPwd.password) ? "已复制" : "复制失败")
-            }}>⧉</Btn>
-          </div>
-          <p style={{ color: "var(--text-weak)", fontSize: 12, marginTop: 10 }}>
-            只展示这一次，请立即转告用户。API Key 不受影响（agent 连接不断开）。
-          </p>
-        </Modal>
-      )}
-    </div>
+        {resetPwd && (
+          <Modal onClose={() => setResetPwd(null)} title="密码已重置">
+            <p style={{ fontSize: 13 }}>
+              用户 <b>{resetPwd.user}</b> 的新密码：
+            </p>
+            <div className="keyrow">
+              <div className="keybox" style={{ userSelect: "all" }}>{resetPwd.password}</div>
+              <Btn variant="icon" title="copy" onClick={async () => {
+                toast(await copyText(resetPwd.password) ? "已复制" : "复制失败")
+              }}>⧉</Btn>
+            </div>
+            <p style={{ color: "var(--text-weak)", fontSize: 12, marginTop: 10 }}>
+              只展示这一次，请立即转告用户。API Key 不受影响（agent 连接不断开）。
+            </p>
+          </Modal>
+        )}
+      </main>
+    </>
   )
 }
 
