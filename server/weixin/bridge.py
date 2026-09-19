@@ -140,33 +140,12 @@ async def _stream_task_event(sess: gateway.UserSession, task_id: str, event: dic
         return
     meta = event.get("metadata") or {}
     if str(meta.get("nexus", "")) == "tool":
-        # tool 事件走官方 item 优先（发送失败降级文本行）
+        # 用户拍板（2026-09-19）：tool 一律文本行并带关键参数（bash 命令/读写文件），
+        # 官方 type 11/12 item 在普通微信客户端不渲染——路径保留但默认不走
         name = str(meta.get("tool") or "工具调用")
-        call_id = str(meta.get("call_id") or "")
-        st = str(meta.get("tool_state") or "")
-        seen = _task_tool_seen.setdefault(task_id, set())
-        dedup = f"{call_id}:{tool_name_hash(name)}"
-        try:
-            client = sess.client or httpx.AsyncClient()
-            if st in ("running", "input-required", ""):
-                if dedup in seen:
-                    return
-                seen.add(dedup)
-                await gateway.send_tool_items(
-                    client, sess.token, sess.baseurl, sess.wx_user_id, sess.context_token,
-                    [render.tool_item_start(call_id, name)])
-                log.info("weixin tool item(start) sent task=%s tool=%s", task_id[:8], name)
-            else:
-                await gateway.send_tool_items(
-                    client, sess.token, sess.baseurl, sess.wx_user_id, sess.context_token,
-                    [render.tool_item_result(call_id, name, st == "completed")])
-                seen.discard(dedup)
-                log.info("weixin tool item(result) sent task=%s tool=%s ok=%s", task_id[:8], name, st == "completed")
-        except Exception as exc:  # noqa: BLE001
-            log.warning("weixin tool item failed (%s), falling back to text: %r", type(exc).__name__, exc)
-            await _send(sess, text)
+        input_data = meta.get("input") if isinstance(meta.get("input"), dict) else None
+        await _send(sess, text)
         return
-    await _send(sess, text)
 
 
 async def _brief_round(workspace_id: str, task_id: str, state_: str = "completed") -> None:
@@ -263,32 +242,18 @@ async def _send_monitor(sess: gateway.UserSession, payload: dict, round_key: str
         tool = str(payload.get("tool") or "工具")
         call_id = str(payload.get("callId") or "")
         st = str(payload.get("toolState") or "")
+        input_data = payload.get("input") if isinstance(payload.get("input"), dict) else None
         key = f"{round_key}:{call_id}:{tool}"
         seen = _tool_seen.setdefault(sess.user_id, set())
+        # 用户拍板（2026-09-19）：tool 一律文本行带参数；官方 item 在普通微信不渲染，不再尝试
         if st in ("running", "input-required", ""):
             if key in seen:
                 return
             seen.add(key)
-            # 先试官方 tool_call_start_item（普通客户端显示效果待真机实测）
-            try:
-                client = sess.client or httpx.AsyncClient()
-                await gateway.send_tool_items(
-                    client, sess.token, sess.baseurl, sess.wx_user_id, sess.context_token,
-                    [render.tool_item_start(call_id, tool)])
-                return
-            except Exception:  # noqa: BLE001
-                await _send(sess, render.tool_start_text(tool))
+            await _send(sess, render.tool_start_text(tool, input_data))
         elif st in ("completed", "error"):
-            ok = st == "completed"
-            try:
-                client = sess.client or httpx.AsyncClient()
-                await gateway.send_tool_items(
-                    client, sess.token, sess.baseurl, sess.wx_user_id, sess.context_token,
-                    [render.tool_item_result(call_id, tool, ok)])
-            except Exception:  # noqa: BLE001
-                await _send(sess, render.tool_done_text(tool, ok))
-            finally:
-                seen.discard(key)
+            await _send(sess, render.tool_done_text(tool, st == "completed", input_data))
+            seen.discard(key)
 
 
 async def _send(sess: gateway.UserSession, text: str) -> None:

@@ -55,12 +55,45 @@ def thinking_text(text: str) -> str:
     return f"{THINK_PREFIX} {md(text)[:800]}"
 
 
-def tool_start_text(tool: str) -> str:
-    return f"{TOOL_PREFIX} {tool} …"
+def tool_start_text(tool: str, input_data: dict | None = None) -> str:
+    return f"{TOOL_PREFIX} {tool} {tool_args_summary(tool, input_data)}…"
 
 
-def tool_done_text(tool: str, ok: bool) -> str:
-    return f"{TOOL_PREFIX} {tool} {'✓' if ok else '✗'}"
+def tool_done_text(tool: str, ok: bool, input_data: dict | None = None) -> str:
+    return f"{TOOL_PREFIX} {tool} {tool_args_summary(tool, input_data)}{'✓' if ok else '✗'}"
+
+
+def tool_args_summary(tool: str, input_data: dict | None) -> str:
+    """工具关键参数摘要（微信文本行）：bash 命令 / 读写文件路径 / 通用首参数。
+
+    参照 web 前端 toolCommand 的取法（command/cmd/command_line/description），
+    再补文件类工具的 file_path/file/pattern 等常见键。过长截断，无参数返回空。
+    """
+    if not isinstance(input_data, dict) or not input_data:
+        return ""
+    cmd = input_data.get("command") or input_data.get("cmd") or input_data.get("command_line")
+    if isinstance(cmd, str) and cmd.strip():
+        return f"`{cmd.strip()[:120]}` "
+    for key in ("file_path", "path", "file", "filename", "pattern", "query", "url", "description"):
+        v = input_data.get(key)
+        if isinstance(v, str) and v.strip():
+            return f"`{v.strip()[:120]}` "
+    # 编辑类：多个 path
+    edits = input_data.get("edits") or input_data.get("files")
+    if isinstance(edits, list) and edits:
+        names = []
+        for e in edits[:3]:
+            if isinstance(e, dict):
+                p = e.get("path") or e.get("file_path") or ""
+                if p:
+                    names.append(str(p))
+        if names:
+            return "`" + ", ".join(names)[:120] + "` "
+    try:
+        s = str(next(v for v in input_data.values() if v))
+        return f"`{s[:120]}` " if s else ""
+    except StopIteration:
+        return ""
 
 
 def permission_text(task_id: str, kind: str, question: str, options: list[str]) -> str:
@@ -168,9 +201,10 @@ def a2a_stream_text(event: dict) -> tuple[str | None, str]:
     if ntype == "tool":
         name = str(meta.get("tool") or "工具调用")
         st = str(meta.get("tool_state") or "running")
+        input_data = meta.get("input") if isinstance(meta.get("input"), dict) else None
         if st in ("running", "input-required", ""):
-            return tool_start_text(name), "tool_start"
-        return tool_done_text(name, st == "completed"), "tool_done"
+            return tool_start_text(name, input_data), "tool_start"
+        return tool_done_text(name, st == "completed", input_data), "tool_done"
     if ntype == "text":
         return None, ""  # 流式 text 不逐段发，completed 时全量发（避免碎片刷屏）
     return None, ""
