@@ -1,12 +1,12 @@
 # agent_swarm 开发进度 TODO
 
-> 更新时间: 2026-09-15 深夜 · Windows 机（D:\wangxu\work\agent_swarm，workspace ID 4g8rHi43MHaWurH9XYsGNH）
+> 更新时间: 2026-09-19 · Windows 机（D:\wangxu\work\agent_swarm，workspace ID 4g8rHi43MHaWurH9XYsGNH）
 > 服务已跑在 :8700（.\deploy\start.ps1 后台窗口运行）· 前端构建产物由 8700 静态托管
-> **前台会话实时监控（nexus monitor）已完成并全链路 E2E 验证**（见已完成第 1 节）；下一个功能：nexus-feishu
+> **alpha-v0.1 已发布**（tag = dev 快照 d3daafa，master 为其发布流水；GHCR 镜像 CI 就绪）。0.1 后主线：nexus-feishu 飞书渠道、后台管理页（详见 git log，TODO 未逐条补记）；本次：**静态内容落库加密**（见已完成第 1 节）
 
 ## 项目一句话
 
-多 agent 协作平台（虫群）：FastAPI 单服务（管理 API + MCP 端点 + A2A 网关 + 插件分发）+ 多 agent 插件（plugins/ 下 opencode / claude）+ 纯 React 前端。面向 agent 的操作全部走服务端 MCP 工具；工作区互调 / web 中枢 / 外部 agent 统一走 A2A 协议（`server/nexus_a2a.py` 手写子集）；插件负责心跳保活 + A2A 任务接收执行 + 前台会话实时监控上报。
+多 agent 协作平台（虫群）：FastAPI 单服务（管理 API + MCP 端点 + A2A 网关 + 插件分发）+ 多 agent 插件（plugins/ 下 opencode / claude）+ 纯 React 前端。面向 agent 的操作全部走服务端 MCP 工具；工作区互调 / web 中枢 / 外部 agent 统一走 A2A 协议（`server/nexus_a2a.py` 手写子集）；插件负责心跳保活 + A2A 任务接收执行 + 前台会话实时监控上报。敏感内容可选密文落库（`server/crypto.py`，`AGENT_SWARM_ENC_KEY` 开启）。
 
 ## 架构演进史（历次用户拍板，读懂再动手）
 
@@ -27,6 +27,18 @@
 - ~~e2e 测试脚本~~（用户 2026-09-12 决定放弃，scripts/test_plugin_smoke.ts 是死代码可删可留）
 
 ## 已完成（除注明外均已进 git）
+
+### 静态内容落库加密（2026-09-19，E2E 快测通过）
+
+- ✅ **`server/crypto.py`（新文件）**：`AGENT_SWARM_ENC_KEY` 设置即启用；子密钥 = sha256(服务器密钥+":"+用户apikey) 每用户独立；密文 `enc1:<fernet>`；`AGENT_SWARM_ENC_KEY_RECOVERY` 第二服务器密钥解密兜底（轮换场景：新主密钥+旧主密钥作恢复密钥）；`decrypt(key, enc, plain_fallback)` 统一读入口——密文缺失/坏/密钥不匹配回退明文列（密钥丢失=历史不可读但不崩）；未启用时全零行为变化
+- ✅ **加密范围**：`workspaces.purpose/notes/session_title`、`a2a_tasks.message/artifact/error`、`a2a_events.payload`（thinking/tool/回答全在 payload 里）；写入密文列并**清空明文列**；模型加对应 `*_enc` 列 + `a2a_tasks/a2a_events.user_id`（密钥归属；db.py 自动迁移）
+- ✅ **存量回填**（决策 a）：`init_db` 幂等回填——有密钥时把明文就地加密并清空明文列；外部任务（无属主）保持明文
+- ✅ **写点改造**：nexus_a2a（任务/监控事件 payload、监控轮 message、artifact、错误文本、web 下发 `_new_task`、`_mark_task`）+ mcp_endpoint（workspace_add/update_info purpose、update_notes、heartbeat session_title、a2a_call 内外部任务、超时错误）
+- ✅ **读点改造**（出参不变，web/feishu/admin 无感知）：`task_obj`（error 解密）、`event_payload_text`/`_apikeys_for_rows`（批量防 N+1）、SSE 回放、`/api/nexus` 历史与 rounds 分页、`/api/calls`（instruction/result/error）、`/api/workspaces` ws_out、admin workspaces（purpose/session_title）、mcp list/info/notes、feishu brief/perm_card/last（新增 `feishu/event_text.py` 共用解密）
+- ✅ **apikey 重置联动**（决策 2）：`/api/me/apikey/reset` → `_reencrypt_user_rows` 全量解密→新 key 重加密（旧 key 解不开的行跳过不动）；admin 重置密码不动 apikey 无需处理
+- ✅ **文档**：README/README_CN 配置表加 ENC_KEY/RECOVERY（明文默认、密钥丢失后果、备份要求）+ 回填/重置两条补充说明；web 文档页 FAQ 加「数据是明文存库的吗？」+ API Key 重置条目补重加密说明；AGENTS.md Server facts 加 Encryption at rest bullet；`.env.example` 新建（全部配置项 + 密钥生成命令）
+- ✅ 验证：crypto 单测（加密/解密/错误密钥回退/恢复密钥轮换/未启用模式）+ 临时 DB E2E 六阶段（明文播种→启用回填→解密读回→密钥丢失回退→apikey 重置重加密→幂等重启）全部通过；所有 server py ast.parse 通过
+- ⚠️ 真实服务（:8700，存量数据）尚未带密钥实测——用户启用时提醒：**先备份 `.env` 密钥再重启**
 
 ### 前台会话实时监控 nexus monitor（2026-09-15，已提交推送，E2E 全链路验证）
 

@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
 
-from server import models
+from server import crypto, models
 from server.auth import get_current_user
 from server.api.workspaces import visible_workspace_ids
 from server.db import get_session
@@ -30,16 +30,22 @@ def call_out(call: models.A2aTask, session: Session) -> dict:
         caller_name = call.caller or "a2a-client"
         caller_path = call.external_url or ""
     caller_id = call.from_workspace_id if from_ws is not None else (call.workspace_id or "")
+    # 内容列解密（加密开启时明文列为空，*_enc 才有值）
+    uid = call.user_id or (tgt_ws.user_id if tgt_ws else "")
+    key = ""
+    if uid:
+        u = session.get(models.User, uid)
+        key = (u.api_key or "") if u else ""
     return {
         "id": call.id,
         "monitor": call.caller == "monitor",
         "caller": {"id": caller_id, "name": caller_name, "path": caller_path},
         "target": {"id": tgt_ws.id, "name": tgt_ws.name, "path": tgt_ws.path} if tgt_ws else None,
         "external_url": call.external_url or None,
-        "instruction": call.message,
+        "instruction": crypto.decrypt(key, call.message_enc, call.message),
         "status": call.status,
-        "result": call.artifact,
-        "error": call.error,
+        "result": crypto.decrypt(key, call.artifact_enc, call.artifact),
+        "error": crypto.decrypt(key, call.error_enc, call.error),
         "created_at": call.created_at.isoformat() + "Z",
         "accepted_at": call.accepted_at.isoformat() + "Z" if call.accepted_at else None,
         "done_at": call.done_at.isoformat() + "Z" if call.done_at else None,

@@ -77,13 +77,16 @@ class Workspace(SQLModel, table=True):
     name: str
     path: str = Field(index=True)
     purpose: str = Field(default="", sa_column=Column(Text))
+    purpose_enc: Optional[str] = Field(default=None, sa_column=Column(Text))  # 密文（ENC_KEY 开启时用）
     capabilities: Optional[str] = Field(default=None, sa_column=Column(Text))
     notes: Optional[str] = Field(default=None, sa_column=Column(Text))
+    notes_enc: Optional[str] = Field(default=None, sa_column=Column(Text))  # 密文
     status: str = Field(default="online", index=True)  # online / offline / disabled
     agent_type: str = Field(default="")  # agent 工具类型（opencode / claude code / ...）
     last_heartbeat: Optional[datetime] = None
     session_id: Optional[str] = None
     session_title: Optional[str] = None  # 当前会话标题（心跳上报，web 展示用）
+    session_title_enc: Optional[str] = Field(default=None, sa_column=Column(Text))  # 密文
     created_at: datetime = Field(default_factory=utcnow)
     updated_at: datetime = Field(default_factory=utcnow)
 
@@ -99,14 +102,18 @@ class A2aTask(SQLModel, table=True):
     id: str = Field(primary_key=True)
     context_id: str = Field(index=True)  # A2A contextId（同一会话链多轮任务共享）
     workspace_id: str = Field(default="", index=True)  # 执行方工作区（内部任务）
+    user_id: str = Field(default="", index=True)  # 属主用户（加密子密钥派生用；外部任务=调用者）
     from_workspace_id: str = Field(default="")  # 发起方工作区（agent 互调时由 a2a_call 传入）
     external_url: str = Field(default="")  # 外部 A2A agent 端点（外部任务）
     caller: str = Field(default="")  # 调用方标注（agent / nexus-web / nexus-feishu / ...）
     message: str = Field(default="", sa_column=Column(Text))  # 初始指令文本
+    message_enc: Optional[str] = Field(default=None, sa_column=Column(Text))  # 密文（ENC_KEY 开启时用）
     status: str = Field(default="queued", index=True)
     session_id: Optional[str] = None  # 目标端执行该任务的 opencode 会话
     artifact: Optional[str] = Field(default=None, sa_column=Column(Text))  # 最终结果（markdown）
+    artifact_enc: Optional[str] = Field(default=None, sa_column=Column(Text))  # 密文
     error: Optional[str] = Field(default=None, sa_column=Column(Text))
+    error_enc: Optional[str] = Field(default=None, sa_column=Column(Text))  # 密文
     created_at: datetime = Field(default_factory=utcnow)
     accepted_at: Optional[datetime] = None
     done_at: Optional[datetime] = None
@@ -123,9 +130,11 @@ class A2aEvent(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     task_id: str = Field(index=True)
     workspace_id: str = Field(default="", index=True)  # 内部任务才有（外部任务为空串）
+    user_id: str = Field(default="", index=True)  # 属主用户（加密子密钥派生用）
     kind: str  # status / artifact / monitor（A2A 事件判别符）
     round_key: str = Field(default="", index=True)  # 轮次分组键（监控/任务轮）
     payload: str = Field(default="{}", sa_column=Column(Text))  # 事件 JSON（camelCase，原样存储）
+    payload_enc: Optional[str] = Field(default=None, sa_column=Column(Text))  # 密文（ENC_KEY 开启时用）
     created_at: datetime = Field(default_factory=utcnow)
 
 

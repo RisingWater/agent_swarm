@@ -16,7 +16,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
 
-from server import models
+from server import crypto, models
 from server.db import get_session
 from server.api.workspaces import ws_is_online
 
@@ -138,7 +138,9 @@ def workspace_add(
             if name:
                 ws.name = name
         if purpose:
-            ws.purpose = purpose
+            purpose_enc = crypto.encrypt(user.api_key or "", purpose)
+            ws.purpose_enc = purpose_enc
+            ws.purpose = "" if purpose_enc else purpose
         if capabilities:
             ws.capabilities = capabilities
         ws.agent_type = "opencode"
@@ -147,12 +149,13 @@ def workspace_add(
         ws.updated_at = now
         session.add(ws)
         session.commit()
-        need_summary = not ws.purpose
+        key = user.api_key or ""
+        need_summary = not crypto.decrypt(key, ws.purpose_enc, ws.purpose)
         return {
             "workspace_id": ws.id,
             "created": created,
             "need_summary": need_summary,
-            "purpose": ws.purpose,
+            "purpose": crypto.decrypt(key, ws.purpose_enc, ws.purpose),
             "capabilities": ws.capabilities,
             "name": ws.name,
             "status": ws.status,
@@ -251,7 +254,9 @@ def heartbeat(
         if session_id:
             ws.session_id = session_id
         if session_title:
-            ws.session_title = session_title[:200]
+            title_enc = crypto.encrypt(user.api_key or "", session_title[:200])
+            ws.session_title_enc = title_enc
+            ws.session_title = None if title_enc else session_title[:200]
         if agent_type:
             ws.agent_type = agent_type.strip().lower()
         session.add(ws)
@@ -296,14 +301,15 @@ def update_notes(workspace_id: str, notes: str, append: bool = True) -> dict:
     session = next(get_session())
     try:
         ws = _own_workspace(session, user, workspace_id)
-        if append and ws.notes:
-            ws.notes = f"{ws.notes}\n{notes}"
-        else:
-            ws.notes = notes
+        if append and crypto.decrypt(user.api_key or "", ws.notes_enc, ws.notes):
+            notes = f"{crypto.decrypt(user.api_key or '', ws.notes_enc, ws.notes)}\n{notes}"
+        notes_enc = crypto.encrypt(user.api_key or "", notes)
+        ws.notes_enc = notes_enc
+        ws.notes = "" if notes_enc else notes
         ws.updated_at = utcnow()
         session.add(ws)
         session.commit()
-        return {"ok": True, "notes": ws.notes}
+        return {"ok": True, "notes": crypto.decrypt(user.api_key or "", ws.notes_enc, ws.notes)}
     finally:
         session.close()
 
@@ -326,13 +332,15 @@ def update_info(
     try:
         ws = _own_workspace(session, user, workspace_id)
         if purpose:
-            ws.purpose = purpose
+            purpose_enc = crypto.encrypt(user.api_key or "", purpose)
+            ws.purpose_enc = purpose_enc
+            ws.purpose = "" if purpose_enc else purpose
         if capabilities:
             ws.capabilities = capabilities
         ws.updated_at = utcnow()
         session.add(ws)
         session.commit()
-        return {"ok": True, "purpose": ws.purpose, "capabilities": ws.capabilities}
+        return {"ok": True, "purpose": crypto.decrypt(user.api_key or "", ws.purpose_enc, ws.purpose), "capabilities": ws.capabilities}
     finally:
         session.close()
 
@@ -361,14 +369,15 @@ def list_workspaces(include_offline: bool = False) -> dict:
             if not include_offline and not online:
                 continue
             owner = session.get(models.User, ws.user_id)
+            key = user.api_key or ""
             out.append(
                 {
                     "workspace_id": ws.id,
                     "name": ws.name,
                     "path": ws.path,
-                    "purpose": ws.purpose,
+                    "purpose": crypto.decrypt(key, ws.purpose_enc, ws.purpose),
                     "capabilities": ws.capabilities,
-                    "notes": ws.notes,
+                    "notes": crypto.decrypt(key, ws.notes_enc, ws.notes),
                     "status": "online" if online else ("disabled" if ws.status == "disabled" else "offline"),
                     "owner": owner.username if owner else None,
                     "is_self": ws.user_id == user.id,
@@ -417,11 +426,14 @@ async def a2a_call(target: str, message: str, context_id: str = "", from_workspa
                 id=task_id or shortuuid.uuid(),
                 context_id=ctx,
                 external_url=target,
+                user_id=user.id,
                 caller="agent",
                 from_workspace_id=from_workspace if from_ws_valid else "",
-                message=message,
                 status=status if status in ("queued", "working", "input-required", "completed", "failed", "canceled") else "working",
             )
+            msg_enc = crypto.encrypt(user.api_key or "", message)
+            task.message_enc = msg_enc
+            task.message = "" if msg_enc else message
             if task.status in ("completed", "failed", "canceled"):
                 task.done_at = utcnow()
             session.add(task)
@@ -448,11 +460,14 @@ async def a2a_call(target: str, message: str, context_id: str = "", from_workspa
             id=shortuuid.uuid(),
             context_id=context_id or shortuuid.uuid(),
             workspace_id=tgt.id,
+            user_id=user.id,
             caller="agent",
             from_workspace_id=from_workspace if from_ws_valid else "",
-            message=message,
             status="queued",
         )
+        msg_enc = crypto.encrypt(user.api_key or "", message)
+        task.message_enc = msg_enc
+        task.message = "" if msg_enc else message
         session.add(task)
         session.commit()
         if online:
@@ -495,8 +510,10 @@ def a2a_task(task_id: str) -> dict:
         if task.status in ("queued", "working") and task.created_at:
             created = task.created_at if task.created_at.tzinfo else task.created_at.replace(tzinfo=timezone.utc)
             if (datetime.now(timezone.utc) - created).total_seconds() > CALL_TIMEOUT_SECONDS:
+                timeout_msg = f"timeout after {CALL_TIMEOUT_SECONDS}s"
                 task.status = "failed"
-                task.error = f"timeout after {CALL_TIMEOUT_SECONDS}s"
+                task.error_enc = crypto.encrypt(user.api_key or "", timeout_msg)
+                task.error = None if task.error_enc else timeout_msg
                 task.done_at = utcnow()
                 session.add(task)
                 session.commit()
@@ -504,8 +521,8 @@ def a2a_task(task_id: str) -> dict:
             "task_id": task.id,
             "context_id": task.context_id,
             "status": task.status,
-            "result": task.artifact,
-            "error": task.error,
+            "result": crypto.decrypt(user.api_key or "", task.artifact_enc, task.artifact),
+            "error": crypto.decrypt(user.api_key or "", task.error_enc, task.error),
         }
         if task.status == "input-required":
             out["note"] = "task needs input (permission/question); reply via web nexus page"

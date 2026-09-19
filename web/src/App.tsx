@@ -1404,11 +1404,21 @@ agent: (a2a_call) → 对方 TUI 实时出现任务 → 执行 → 结果自动�
           <p>
             点击顶部用户名进入「账号 → API Key」，随时查看（默认打码）、复制或重置。
             重置后旧 Key 立即失效，已接入的 agent 需要重新安装或更新配置。
+            开启了落库加密时，重置会自动用新 Key 重加密你的历史记录，历史不丢。
           </p>
           <h3>安全吗？</h3>
           <p>
             所有请求都经过鉴权。跨 agent 任务会注入目标工作区的会话——
             只把你信任的机器接入虫群。
+          </p>
+          <h3>数据是明文存库的吗？</h3>
+          <p>
+            默认是。在服务器 <code>.env</code> 配置 <code>AGENT_SWARM_ENC_KEY</code> 后开启<b>落库加密</b>：
+            工作区描述/备注/会话标题、任务指令/结果/错误、以及中枢事件流原文（含思考与工具调用）都会加密存储，
+            管理后台也只能在服务器上解密查看。加密密钥由「服务器密钥 + 你的 API Key」联合派生——
+            泄露数据库文件本身无法解密内容。
+            <b>注意</b>：不配置该密钥则全部明文落库；密钥一旦丢失，已加密的历史内容将永久无法读取（平台本身不受影响），
+            请务必备份。可选配置 <code>AGENT_SWARM_ENC_KEY_RECOVERY</code> 恢复密钥兜底。
           </p>
         </section>
       </article>
@@ -1469,14 +1479,17 @@ function toolCommand(input: Record<string, unknown> | undefined): string {
 }
 
 /** 自绘下拉：选项内可嵌 agent 图标（原生 option 不支持 SVG） */
-function NexusWorkspaceSelect({ list, value, onChange }: {
-  list: Workspace[]
+export function NexusWorkspaceSelect({ list, value, onChange, showOwner }: {
+  list: Array<{ id: string; name: string; path: string; agent_type?: string | null; owner?: string | { username: string } | null }>
   value: string
   onChange: (id: string) => void
+  showOwner?: boolean
 }) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
   const current = list.find((w) => w.id === value)
+  const ownerName = (w: { owner?: string | { username: string } | null }) =>
+    typeof w.owner === "string" ? w.owner : w.owner?.username || ""
 
   useEffect(() => {
     if (!open) return
@@ -1494,6 +1507,7 @@ function NexusWorkspaceSelect({ list, value, onChange }: {
           <>
             <AgentTypeIcon type={current.agent_type} />
             <span>{current.name}</span>
+            {showOwner && ownerName(current) ? <span className="nexus-select-item-path">@{ownerName(current)}</span> : null}
           </>
         ) : (
           <span className="nexus-select-placeholder">选择工作区…</span>
@@ -1512,7 +1526,7 @@ function NexusWorkspaceSelect({ list, value, onChange }: {
               onClick={() => { onChange(w.id); setOpen(false) }}
             >
               <AgentTypeIcon type={w.agent_type} />
-              <span className="nexus-select-item-name">{w.name}</span>
+              <span className="nexus-select-item-name">{w.name}{showOwner && ownerName(w) ? ` @${ownerName(w)}` : ""}</span>
               <span className="nexus-select-item-path">{w.path}</span>
             </button>
           ))}

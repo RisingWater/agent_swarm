@@ -4,8 +4,10 @@ import logging
 
 from sqlmodel import Session, select
 
-from server import models
+from server import crypto, models
 from server.db import engine
+
+from . import event_text
 
 log = logging.getLogger("nexus-feishu")
 
@@ -32,14 +34,16 @@ def _last_task_round(user_id: str, workspace_id: str) -> tuple[models.A2aTask | 
         ).first()
         if task is None:
             return None, []
-        events = [
-            json.loads(e.payload)
-            for e in session.exec(
-                select(models.A2aEvent)
-                .where(models.A2aEvent.task_id == task.id)
-                .order_by(models.A2aEvent.id)  # type: ignore[attr-defined]
-            ).all()
-        ]
+        events = []
+        for e in session.exec(
+            select(models.A2aEvent)
+            .where(models.A2aEvent.task_id == task.id)
+            .order_by(models.A2aEvent.id)  # type: ignore[attr-defined]
+        ).all():
+            try:
+                events.append(json.loads(event_text.of(e)))
+            except ValueError:
+                continue
         return task, events
 
 
@@ -57,8 +61,13 @@ async def send_last(chat_id: str, user_id: str, send_card, send_text) -> None:
         await send_text(chat_id, f"工作区 **{ws.name}** 还没有任务记录。")
         return
 
-    question = str(task.message or "").strip()
-    answer = str(task.artifact or "").strip()
+    key = ""
+    if ws.user_id:
+        with Session(engine) as s:
+            u = s.get(models.User, ws.user_id)
+            key = (u.api_key or "") if u else ""
+    question = crypto.decrypt(key, task.message_enc, task.message).strip()
+    answer = crypto.decrypt(key, task.artifact_enc, task.artifact).strip()
     if not answer and not question:
         await send_text(chat_id, "最近一轮没有内容（任务可能刚派发或由后台会话执行中）。")
         return

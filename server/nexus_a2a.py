@@ -41,7 +41,7 @@ from jwt import PyJWTError
 from sqlmodel import Session, func, select
 import jwt
 
-from server import models
+from server import crypto, models
 from server.auth import JWT_SECRET
 from server.config import get as cfg_get
 from server.db import engine
@@ -59,8 +59,11 @@ def _ts() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
 
-def task_obj(t: models.A2aTask) -> dict:
-    """A2aTask 行 → A2A Task 对象。"""
+def task_obj(t: models.A2aTask, owner_key: str | None = None) -> dict:
+    """A2aTask 行 → A2A Task 对象。owner_key 缺省时内部查属主 apikey（解密 error 用）。"""
+    if owner_key is None:
+        with Session(engine) as s:
+            owner_key = _owner_key(s, t)
     status_msg = None
     if t.status == "input-required":
         status_msg = {
@@ -70,14 +73,16 @@ def task_obj(t: models.A2aTask) -> dict:
             "taskId": t.id,
             "contextId": t.context_id,
         }
-    elif t.error:
-        status_msg = {
-            "role": "agent",
-            "parts": [{"kind": "text", "text": t.error}],
-            "messageId": f"msg-{t.id}-err",
-            "taskId": t.id,
-            "contextId": t.context_id,
-        }
+    else:
+        error_text = crypto.decrypt(owner_key, t.error_enc, t.error) if (t.error_enc or t.error) else ""
+        if error_text:
+            status_msg = {
+                "role": "agent",
+                "parts": [{"kind": "text", "text": error_text}],
+                "messageId": f"msg-{t.id}-err",
+                "taskId": t.id,
+                "contextId": t.context_id,
+            }
     return {
         "id": t.id,
         "contextId": t.context_id,
@@ -97,13 +102,51 @@ def _input_type(t: models.A2aTask) -> str:
         ).all()
     for r in rows:
         try:
-            payload = json.loads(r.payload)
+            payload = json.loads(event_payload_text(r))
         except ValueError:
             continue
         data = ((payload.get("status") or {}).get("message") or {}).get("data") or {}
         if data.get("type") in ("permission", "question"):
             return str(data["type"])
     return "input"
+
+
+def event_payload_text(r: models.A2aEvent, apikeys: dict[str, str] | None = None) -> str:
+    """事件 payload 明文（优先解密 *_enc；apikeys 缺省时按行 user_id/workspace 现查）。"""
+    if not r.payload_enc:
+        return r.payload
+    key = ""
+    if apikeys is not None:
+        key = apikeys.get(r.user_id or "", "") or apikeys.get(f"ws:{r.workspace_id}", "")
+    else:
+        with Session(engine) as s:
+            uid = r.user_id
+            if not uid and r.workspace_id:
+                ws = s.get(models.Workspace, r.workspace_id)
+                uid = ws.user_id if ws else ""
+            if uid:
+                u = s.get(models.User, uid)
+                key = (u.api_key or "") if u else ""
+    return crypto.decrypt(key, r.payload_enc, r.payload)
+
+
+def _apikeys_for_rows(session: Session, rows: list[models.A2aEvent]) -> dict[str, str]:
+    """一批事件的解密密钥表：user_id → apikey，外加 "ws:<workspace_id>" → apikey（旧行无 user_id 兜底）。"""
+    out: dict[str, str] = {}
+    uids: set[str] = set()
+    wids: set[str] = set()
+    for r in rows:
+        if r.user_id:
+            uids.add(r.user_id)
+        if r.workspace_id:
+            wids.add(r.workspace_id)
+    if uids:
+        for u in session.exec(select(models.User).where(models.User.id.in_(uids))).all():  # type: ignore[attr-defined]
+            out[u.id] = u.api_key or ""
+    if wids:
+        for w in session.exec(select(models.Workspace).where(models.Workspace.id.in_(wids))).all():  # type: ignore[attr-defined]
+            out[f"ws:{w.id}"] = out.get(w.user_id, "")
+    return out
 
 
 def user_message(text: str, task_id: str = "", context_id: str = "", message_id: str = "") -> dict:
@@ -255,8 +298,45 @@ def _artifact_text(event: dict) -> str:
     return "\n".join(p.get("text", "") for p in parts if p.get("kind") == "text")
 
 
-def _finalize_task(session: Session, task: models.A2aTask, event: dict) -> None:
-    """终态事件 → 收尾任务行（幂等：只收未终态的）。"""
+def _owner_key(session: Session, task: models.A2aTask) -> str:
+    """任务的加密属主 apikey：优先行上 user_id，回退 workspace→user。空 = 外部任务。"""
+    uid = task.user_id
+    if not uid and getattr(task, "workspace_id", ""):
+        ws = session.get(models.Workspace, task.workspace_id)
+        uid = ws.user_id if ws else ""
+    if not uid:
+        return ""
+    user = session.get(models.User, uid)
+    return (user.api_key or "") if user else ""
+
+
+def _ws_user_id(session: Session, workspace_id: str) -> str:
+    ws = session.get(models.Workspace, workspace_id)
+    return (ws.user_id if ws else "") or ""
+
+
+def task_user_key(session: Session, task: models.A2aTask) -> str:
+    """= _owner_key（语义别名：写侧建行时用）。"""
+    return _owner_key(session, task)
+
+
+def ws_user_key(session: Session, ws: models.Workspace) -> str:
+    """工作区属主 apikey（写侧加密用）。"""
+    user = session.get(models.User, ws.user_id) if ws.user_id else None
+    return (user.api_key or "") if user else ""
+
+
+def _api_key_of(user_id: str) -> str:
+    """user_id → apikey（无 session 场景；查不到返回空 = 不加密走明文）。"""
+    if not user_id:
+        return ""
+    with Session(engine) as session:
+        user = session.get(models.User, user_id)
+        return (user.api_key or "") if user else ""
+
+
+def _finalize_task(session: Session, task: models.A2aTask, event: dict, owner_key: str = "") -> None:
+    """终态事件 → 收尾任务行（幂等：只收未终态的）。owner_key 用于错误文本加密。"""
     if task.status in TERMINAL_STATES:
         return
     if event.get("kind") != "status-update":
@@ -269,7 +349,9 @@ def _finalize_task(session: Session, task: models.A2aTask, event: dict) -> None:
     if state == "failed":
         msg = event.get("status", {}).get("message") or {}
         parts = msg.get("parts") or []
-        task.error = next((p.get("text") for p in parts if p.get("kind") == "text"), state)
+        error = str(next((p.get("text") for p in parts if p.get("kind") == "text"), state))
+        task.error_enc = crypto.encrypt(owner_key, error)
+        task.error = "" if task.error_enc else error
     session.add(task)
 
 
@@ -291,13 +373,18 @@ async def handle_plugin_event(workspace_id: str, event: dict) -> None:
         task = session.get(models.A2aTask, task_id)
         if task is None or task.workspace_id != workspace_id:
             return
+        owner_key = _owner_key(session, task)
+        payload_json = json.dumps(event, ensure_ascii=False)[:131072]
+        payload_enc = crypto.encrypt(owner_key, payload_json)
         session.add(
-            models.A2aEvent(task_id=task.id, workspace_id=workspace_id, kind="status" if event.get("kind") == "status-update" else "artifact", round_key=task.id, payload=json.dumps(event, ensure_ascii=False)[:131072])
+            models.A2aEvent(task_id=task.id, workspace_id=workspace_id, user_id=task.user_id, kind="status" if event.get("kind") == "status-update" else "artifact", round_key=task.id, payload="{}" if payload_enc else payload_json, payload_enc=payload_enc)
         )
-        _finalize_task(session, task, event)
+        _finalize_task(session, task, event, owner_key)
         # artifact：全量文本落 task.artifact（插件每轮发全量，lastChunk=true）
         if event.get("kind") == "artifact-update" and event.get("lastChunk"):
-            task.artifact = _artifact_text(event)
+            artifact = _artifact_text(event)[:60000]
+            task.artifact_enc = crypto.encrypt(owner_key, artifact)
+            task.artifact = None if task.artifact_enc else artifact
         session.add(task)
         session.commit()
         session.refresh(task)
@@ -362,26 +449,35 @@ async def handle_monitor_event(workspace_id: str, payload: dict) -> None:
                 id=round_key,
                 context_id=round_key,
                 workspace_id=workspace_id,
+                user_id=_ws_user_id(session, workspace_id),
                 caller="monitor",
-                message=str(payload.get("text", ""))[:8000],
                 status="working",
                 session_id=str(payload.get("sessionId", "")) or None,
             )
+            msg = str(payload.get("text", ""))[:8000]
+            task.message_enc = crypto.encrypt(task_user_key(session, task), msg)
+            task.message = "" if task.message_enc else msg
             session.add(task)
             session.commit()
         elif mtype == "user" and payload.get("text"):
             return  # 已存在却收到带文本的 user（重放），忽略
         elif mtype == "user-text":
             # 提问文本补拉事件：更新任务行 message + 落事件表（回放时前端回填 user 条目）+ 推 web
-            task.message = str(payload.get("text", ""))[:8000]
+            msg = str(payload.get("text", ""))[:8000]
+            task.message_enc = crypto.encrypt(_owner_key(session, task), msg)
+            task.message = "" if task.message_enc else msg
             session.add(task)
+        payload_json = json.dumps(payload, ensure_ascii=False)[:131072]
+        payload_enc = crypto.encrypt(_owner_key(session, task), payload_json)
         session.add(
             models.A2aEvent(
                 task_id=round_key,
                 workspace_id=workspace_id,
+                user_id=task.user_id,
                 kind="monitor",
                 round_key=round_key,
-                payload=json.dumps(payload, ensure_ascii=False)[:131072],
+                payload="{}" if payload_enc else payload_json,
+                payload_enc=payload_enc,
             )
         )
         # 权限/提问 → input-required；idle → completed；text 事件累积为最终回答（artifact）
@@ -402,7 +498,9 @@ async def handle_monitor_event(workspace_id: str, payload: dict) -> None:
             task.done_at = models.utcnow()
         if mtype == "text":
             # replace 全量快照：最后一条 text 即本轮完整回答（与 A2A artifact 同语义）
-            task.artifact = str(payload.get("text", ""))[:60000]
+            art = str(payload.get("text", ""))[:60000]
+            task.artifact_enc = crypto.encrypt(_owner_key(session, task), art)
+            task.artifact = None if task.artifact_enc else art
         session.add(task)
         session.commit()
     await _push_web(workspace_id, payload, "monitor")
@@ -590,7 +688,8 @@ def _mark_task(session: Session, task_id: str, status: str, error: str | None = 
         return
     task.status = status
     if error:
-        task.error = error
+        task.error_enc = crypto.encrypt(_owner_key(session, task), error)
+        task.error = None if task.error_enc else error
     task.done_at = models.utcnow()
     session.add(task)
 
@@ -636,10 +735,13 @@ async def a2a_rpc(workspace_id: str, request: Request):
                     id=shortuuid.uuid(),
                     context_id=context_id or shortuuid.uuid(),
                     workspace_id=ws.id,
+                    user_id=ws.user_id,
                     caller=caller,
-                    message=text,
                     status="queued",
                 )
+                msg_enc = crypto.encrypt(ws_user_key(session, ws), text)
+                task.message_enc = msg_enc
+                task.message = "" if msg_enc else text
                 session.add(task)
                 session.commit()
 
@@ -750,11 +852,12 @@ async def _stream_response(task_snap: dict, text: str, caller: str):
                     .where(models.A2aEvent.task_id == task_id)
                     .order_by(models.A2aEvent.id)
                 ).all()
+                apikeys = _apikeys_for_rows(s, rows)
                 last_event_id = 0
                 for r in rows:
                     last_event_id = r.id
                     try:
-                        payload = json.loads(r.payload)
+                        payload = json.loads(event_payload_text(r, apikeys))
                     except ValueError:
                         continue
                     ev = {"jsonrpc": "2.0", "id": None, "result": payload}
@@ -850,14 +953,18 @@ async def get_external(url: str, task_id: str, api_key: str = "") -> dict:
 
 
 def _new_task(workspace: models.Workspace, text: str, caller: str, task_id: str = "", context_id: str = "") -> models.A2aTask:
-    return models.A2aTask(
+    task = models.A2aTask(
         id=task_id or shortuuid.uuid(),
         context_id=context_id or shortuuid.uuid(),
         workspace_id=workspace.id,
+        user_id=workspace.user_id,
         caller=caller,
-        message=text,
         status="queued",
     )
+    msg_enc = crypto.encrypt(_api_key_of(workspace.user_id), text)
+    task.message_enc = msg_enc
+    task.message = "" if msg_enc else text
+    return task
 
 
 async def _send_message_core(ws_row: models.Workspace, text: str, caller: str, task_id: str = "", context_id: str = "") -> dict:
@@ -1080,10 +1187,11 @@ async def nexus_history(workspace_id: str, request: Request, limit: int = 800):
             .order_by(models.A2aEvent.id)
             .limit(min(limit, 2000))
         ).all()
+        apikeys = _apikeys_for_rows(session, rows)
         out = []
         for r in rows:
             try:
-                out.append(json.loads(r.payload))
+                out.append(json.loads(event_payload_text(r, apikeys)))
             except ValueError:
                 continue
     return {"events": out, "plugin_online": ws_online(workspace_id)}
@@ -1292,10 +1400,11 @@ def _latest_round_events(workspace_id: str) -> dict:
             .where(models.A2aEvent.round_key == latest[0])
             .order_by(models.A2aEvent.id)
         ).all()
+        apikeys = _apikeys_for_rows(session, rows)
         events = []
         for r in rows:
             try:
-                events.append(json.loads(r.payload))
+                events.append(json.loads(event_payload_text(r, apikeys)))
             except ValueError:
                 continue
         return {"events": events, "first_id": int(rows[0].id) if rows else 0}
@@ -1331,10 +1440,11 @@ async def nexus_rounds(workspace_id: str, request: Request, before_id: int = 0):
             .where(models.A2aEvent.round_key == latest[0])
             .order_by(models.A2aEvent.id)
         ).all()
+        apikeys = _apikeys_for_rows(session, rows)
         events = []
         for r in rows:
             try:
-                events.append(json.loads(r.payload))
+                events.append(json.loads(event_payload_text(r, apikeys)))
             except ValueError:
                 continue
         first_id = int(rows[0].id) if rows else 0

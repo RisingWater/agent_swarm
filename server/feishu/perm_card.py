@@ -59,8 +59,10 @@ def _sender_desc(task: models.A2aTask) -> str:
     return task.caller or "a2a-client"
 
 
-def _task_line(task: models.A2aTask) -> str:
-    question = (task.message or "").strip().replace("\r", "\n")
+def _task_line(task: models.A2aTask, owner_key: str = "") -> str:
+    from server import crypto
+
+    question = crypto.decrypt(owner_key, task.message_enc, task.message).strip().replace("\r", "\n")
     return next((ln.strip() for ln in question.split("\n") if ln.strip()), "")[:120]
 
 
@@ -72,13 +74,13 @@ def _input_data(event: dict) -> dict:
     return {}
 
 
-def perm_card(task: models.A2aTask, workspace_name: str, event: dict) -> dict:
+def perm_card(task: models.A2aTask, workspace_name: str, event: dict, owner_key: str = "") -> dict:
     """权限/提问操作卡：工作区名 + 任务摘要 + 请求内容 + 按钮组。"""
     data = _input_data(event)
     itype = str(data.get("type", "permission"))
     request_id = str(data.get("requestId") or task.id)
     body: list[str] = [f"📤 {_sender_desc(task)}"]
-    task_line = _task_line(task)
+    task_line = _task_line(task, owner_key)
     if task_line:
         body.append(f"📋 任务：{task_line}")
 
@@ -195,6 +197,10 @@ async def _on_input_required(workspace_id: str, event: dict, task_id: str) -> No
         ws = session.get(models.Workspace, workspace_id)
         ws_name = ws.name if ws else "工作区"
         owner_user_id = ws.user_id if ws else ""
+        owner_key = ""
+        if owner_user_id:
+            u = session.get(models.User, owner_user_id)
+            owner_key = (u.api_key or "") if u else ""
         card_task = task.model_copy()
     if not owner_user_id:
         return
@@ -204,7 +210,7 @@ async def _on_input_required(workspace_id: str, event: dict, task_id: str) -> No
         return
     info = _active.get(task_id)
     data = _input_data(event)
-    card = perm_card(card_task, ws_name, event)
+    card = perm_card(card_task, ws_name, event, owner_key)
     # 同一任务重复 input-required（多轮权限/提问）：只推未收过该轮卡的窗口；
     # 简化处理：重发同一张卡（飞书里就是一条新消息，用户点最新的即可），并刷新注册表
     chat_ids = {c.chat_id for c in chats}
