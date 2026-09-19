@@ -162,6 +162,7 @@ async def _stream_task_event(sess: gateway.UserSession, task_id: str, event: dic
             return
         await _send(sess, text)
         return
+    await _send(sess, text)
 
 
 async def _brief_round(workspace_id: str, task_id: str, state_: str = "completed") -> None:
