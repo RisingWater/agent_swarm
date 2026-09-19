@@ -6,6 +6,7 @@ aiosqlite>=0.20
 shortuuid>=1.0
 httpx>=0.27
 cryptography>=42.0            # 静态内容落库加密（AGENT_SWARM_ENC_KEY 开启）
+qrcode[pil]>=7.4              # 微信 ClawBot 登录二维码渲染（iLink 返回的是链接不是图片）
 lark-oapi[websockets]>=1.7.3   # nexus-feishu 飞书渠道（WS 长连接）
 
 # dev

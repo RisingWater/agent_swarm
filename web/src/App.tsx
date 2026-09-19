@@ -630,7 +630,7 @@ function WeixinPanel({ toast }: { toast: (m: string) => void }) {
               二维码加载中…
             </div>
           )}
-          <div style={{ maxWidth: 320 }}>
+          <div>
             <p style={{ fontSize: 13 }}>{flow.message}</p>
             {flow.status === "need_verifycode" && (
               <div className="keyrow" style={{ marginTop: 8 }}>

@@ -62,6 +62,20 @@ def _status_out(uid: str) -> dict:
     return out
 
 
+def _qrcode_data_uri(content: str) -> str:
+    """iLink 返回的 qrcode_img_content 实际是 HTTPS 链接（liteapp.weixin.qq.com），
+    不是图片——服务端渲染成 PNG data URI，前端 <img> 直出。"""
+    import base64
+    import io
+
+    import qrcode
+
+    img = qrcode.make(content)
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
+
+
 @router.post("/login/start")
 async def login_start(user: models.User = Depends(get_current_user)):
     """申请二维码并后台轮询状态。"""
@@ -79,9 +93,19 @@ async def login_start(user: models.User = Depends(get_current_user)):
     except Exception:
         await client.aclose()
         raise
+    # qrcode_img_content 可能是链接（需本地渲染）也可能是 base64 图片；统一转 data URI
+    raw = str(qr.get("qrcode_img_content") or qr["qrcode"] or "")
+    if raw.startswith("http"):
+        img = _qrcode_data_uri(raw)
+    elif raw.startswith("data:"):
+        img = raw
+    elif raw.startswith("iVBOR"):  # 裸 base64 PNG
+        img = "data:image/png;base64," + raw
+    else:
+        img = _qrcode_data_uri(raw)
     flow = {
         "qrcode": qr["qrcode"],
-        "img": str(qr.get("qrcode_img_content") or ""),
+        "img": img,
         "base_url": gateway.BASE_URL,
         "client": client,
         "task": None,
