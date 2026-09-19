@@ -45,9 +45,13 @@ async def _on_event(workspace_id: str, event: dict) -> None:
 
 
 async def _route(workspace_id: str, event: dict) -> None:
+    kind = event.get("kind")
+    etype = event.get("type", "")
+    task_id = str(event.get("taskId", "") or event.get("roundKey", ""))
+    log.info("wx-route event wid=%s kind=%s type=%s task=%s", workspace_id[:8], kind, etype, task_id[:12])
     # 监控 payload（无 kind，有 type）
-    if not event.get("kind") and event.get("type"):
-        mtype = str(event.get("type", ""))
+    if not kind and etype:
+        mtype = str(etype)
         # 监控轮 idle 收尾：handle_monitor_event 只广播原始 payload（无 kind），
         # 简报在这里触发（对齐 feishu/brief.py 的 idle 分支）——有最终回答才推
         if mtype == "idle":
@@ -58,25 +62,29 @@ async def _route(workspace_id: str, event: dict) -> None:
         with Session(engine) as s:
             row = s.get(models.WeixinLogin, _owner_of(s, workspace_id) or "")
         if row is None or not row.monitor_on:
+            log.info("wx-route monitor skipped: row=%s monitor_on=%s", row is not None, bool(row and row.monitor_on))
             return
         sess = gateway.peek_session(row.user_id)
         if sess is None or not sess.context_token:
+            log.info("wx-route monitor skipped: no session/token user=%s", row.user_id[:8] if row else "?")
             return
         await _send_monitor(sess, event, round_key)
         return
 
     # A2A 任务事件
-    task_id = str(event.get("taskId", ""))
     if not task_id:
+        log.info("wx-route dropped: no taskId")
         return
-    state_ = str((event.get("status") or {}).get("state", "")) if event.get("kind") == "status-update" else ""
+    state_ = str((event.get("status") or {}).get("state", "")) if kind == "status-update" else ""
     with Session(engine) as s:
         task = s.get(models.A2aTask, task_id)
         if task is None:
+            log.info("wx-route dropped: task %s not found", task_id[:12])
             return
         uid = task.user_id or _owner_of(s, task.workspace_id)
         if not uid:
-            return  # 外部任务无属主，不推微信
+            log.info("wx-route dropped: task %s has no owner (external)", task_id[:12])
+            return
         caller = task.caller or ""
 
     # 来源分流（docs/channel-dispatch-design.md §4）：
@@ -85,7 +93,9 @@ async def _route(workspace_id: str, event: dict) -> None:
     if caller == "nexus-weixin-clawbot":
         sess = gateway.peek_session(uid)
         if sess is None or not sess.context_token:
+            log.info("wx-route stream skipped: no session/token user=%s state=%s", uid[:8], state_)
             return
+        log.info("wx-route → stream task=%s state=%s", task_id[:12], state_)
         await _stream_task_event(sess, task_id, event, uid)
         return
     if state_ in ("completed", "failed"):
@@ -112,6 +122,7 @@ async def _stream_task_event(sess: gateway.UserSession, task_id: str, event: dic
     metadata.nexus 为 snake_case（插件 nexus_a2a.ts：call_id/tool_state/part_id/mode）。
     """
     text, kind = render.a2a_stream_text(event)
+    log.info("wx-stream task=%s mapped kind=%s text_len=%s", task_id[:12], kind, len(text or ""))
     if kind == "final":
         # completed/canceled/failed：最终回答全量（artifact 优先）——替代简报
         with Session(engine) as s:
@@ -136,7 +147,9 @@ async def _stream_task_event(sess: gateway.UserSession, task_id: str, event: dic
         opts = [str(o if isinstance(o, str) else (o.get("label") or o.get("value") or ""))
                 for o in (data.get("options") or [])[:6]]
         state.set_pending(uid, task_id, itype, q, [o for o in opts if o])
+        log.info("wx-stream input-required task=%s itype=%s pending set, sending card", task_id[:12], itype)
     if not text:
+        log.info("wx-stream skip: no text kind=%s", kind)
         return
     meta = event.get("metadata") or {}
     if str(meta.get("nexus", "")) == "tool":
