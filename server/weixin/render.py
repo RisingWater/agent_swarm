@@ -38,7 +38,7 @@ def brief_text(task_instr: str, answer: str, error: str, failed: bool, ws_name: 
 
 
 def task_accepted_text(task_id: str) -> str:
-    return f"📨 已派发任务 `{(task_id or '')[:8]}`，执行中。过程会实时同步到这里；发送 /swarm status 可查进度。"
+    return "📨 已派发任务，执行中。过程会实时同步到这里；发送 /swarm status 可查进度。"
 
 
 def assistant_final(text: str, failed: bool = False, error: str = "") -> str:

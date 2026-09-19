@@ -438,6 +438,19 @@ function FeishuIcon({ size = 18 }: { size?: number }) {
   )
 }
 
+/** 微信品牌图标（官方 SVG，web/public/weixin.svg，绿色） */
+function WeixinIcon({ size = 18 }: { size?: number }) {
+  return (
+    <img
+      src="/weixin.svg"
+      alt="微信"
+      width={size}
+      height={size}
+      style={{ flexShrink: 0 }}
+    />
+  )
+}
+
 function ChatBindPanel({ toast }: { toast: (m: string) => void }) {
   const [info, setInfo] = useState<ChatBindInfo | null>(null)
   const [workspaces, setWorkspaces] = useState<Workspace[]>([])
@@ -611,11 +624,7 @@ function WeixinPanel({ toast }: { toast: (m: string) => void }) {
   return (
     <div style={{ marginTop: 26, paddingTop: 18, borderTop: "1px solid var(--border)" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-          {/* 微信风格气泡 */}
-          <path d="M8.5 4C5 4 2.5 6.3 2.5 9.2c0 1.7.9 3.2 2.3 4.2l-.6 2 2.2-1.1c.7.2 1.4.3 2.1.3" />
-          <path d="M9 13.6c0-2.6 2.5-4.6 5.5-4.6s5.5 2 5.5 4.6-2.5 4.6-5.5 4.6c-.6 0-1.2-.1-1.8-.2l-2 1 .5-1.8c-1.3-.9-2.2-2.2-2.2-3.6Z" />
-        </svg>
+        <WeixinIcon size={18} />
         <b style={{ fontSize: 14 }}>微信 ClawBot</b>
         {st?.logged_in ? <span style={{ fontSize: 12, color: "var(--ok, green)" }}>● 已连接</span>
           : <span style={{ fontSize: 12, color: "var(--text-weak)" }}>未连接</span>}
@@ -943,7 +952,7 @@ function HomePage({ toast, loggedIn, onGoAccount, onOpenLogin, onGoDocs }: { toa
               <FeatureIcon kind="chat" />
               <h3>即时聊天工具接入</h3>
             </div>
-            <p>绑定飞书后，直接在聊天里给 agent 派任务：按轮次时间线实时围观思考与工具调用，任务完成后收到<b>结果简报</b>，权限请求远程点选应答。</p>
+            <p>绑定飞书或微信后，直接在聊天里给 agent 派任务：按轮次时间线实时围观思考与工具调用，任务完成后收到<b>结果简报</b>，权限请求远程点选/回复应答。</p>
           </div>
           <div className="home-card">
             <div className="home-card-head">
@@ -970,7 +979,7 @@ function HomePage({ toast, loggedIn, onGoAccount, onOpenLogin, onGoDocs }: { toa
           <li>让一个 agent 去另一个仓库执行测试、汇总结果</li>
           <li>在网页「中枢」里给任意在线 agent 直接下达指令，实时围观它干活</li>
           <li>开启监控模式，把 TUI 里和 agent 的日常对话实时同步到网页，随时远程回看</li>
-          <li>绑定飞书等即时聊天工具，在聊天里派活、看进度、收完成简报</li>
+          <li>绑定飞书 / 微信等即时聊天工具，在聊天里派活、看进度、收完成简报</li>
           <li>集中管理所有 AI 工作区的用途说明、备注与在线状态</li>
           <li>回溯每一次跨 agent 调用的指令与结果（调用记录）</li>
         </ul>
@@ -1434,7 +1443,7 @@ agent: (a2a_call) → 对方 TUI 实时出现任务 → 执行 → 结果自动�
           <p>
             把虫群接进你日常使用的聊天工具：在聊天里直接给 agent 派任务、实时围观
             思考与工具调用的时间线，任务完成后收到<b>结果简报</b>，权限请求/AI 提问
-            直接点按钮应答。所有设置也可以在网页「账号 → 聊天工具绑定」里管理。
+            点按钮或回复编号应答。所有设置也可以在网页「账号 → 聊天工具绑定」里管理。
           </p>
           <h3>支持的聊天工具</h3>
           <table>
@@ -1445,8 +1454,23 @@ agent: (a2a_call) → 对方 TUI 实时出现任务 → 执行 → 结果自动�
                 <td>给机器人发 <code>/swarm bind as_你的密钥</code>（密钥在「API Key」页复制）</td>
                 <td>派任务 / 时间线直播 / 完成简报 / 监控同步 / 权限应答</td>
               </tr>
+              <tr>
+                <td>微信 ClawBot</td>
+                <td>网页「账号 → 聊天工具绑定 → 微信 ClawBot」扫码登录（用自己的微信号，无需 API Key）</td>
+                <td>派任务 / 任务详细流 / 完成简报 / 监控同步 / 权限编号应答</td>
+              </tr>
             </tbody>
           </table>
+          <h3>微信 ClawBot 绑定与使用</h3>
+          <ol>
+            <li>在网页「账号 → 聊天工具绑定」滚动到<b>微信 ClawBot</b> 区块，点<b>扫码登录微信</b></li>
+            <li>用手机微信扫码（登录流程要求时输入数字配对码），确认后你的微信里出现一个 <b>ClawBot</b> 会话</li>
+            <li>直接和它聊天即可派任务；扫码登录 token 约 24h 失效，过期后在账号页重新扫码即可</li>
+          </ol>
+          <p>
+            微信<b>无需服务端配置</b>（不同于飞书需要服务端 <code>FEISHU_APP_ID/SECRET</code>）；支持单聊，
+            暂无群聊。向 ClawBot 发普通文本 = 给当前选中工作区派任务（未选过会先弹出编号选择列表）。
+          </p>
           <h3>聊天命令</h3>
           <p>
             在聊天窗口里发送以下命令（<code>/swarm</code> + 未知命令会返回一张
@@ -1455,21 +1479,29 @@ agent: (a2a_call) → 对方 TUI 实时出现任务 → 执行 → 结果自动�
           <table>
             <thead><tr><th>命令</th><th>说明</th></tr></thead>
             <tbody>
-              <tr><td><code>/swarm bind as_xxx</code></td><td>绑定平台账号（API Key 页复制的密钥）</td></tr>
-              <tr><td><code>/swarm unbind</code></td><td>解绑账号</td></tr>
+              <tr><td><code>/swarm bind as_xxx</code></td><td>绑定平台账号（API Key 页复制的密钥）——仅飞书，微信不需要</td></tr>
+              <tr><td><code>/swarm unbind</code></td><td>解绑账号（仅飞书；微信在账号页点「断开」）</td></tr>
+              <tr><td><code>/q</code> / <code>/swarm</code></td><td>命令菜单（微信侧：回复编号执行；飞书侧：菜单卡点按钮）</td></tr>
               <tr><td><code>/swarm list</code></td><td>列出我的工作区（在线/类型）</td></tr>
-              <tr><td><code>/swarm select</code></td><td>选择当前窗口使用的工作区（下拉卡）</td></tr>
+              <tr><td><code>/swarm select</code></td><td>选择当前窗口使用的工作区（下拉卡/编号列表）</td></tr>
               <tr><td><code>/swarm status</code></td><td>当前绑定/工作区/监控/简报状态</td></tr>
               <tr><td><code>/swarm monitor on|off</code></td><td>前台会话实时同步：开启后 TUI 里的对话按时间线推到这个窗口（默认关）</td></tr>
               <tr><td><code>/swarm brief on|off</code></td><td>任务完成简报：工作区的任务（网页/agent/A2A 下发）完成后推一张结果卡片（默认开）</td></tr>
               <tr><td><code>/swarm last</code></td><td>最近一轮问答摘要（单卡：提问 + 最终回答）</td></tr>
+              <tr><td><code>/time</code> · <code>/重新连接</code></td><td>微信侧：服务器时间 / 重连 ClawBot 会话</td></tr>
             </tbody>
           </table>
+          <p>
+            微信侧应答规则：有待应答的权限/提问时（输入框上方可能显示编号选项），<b>任何输入都优先作为应答</b>
+            （回复 <code>1</code>/<code>2</code>/<code>3</code> 分别 = 允许一次 / 始终允许 / 拒绝；超出 1–3 或非数字 = 允许一次），
+            完成后任务继续执行。
+          </p>
           <h3>两种推送模式</h3>
           <ul>
             <li>
-              <b>时间线直播（监控模式）</b>——你在 TUI 里和 agent 的对话按轮次推成一组小卡：
-              用户卡 → 💭 思考过程 → 每个工具调用一张卡（命令/输出）→ 🤖 最终答复，权限请求直接点按钮。
+              <b>详细流 / 时间线直播（监控模式）</b>——你在 TUI 里和 agent 的对话按轮次推成一组小卡
+              （飞书）；微信则推纯文本：💭 思考过程、🔧 每个工具调用一行（命令/输出）、🤖 最终答复
+              全文，权限请求直接点按钮 / 回复编号应答。
             </li>
             <li>
               <b>完成简报（简报模式，默认开）</b>——网页中枢、其他 agent、A2A 外部调用下发的任务
@@ -1479,6 +1511,11 @@ agent: (a2a_call) → 对方 TUI 实时出现任务 → 执行 → 结果自动�
           </ul>
           <p>
             直接发普通文本 = 给当前选中的工作区派任务；未选择工作区时会先弹出选择卡。
+          </p>
+          <p>
+            <b>跨渠道权限应答</b>：无论权限/提问来自网页中枢还是 TUI 监控轮，只要简报模式开着，
+            web / 飞书 / 微信会<b>同时</b>收到提示——谁先应答谁生效，其余渠道的后续应答会干净失败
+            （不会重复放行）。
           </p>
         </section>
 

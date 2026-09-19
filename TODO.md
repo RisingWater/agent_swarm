@@ -1,8 +1,8 @@
 # agent_swarm 开发进度 TODO
 
-> 更新时间: 2026-09-19 深夜 · Windows 机（D:\wangxu\work\agent_swarm，workspace ID 4g8rHi43MHaWurH9XYsGNH）
+> 更新时间: 2026-09-20 · Windows 机（D:\wangxu\work\agent_swarm，workspace ID 4g8rHi43MHaWurH9XYsGNH）
 > 服务已跑在 :8700（.\deploy\start.ps1 后台窗口运行）· 前端构建产物由 8700 静态托管
-> **alpha-v0.1 已发布**（tag = dev 快照 d3daafa，master 为其发布流水；GHCR 镜像 CI 就绪）。0.1 后主线：nexus-feishu 飞书渠道、后台管理页（详见 git log，TODO 未逐条补记）；落库加密已完成；**nexus-weixin-clawbot 微信渠道代码完成，待真机扫码 E2E**（见已完成第 1 节）
+> **alpha-v0.1 已发布**（tag = dev 快照 d3daafa，master 为其发布流水；GHCR 镜像 CI 就绪）。0.1 后主线：nexus-feishu 飞书渠道、后台管理页（详见 git log，TODO 未逐条补记）；落库加密已完成；**nexus-weixin-clawbot 微信渠道真机 E2E 已过（2026-09-20）**，含跨渠道权限四方先答先算
 
 ## 项目一句话
 
@@ -28,7 +28,7 @@
 
 ## 已完成（除注明外均已进 git）
 
-### 微信 ClawBot 渠道 nexus-weixin-clawbot（2026-09-19，代码完成，待真机扫码 E2E）
+### 微信 ClawBot 渠道 nexus-weixin-clawbot（2026-09-19 实现 + 2026-09-20 真机 E2E 全过）
 
 - ✅ **模型**：`weixin_logins` 表（一人一行：每用户扫**自己的**微信号登录为 bot，本人 ↔ ClawBot 会话私聊；bot_token 走 crypto 按用户 apikey 加密落库 `token_enc`；cursor_buf 游标/context_token/workspace/monitor/brief 同表）
 - ✅ **`server/weixin/gateway.py`**：iLink 2.4.6 HTTP 客户端（头规范/随机 UIN/base_info/ret=-14 判失效）+ 扫码登录（get_bot_qrcode→get_qrcode_status 轮询：wait/scaned/need_verifycode/scaned_but_redirect 切节点/confirmed）+ **每用户会话管理器**（getupdates 长轮询、游标持久化、-14 置 need_relogin、服务重启 start_all 恢复）
@@ -62,6 +62,12 @@
   - **permission 卡不达微信根因**：插件 `handleA2aRound` 的权限/提问去重借用了 `monRounds.inputState`，A2A 轮结束后无人清理——第一次权限后同 session 的后续权限全部被静默吞掉 → 改为独立 `a2aInputSeen` 集合（按 request.id 去重，session.idle 清空）
   - 旧版 render 的 meta 污染手误（`(m or {}).get("nexus") and (...)` 产生空串）曾致 input-required 事件处理崩溃——已在实现轮清理，事故版本服务仍在跑过一段时间
   - 插件已同步安装目录 + tarball 已重打；**需重启 opencode** 生效
+- ✅ **真机 E2E 完成（2026-09-20）**：全链路验证通过——扫码登录、账号页二维码（qrcode[pil] PNG）、消息收发、任务派发详细流（💭/🔧/最终回答全量免简报）、权限编号卡应答（1/2/3 → once/always/reject）任务放行、简报、命令菜单、/q、监控同步
+- ✅ **跨渠道权限/提问四方先答先算（2026-09-20，用户拍板）**：TUI（监控轮）或 A2A 任务拉起 permission/question 且简报开着时，web / 飞书 / 微信同时收卡，谁先应答谁生效，任务翻出 input-required，其余渠道后续应答干净失败。飞书 perm_card 支持无 kind 扁平 monitor payload（`from_monitor=True`），微信 monitor 分支推编号卡+入 pending；应答端点统一 `reply_task_from_feishu(task_id=roundKey)`。设计见 docs/channel-dispatch-design.md §4.6
+- ✅ **插件权限去重改 request id**（2026-09-20）：监控轮 `inputState` 单值状态去重曾致同轮第二个权限（新 id）被吞（TUI 弹框但微信/飞书静默）→ 改按 `inputSeen`（监控轮）/`a2aInputSeen`（A2A 轮）集合按 request.id 去重，reject/应答后同类型可再次上报
+- ✅ **permission 卡带 patterns[]**（2026-09-20）：opencode 权限事件无 title，路径/命令在 `patterns[]`——插件 A2A+监控轮都带上，微信卡显示 `访问/执行：<patterns>`、飞书权限行同（修复"卡面显示轮首用户指令"）
+- ✅ **受理回执去掉任务 ID**（2026-09-20，微信派任务后）：`render.task_accepted_text` 文案改为「📨 已派发任务，执行中。过程会实时同步到这里；发送 /swarm status 可查进度。」
+- ⚠️ 遗留：微信排查日志 `data/weixin.log` 保留（wx-route/wx-monitor 全链路，后续渠道排障有用）；真机测试单 `D:\test_perm3\` 等目录仅演示用
 
 ### 静态内容落库加密（2026-09-19，E2E 快测通过）
 

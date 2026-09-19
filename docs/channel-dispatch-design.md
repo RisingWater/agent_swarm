@@ -1,6 +1,6 @@
 # 即时渠道消息分发设计：飞书 / 微信 ClawBot 的详细流与简报
 
-> 版本: v1 · 日期: 2026-09-19 · 状态: 待实现（微信侧按此改造；飞书侧现状即为准，微调）
+> 版本: v2 · 日期: 2026-09-20 · 状态: **已实现并真机 E2E 验证**（v1 微信侧方案 2026-09-19 落地；2026-09-20 补充跨渠道权限/提问四方先答先算）
 > 背景：微信 ClawBot 渠道（`server/weixin/`）首版把"简报"和"详细流"的关系做反了——微信自己派的任务本应有详细流（thinking/tool/回答/提问/权限），却只发了终态简报；监控轮又被一刀切跳过简报。本文档统一两个渠道的分发模型，作为改造依据。
 
 ## 1. 核心模型
@@ -109,21 +109,40 @@ caller == "nexus-weixin-clawbot" 且属主微信会话在线（sess.context_toke
 `nexus-weixin-clawbot` ⇒ 发过详细流 ⇒ 免简报；其余 caller ⇒ 未发过 ⇒ 发简报。
 （飞书侧同理由 `nexus-feishu` 判定，现状已如此。）
 
-## 5. 修改清单
+## 4.6 跨渠道权限/提问四方先答先算（2026-09-20 用户拍板）
+
+TUI 前台会话（监控轮）拉起 permission/question 时，按简报开关（brief_on）广播到**所有** nexus 渠道：web（原生）、飞书、微信；四方（TUI 本地 / web / 飞书 / 微信）谁先应答谁生效，任务翻出 input-required，其它渠道后续应答干净失败。
+
+- **插件**（`plugins/opencode/src/index.ts`）：权限/提问**按 request id 去重**上报——`a2aInputSeen`（A2A 轮）与按轮的 `inputSeen` Set（监控轮）。permission 事件无 `title`，**具体路径/命令在 `patterns[]`**（EventPermissionAsked），A2A 与监控轮 payload 都带上；渠道卡显示 `访问/执行：<patterns>`，无 patterns 才兜底轮首指令。渠道应答（replied 事件）清监控轮 `inputState`。
+- **服务端**：
+  - `feishu/perm_card.py`：`_on_event` 接收**无 kind 的扁平 monitor payload**（`from_monitor=True`，绕过 caller 排除），`_input_data` 回退扁平形状；task_id=roundKey，复用 web 同款应答端点
+  - `weixin/bridge.py`：monitor 分支 `permission/question` → `_push_monitor_input_required`（brief_on 门槛 + `state.set_pending(..., request_id)` + 编号卡），`replied` → `state.pop_pending_task(round_key)`,working 转移也清理 pending
+  - `nexus_a2a.py::_input_type`：兼容扁平 payload（顶层 type）——监控轮 question 才不会被误判为 permission
+- **应答端点统一**：监控轮任务行 id=roundKey（caller=monitor），`reply_task_from_feishu(task_id=roundKey, requestId)` 服务所有渠道；`state.set_pending` 存**真实 permissionId**（request_id 参数），假 id 曾致 TUI 弹窗挂到超时（2026-09-20 bug）。
+- **微信应答语义**（用户拍板）：pending 期间**任何非空输入**（含 `/q`）都是应答，菜单规则不得盖过；permission 只认编号 1/2/3 → once/always/reject，其它一律 once。
+
+## 5. 修改清单（均已实现，2026-09-19~20）
 
 | 文件 | 改动 |
 |---|---|
-| `server/weixin/bridge.py` | ① `_route` A2A 事件分支按 caller 分流：`nexus-weixin-clawbot` → `_stream_task_event`（新）；终态统一走 `_brief_round` 并加"微信来源免简报" ② 监控流保留现状 |
-| `server/weixin/render.py` | 新增 `assistant_final(text)`（最终回答全量文本）；tool 文本行/item 构造复用现有 |
-| `server/feishu/brief.py` | F2：idle 补抓的监控轮 artifact 为空时跳过（一行守卫） |
-| `TODO.md` / `AGENTS.md` | 记录该分发模型（引本文档） |
+| `server/weixin/bridge.py` | `_route` A2A 事件按 caller 分流：`nexus-weixin-clawbot` → `_stream_task_event`；终态统一 `_brief_round` + 微信来源免简报；monitor 分支新增 permission/question → `_push_monitor_input_required`、replied → `pop_pending_task`（§4.6）；working 转移清 pending |
+| `server/weixin/render.py` | `assistant_final(text)`（最终回答全量）；`task_accepted_text`（受理回执，2026-09-20 去掉任务 ID 前缀）；permission 编号卡固定三选项 |
+| `server/weixin/commands.py` | pending 应答顶级优先（步骤 0，任何非空输入含 /q）；菜单只认斜杠+编号；`_answer_pending` 回传真实 request_id |
+| `server/weixin/state.py` | `set_pending(..., request_id="")`、`pop_pending_task(task_id)` |
+| `server/feishu/brief.py` | F2：idle 补抓的监控轮 artifact 为空时跳过 |
+| `server/feishu/perm_card.py` | 接收无 kind 扁平 monitor payload（`from_monitor=True`），`_input_data` 扁平回退（§4.6） |
+| `server/nexus_a2a.py` | `_input_type` 兼容扁平 payload 顶层 type（§4.6） |
+| `plugins/opencode/src/index.ts` | 权限/提问按 request id 去重（`inputSeen`/`a2aInputSeen`）；payload 带 `patterns[]`；渠道应答清监控轮 inputState |
+| `TODO.md` / `AGENTS.md` | 记录分发模型 + 跨渠道应答（引本文档） |
 
-## 6. 验收清单（真机）
+## 6. 验收清单（真机，2026-09-20 全过）
 
-- [ ] 微信派任务 → 微信收到：受理回执 → 💭 thinking → 🔧 工具行（或官方 item）→ 最终回答全量 → **无简报**
-- [ ] 微信派任务执行中触发权限/提问 → 微信收编号选项卡 → 回复编号 → 任务继续
-- [ ] TUI 轮（monitor_on 开）→ 微信收 💭/🔧 详细流 → idle 后收简报（有回答时）
-- [ ] TUI tool-only 轮 → 微信静默
-- [ ] web 派任务 → 微信（brief_on）收简报；微信派同工作区任务不受影响
-- [ ] 飞书 timeline（飞书派任务）/简报（其它来源）/监控流（monitor_on）行为不回归
-- [ ] `data/weixin.log`：每条入站/出站有记录；E2E 全过后移除 `_setup_debug_log`
+- [x] 微信派任务 → 微信收到：受理回执 → 💭 thinking → 🔧 工具行 → 最终回答全量 → **无简报**
+- [x] 微信派任务执行中触发权限/提问 → 微信收编号选项卡（显示 `访问/执行：<patterns>`）→ 回复编号 → 任务继续
+- [x] TUI 轮（monitor_on 开）→ 微信收 💭/🔧 详细流 → idle 后收简报（有回答时）
+- [x] TUI tool-only 轮 → 微信静默
+- [x] web 派任务 → 微信（brief_on）收简报；微信派同工作区任务不受影响
+- [x] 飞书 timeline（飞书派任务）/简报（其它来源）/监控流（monitor_on）行为不回归
+- [x] **跨渠道四方先答先算（§4.6）**：TUI 触发权限 → web/飞书/微信同时收卡 → 任一方应答 → 任务翻回 working，其它渠道后续应答干净失败
+- [x] 同轮内第二个权限（新 request id）正常上报（reject/应答后不吞）
+- [~] `data/weixin.log`：排查期日志保留有用（wx-route/wx-monitor/weixin reply 全链路）；`_setup_debug_log` 是否移除待定（保留便于后续渠道排障）
