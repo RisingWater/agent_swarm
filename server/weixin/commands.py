@@ -30,18 +30,15 @@ log = logging.getLogger("nexus-weixin")
 MENU_ITEMS = [
     ("选择工作区", "select"),
     ("我的工作区", "list"),
-    ("任务状态", "status"),
     ("最近一轮问答", "last"),
     ("监控同步 开/关", "monitor"),
     ("简报 开/关", "brief"),
-    ("连接剩余时间", "time"),
 ]
 
 HELP = """**🤖 agent_swarm 指令**
 /q — 命令菜单（回复 /1 /2 /3… 选择）
 /swarm select — 选择工作区
 /swarm list — 列出我的工作区
-/swarm status — 任务状态
 /swarm last — 最近一轮问答
 /swarm monitor on|off — 监控同步
 /swarm brief on|off — 简报
