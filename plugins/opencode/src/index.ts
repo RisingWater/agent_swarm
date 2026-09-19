@@ -642,6 +642,11 @@ const plugin: Plugin = async (input) => {
       const type = anyEvt?.type as string
       const props = (anyEvt?.properties ?? {}) as Record<string, any>
       const isIdle = type === "session.idle"
+      // 事件到达时的 A2A 会话快照：任务轮的 idle 会在分支 1 里 cleanupRun，
+      // 到分支 2 时 isA2aSession() 已经查不到——必须用事件入口的快照判断，
+      // 否则任务轮的 idle 会被当成监控轮 idle 上报，服务端误发简报
+      // （真机事故 2026-09-20：微信任务完成后收到上一轮的监控简报）。
+      const sidIsA2a = isA2aSession(sid)
 
       // ---- 1) A2A 任务轮（sessionID 命中进行中的任务）----
       for (const [taskId, run] of a2aRuns) {
@@ -692,8 +697,8 @@ const plugin: Plugin = async (input) => {
 
       // ---- 2) 前台监控轮（非任务会话 + monitor 开 + 本地当前会话）----
       // 后台会话（headless spawn）不经过本进程 event hook，天然排除；
-      // A2A 注入的轮次因 a2aRuns 命中已在上面处理，这里不会重复上报。
-      if (!isA2aSession(sid) && monitorEnabled() && sid && sid === currentSessionId) {
+      // A2A 注入的轮次用事件入口快照排除（不能用 isA2aSession 实时判断——分支 1 可能已 cleanup）。
+      if (!sidIsA2a && monitorEnabled() && sid && sid === currentSessionId) {
         try { handleMonitorRound(sid, type, props, isIdle) } catch { /* 监控失败不影响主流程 */ }
       }
 
