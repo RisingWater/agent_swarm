@@ -87,6 +87,8 @@ const plugin: Plugin = async (input) => {
   let nexus: NexusA2AClient | null = null
   /** 进行中的 A2A 任务：taskId → session（前台注入的任务轮；事件路由的判据） */
   const a2aRuns = new Map<string, string>()
+  /** A2A 轮已上报的权限/提问 id（去重；session.idle 清空） */
+  const a2aInputSeen = new Set<string>()
   /** A2A 事件上报（走当前 WS 连接，断连入缓冲） */
   function a2aEmit(event: Record<string, unknown>) {
     nexus?.send({ type: "event", payload: event })
@@ -309,12 +311,14 @@ const plugin: Plugin = async (input) => {
         if (part.text?.trim()) a2aEmit(streamStatus(task, "text", partId, part.text))
       }
     } else if (type === "permission.asked") {
-      // 权限请求 → input-required（卡在 TUI 的授权菜单 web 端看不到）
+      // 权限请求 → input-required。
+      // 去重按 request.id 本轮内独立记录：不能借 monRounds 的 inputState——
+      // A2A 轮结束后无人清理，残留的 "permission" 会吞掉同 session 后续所有权限上报
+      // （真机事故 2026-09-19：第二个任务的权限卡永远不发）。
       const request = props as Record<string, any>
       const permissionId = String(request.id ?? "")
-      const taskInput = monRounds.get(sessionId) // 借用轮次表记录 input 去重（A2A 轮自身无表项）
-      if (permissionId && taskInput?.inputState !== "permission") {
-        if (taskInput) taskInput.inputState = "permission"
+      if (permissionId && !a2aInputSeen.has(permissionId)) {
+        a2aInputSeen.add(permissionId)
         a2aEmit(
           inputRequired(task, "permission", {
             requestId: permissionId,
@@ -325,13 +329,12 @@ const plugin: Plugin = async (input) => {
         )
       }
     } else if (type === "question.asked") {
-      // AI 提问 → input-required
+      // AI 提问 → input-required（去重同上：按 question.id，独立于监控轮状态）
       const request = props as Record<string, any>
       const questionId = String(request.id ?? "")
       const q = Array.isArray(request.questions) ? request.questions[0] : undefined
-      const taskInput = monRounds.get(sessionId)
-      if (questionId && q && taskInput?.inputState !== "question") {
-        if (taskInput) taskInput.inputState = "question"
+      if (questionId && q && !a2aInputSeen.has(questionId)) {
+        a2aInputSeen.add(questionId)
         a2aEmit(
           inputRequired(task, "question", {
             requestId: questionId,
@@ -634,6 +637,7 @@ const plugin: Plugin = async (input) => {
             log(`a2a ${taskId.slice(0, 8)}: execute failed: ${e}`)
           }
           cleanupRun(taskId)
+          a2aInputSeen.clear() // 轮次结束：清权限/提问去重表（避免残留吞后续上报）
         }
       }
 
