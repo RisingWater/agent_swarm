@@ -67,10 +67,13 @@ def _task_line(task: models.A2aTask, owner_key: str = "") -> str:
 
 
 def _input_data(event: dict) -> dict:
+    # A2A 事件：status.message.parts[].data；监控轮事件：扁平 payload（type/requestId/... 直接在顶层）
     msg = (event.get("status") or {}).get("message") or {}
     for p in msg.get("parts") or []:
         if p.get("kind") == "data":
             return p.get("data") or {}
+    if not event.get("kind") and event.get("type"):
+        return event
     return {}
 
 
@@ -175,7 +178,16 @@ def answered_card(task_id: str) -> dict:
 
 
 async def _on_event(workspace_id: str, event: dict) -> None:
-    if event.get("kind") != "status-update":
+    kind = event.get("kind")
+    if not kind and event.get("type") in ("permission", "question"):
+        # 监控轮（TUI 前台会话）的权限/提问：四方应答先答先算（TUI/web 现成），
+        # 飞书在这里发独立卡（随 brief_on 窗口）。task_id = roundKey（a2a_tasks 里
+        # caller=monitor 的轮行 id），按钮应答走 reply 端点与 web 同路。
+        task_id = str(event.get("roundKey", ""))
+        if task_id and workspace_id:
+            await _on_input_required(workspace_id, event, task_id, from_monitor=True)
+        return
+    if kind != "status-update":
         return
     state_ = str((event.get("status") or {}).get("state", ""))
     task_id = str(event.get("taskId", ""))
@@ -187,12 +199,16 @@ async def _on_event(workspace_id: str, event: dict) -> None:
         await _on_leave_input(workspace_id, task_id, state_)
 
 
-async def _on_input_required(workspace_id: str, event: dict, task_id: str) -> None:
+async def _on_input_required(workspace_id: str, event: dict, task_id: str, from_monitor: bool = False) -> None:
     with Session(engine) as session:
         task = session.get(models.A2aTask, task_id)
         if task is None:
             return
-        if task.caller in ("nexus-feishu", "monitor"):
+        if from_monitor:
+            # 监控轮事件（TUI 前台会话）：轮行 caller 必然是 monitor，这正是要发卡的来源，
+            # 不能走下面的排除逻辑。四方应答先答先算（TUI/web 现成，飞书卡 + 微信卡在此补齐）
+            pass
+        elif task.caller in ("nexus-feishu", "monitor"):
             return  # 飞书自发任务走时间线；monitor 轮时间线卡已有按钮
         ws = session.get(models.Workspace, workspace_id)
         ws_name = ws.name if ws else "工作区"

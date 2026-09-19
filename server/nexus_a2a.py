@@ -108,6 +108,9 @@ def _input_type(t: models.A2aTask) -> str:
         data = ((payload.get("status") or {}).get("message") or {}).get("data") or {}
         if data.get("type") in ("permission", "question"):
             return str(data["type"])
+        # 监控轮事件是扁平 payload（type 直接在顶层，无 status.message 包装）
+        if not payload.get("kind") and payload.get("type") in ("permission", "question"):
+            return str(payload["type"])
     return "input"
 
 

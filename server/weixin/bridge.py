@@ -59,6 +59,16 @@ async def _route(workspace_id: str, event: dict) -> None:
             await _brief_round(workspace_id, round_key)
             return
         round_key = str(event.get("roundKey", ""))
+        # 监控轮的权限/提问：四方应答（TUI/web/飞书/微信）先答先算。
+        # TUI 本地弹框 + web 走 reply 端点是现成的；飞书/微信的卡在这里补——
+        # 入 pending（数字应答路由到 reply 端点，task_id=roundKey）+ 编号文本卡（随简报开关）。
+        if mtype in ("permission", "question"):
+            await _push_monitor_input_required(workspace_id, round_key, event)
+            return
+        if mtype == "replied":
+            # 已在 TUI/web/飞书 应答 → 清微信 pending（先答先算）
+            state.pop_pending_task(round_key)
+            return
         with Session(engine) as s:
             row = s.get(models.WeixinLogin, _owner_of(s, workspace_id) or "")
         if row is None or not row.monitor_on:
@@ -250,6 +260,40 @@ def _input_data_of(event: dict) -> dict:
         if p.get("kind") == "data":
             return p.get("data") or {}
     return {}
+
+
+async def _push_monitor_input_required(workspace_id: str, round_key: str, event: dict) -> None:
+    """监控轮（TUI 前台会话）的权限/提问 → 微信编号卡 + 入 pending。
+
+    四方应答先答先算：TUI 本地 / web（reply 端点）/ 飞书（perm_card）任一方先应答，
+    插件会发 replied 事件 → 清微信 pending；微信先答则走 reply 端点（task_id=roundKey）。
+    随简报开关（brief_on）推送，与飞书 perm_card 的窗口筛选语义一致。
+    """
+    with Session(engine) as s:
+        ws = s.get(models.Workspace, workspace_id) if workspace_id else None
+        uid = (ws.user_id if ws else "") or ""
+        if not uid:
+            return
+        row = s.get(models.WeixinLogin, uid)
+        u = s.get(models.User, uid)
+        key = (u.api_key or "") if u else ""
+        from server import crypto
+
+        task = s.get(models.A2aTask, round_key)
+        instr = crypto.decrypt(key, task.message_enc, task.message).strip() if task else ""
+    if row is None or not row.brief_on:
+        return
+    sess = gateway.peek_session(uid)
+    if sess is None or not sess.context_token:
+        return
+    itype = str(event.get("type", "permission"))
+    req_id = str(event.get("requestId") or "")
+    q = str(event.get("question") or event.get("title") or (instr[:120] if instr else "") or "AI 需要确认")
+    opts = [str(o if isinstance(o, str) else (o.get("label") or o.get("value") or ""))
+            for o in (event.get("options") or [])[:6]]
+    state.set_pending(uid, round_key, itype, q, [o for o in opts if o], request_id=req_id)
+    await _send(sess, render.permission_text(round_key, itype, q, opts))
+    log.info("wx-monitor input-required round=%s itype=%s req=%s", round_key[:16], itype, req_id[:16])
 
 
 def _owner_of(s: Session, workspace_id: str) -> str:
