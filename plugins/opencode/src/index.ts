@@ -110,6 +110,10 @@ const plugin: Plugin = async (input) => {
     userMessageId: string // 开轮的 user 消息 id（其 text part 是提问本身，不当回答上报）
     messageIds: Set<string>
     inputState: "permission" | "question" | null
+    /** 已上报的权限/提问 request id：去重按 id，不按 inputState 单值——
+     *  同一轮内 reject/应答后还会弹新的权限框（新 id），单值状态会把它们全部吞掉
+     *  （真机事故 2026-09-20 00:54：TUI 弹框但微信/飞书静默） */
+    inputSeen: Set<string>
   }
   const monRounds = new Map<string, MonRound>()
 
@@ -426,6 +430,7 @@ const plugin: Plugin = async (input) => {
         userMessageId: msgId,
         messageIds: new Set([msgId]),
         inputState: null,
+        inputSeen: new Set(),
       }
       monRounds.set(sid, round)
       // 先发空文本 user 事件开轮（服务端建行依赖它），再异步补拉提问文本
@@ -473,7 +478,8 @@ const plugin: Plugin = async (input) => {
     } else if (type === "permission.asked") {
       const request = props as Record<string, any>
       const permissionId = String(request.id ?? "")
-      if (permissionId && round.inputState !== "permission") {
+      if (permissionId && !round.inputSeen.has(permissionId)) {
+        round.inputSeen.add(permissionId)
         round.inputState = "permission"
         monEmit(round, sid, {
           type: "permission",
@@ -486,7 +492,8 @@ const plugin: Plugin = async (input) => {
       const request = props as Record<string, any>
       const questionId = String(request.id ?? "")
       const q = Array.isArray(request.questions) ? request.questions[0] : undefined
-      if (questionId && q && round.inputState !== "question") {
+      if (questionId && q && !round.inputSeen.has(questionId)) {
+        round.inputSeen.add(questionId)
         round.inputState = "question"
         monEmit(round, sid, {
           type: "question",
@@ -594,19 +601,20 @@ const plugin: Plugin = async (input) => {
     onPermissionReply: async (requestId, reply, replyTaskId) => {
       await onPermissionReplyImpl("", requestId, reply)
       // 应答后补 working 状态：服务端/前端结束 input-required 等待态。
-      // replyTaskId 非空 = 监控轮（A2A 轮走 onReply 路径自行处理）；同一轮可能有多个权限排队，仅在无其他等待时回 working
+      // replyTaskId 非空 = 监控轮（A2A 轮走 onReply 路径自行处理）；等待结束清 inputState，
+      // 同轮后续新权限框（新 id）会重新上报并刷新状态
       if (replyTaskId) {
-        const still = [...monRounds.values()].some((r) => r.roundKey === replyTaskId && r.inputState)
-        if (!still) monitorEmit({ roundKey: replyTaskId, type: "replied", requestId })
-        else monitorEmit({ roundKey: replyTaskId, type: "replied", requestId, stillWaiting: true })
+        const round = [...monRounds.values()].find((r) => r.roundKey === replyTaskId)
+        if (round) round.inputState = null
+        monitorEmit({ roundKey: replyTaskId, type: "replied", requestId })
       }
     },
     onQuestionReply: async (requestId, answers, replyTaskId) => {
       await onQuestionReplyImpl("", requestId, answers)
       if (replyTaskId) {
-        const still = [...monRounds.values()].some((r) => r.roundKey === replyTaskId && r.inputState)
-        if (!still) monitorEmit({ roundKey: replyTaskId, type: "replied", requestId })
-        else monitorEmit({ roundKey: replyTaskId, type: "replied", requestId, stillWaiting: true })
+        const round = [...monRounds.values()].find((r) => r.roundKey === replyTaskId)
+        if (round) round.inputState = null
+        monitorEmit({ roundKey: replyTaskId, type: "replied", requestId })
       }
     },
     onTaskCancel: (taskId) => {
