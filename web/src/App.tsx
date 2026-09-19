@@ -569,7 +569,16 @@ function WeixinPanel({ toast }: { toast: (m: string) => void }) {
   useEffect(() => {
     if (!st?.flow || st.flow.status === "confirmed" || st.flow.status === "expired" || st.flow.status === "error") return
     const t = setInterval(() => {
-      api.weixinLoginStatus().then(setSt).catch(() => {})
+      api.weixinLoginStatus().then(async (s) => {
+        if (s.flow?.status === "confirmed") {
+          // 登录成功：结束扫码流程展示，切到已登录视图
+          try { await api.weixinLoginCancel() } catch { /* ignore */ }
+          setSt({ ...s, flow: null })
+          toast("微信 ClawBot 已连接")
+        } else {
+          setSt(s)
+        }
+      }).catch(() => {})
     }, 1500)
     return () => clearInterval(t)
   }, [st?.flow?.status, st?.flow])
@@ -620,7 +629,13 @@ function WeixinPanel({ toast }: { toast: (m: string) => void }) {
 
       {flow && flow.status !== "confirmed" && (
         <div style={{ display: "flex", gap: 18, alignItems: "flex-start", flexWrap: "wrap" }}>
-          {flow.qrcode_img ? (
+          {flow.qrcode_img && flow.status !== "scanned" ? (
+            <div style={{ border: "1px solid var(--border)", borderRadius: 8, padding: 10, background: "#fff", position: "relative" }}>
+              <img src={flow.qrcode_img} alt="微信登录二维码" style={{ width: 180, height: 180, display: "block", opacity: 0.25 }} />
+              <span style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center",
+                fontSize: 13, color: "var(--ok, green)", fontWeight: 600 }}>✓ 已扫码</span>
+            </div>
+          ) : flow.qrcode_img ? (
             <div style={{ border: "1px solid var(--border)", borderRadius: 8, padding: 10, background: "#fff" }}>
               <img src={flow.qrcode_img} alt="微信登录二维码" style={{ width: 180, height: 180, display: "block" }} />
             </div>
