@@ -313,9 +313,16 @@ async def _cmd_status(sess: gateway.UserSession) -> None:
 async def _answer_pending(sess: gateway.UserSession, pending: dict, text: str) -> None:
     uid = sess.user_id
     task_id = pending["task_id"]
+    kind = pending.get("kind", "permission")
     options = pending.get("options") or []
     idx = _parse_index(text, len(options))
-    answer = options[idx] if idx is not None else text
+    if kind == "permission":
+        # 权限：只认编号（1=允许一次 2=始终允许 3=拒绝）；其它输入一律视为同意（once）
+        if idx is None:
+            idx = 0
+        answer = ("once", "always", "reject")[idx]
+    else:
+        answer = options[idx] if idx is not None else text
     ok, msg = await reply_task_from_feishu(task_id, answer, f"wx-{uid[:8]}")
     if ok:
         state.clear_pending(uid)

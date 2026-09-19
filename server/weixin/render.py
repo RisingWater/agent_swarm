@@ -97,12 +97,21 @@ def tool_args_summary(tool: str, input_data: dict | None) -> str:
 
 
 def permission_text(task_id: str, kind: str, question: str, options: list[str]) -> str:
-    """权限/提问文本卡：编号选项，回复数字或文字。"""
+    """权限/提问文本卡：编号选项，回复数字或文字。
+
+    permission 固定三个选项（与 reply 端点语义对齐：1=允许一次 once / 2=始终允许 always / 3=拒绝 reject）；
+    opencode 的 permission.asked 不带 options，必须在这里补。
+    """
     label = "需要授权" if kind == "permission" else "向你提问"
     lines = [f"⏸ 任务 `{task_id[:8]}` {label}"]
     if question:
         lines.append(question[:500])
-    if options:
+    if kind == "permission":
+        lines.append("1. 允许一次")
+        lines.append("2. 始终允许")
+        lines.append("3. 拒绝")
+        lines.append("回复编号即可")
+    elif options:
         for i, opt in enumerate(options, 1):
             lines.append(f"{i}. {opt}")
         lines.append("回复编号或输入你的答案")
