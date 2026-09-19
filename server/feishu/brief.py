@@ -104,6 +104,10 @@ async def _on_event(workspace_id: str, event: dict) -> None:
         # 飞书自己下发的任务：timeline 全程卡已覆盖
         if task.caller == "nexus-feishu":
             return
+        # 监控轮（caller=monitor）artifact 为空（tool-only 轮没有 text 事件）→ 不发简报卡，
+        # 否则全是"（无最终回答文本）"刷屏（对齐微信侧 bridge._brief_round 同款守卫）
+        if task.caller == "monitor" and not ((task.artifact_enc or "") or (task.artifact or "")).strip():
+            return
         ws_name = ""
         owner_user_id = ""
         owner_key = ""

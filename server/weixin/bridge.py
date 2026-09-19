@@ -70,6 +70,24 @@ async def _route(workspace_id: str, event: dict) -> None:
     if not task_id:
         return
     state_ = str((event.get("status") or {}).get("state", "")) if event.get("kind") == "status-update" else ""
+    with Session(engine) as s:
+        task = s.get(models.A2aTask, task_id)
+        if task is None:
+            return
+        uid = task.user_id or _owner_of(s, task.workspace_id)
+        if not uid:
+            return  # 外部任务无属主，不推微信
+        caller = task.caller or ""
+
+    # 来源分流（docs/channel-dispatch-design.md §4）：
+    # - 微信自己派的任务 → 详细流（thinking/tool/最终回答全量/input-required 卡），终态免简报
+    # - 其它来源 → 终态简报 + input-required 单卡
+    if caller == "nexus-weixin-clawbot":
+        sess = gateway.peek_session(uid)
+        if sess is None or not sess.context_token:
+            return
+        await _stream_task_event(sess, task_id, event, uid)
+        return
     if state_ in ("completed", "failed"):
         await _brief_round(workspace_id, task_id, state_)
         return
@@ -78,8 +96,81 @@ async def _route(workspace_id: str, event: dict) -> None:
         return
 
 
+# 微信派发任务的详细流节流：同一 (task, callId) 的 start 只发一次
+_task_tool_seen: dict[str, set[str]] = {}
+
+
+def tool_name_hash(name: str) -> str:
+    import hashlib
+
+    return hashlib.md5(name.encode()).hexdigest()[:8]
+
+
+async def _stream_task_event(sess: gateway.UserSession, task_id: str, event: dict, uid: str) -> None:
+    """微信自己派的 A2A 任务 → 详细流（对齐 feishu _on_task_event 的 timeline，文本形态）。
+
+    metadata.nexus 为 snake_case（插件 nexus_a2a.ts：call_id/tool_state/part_id/mode）。
+    """
+    text, kind = render.a2a_stream_text(event)
+    if kind == "final":
+        # completed/canceled/failed：最终回答全量（artifact 优先）——替代简报
+        with Session(engine) as s:
+            t = s.get(models.A2aTask, task_id)
+            if t is None:
+                return
+            u = s.get(models.User, uid)
+            key = (u.api_key or "") if u else ""
+            from server import crypto
+
+            answer = crypto.decrypt(key, t.artifact_enc, t.artifact)
+            error = crypto.decrypt(key, t.error_enc, t.error)
+        await _send(sess, render.assistant_final(answer, t.status == "failed", error))
+        state.clear_pending(uid)
+        _task_tool_seen.pop(task_id, None)
+        return
+    if kind == "input":
+        # input-required：入待应答（事件文本卡里已带编号选项）
+        data = _input_data_of(event)
+        itype = str(data.get("type", "permission"))
+        q = str(data.get("question") or "AI 需要确认")
+        opts = [str(o if isinstance(o, str) else (o.get("label") or o.get("value") or ""))
+                for o in (data.get("options") or [])[:6]]
+        state.set_pending(uid, task_id, itype, q, [o for o in opts if o])
+    if not text:
+        return
+    meta = event.get("metadata") or {}
+    if str(meta.get("nexus", "")) == "tool":
+        # tool 事件走官方 item 优先（发送失败降级文本行）
+        name = str(meta.get("tool") or "工具调用")
+        call_id = str(meta.get("call_id") or "")
+        st = str(meta.get("tool_state") or "")
+        seen = _task_tool_seen.setdefault(task_id, set())
+        dedup = f"{call_id}:{tool_name_hash(name)}"
+        try:
+            client = sess.client or httpx.AsyncClient()
+            if st in ("running", "input-required", ""):
+                if dedup in seen:
+                    return
+                seen.add(dedup)
+                await gateway.send_tool_items(
+                    client, sess.token, sess.baseurl, sess.wx_user_id, sess.context_token,
+                    [render.tool_item_start(call_id, name)])
+            else:
+                await gateway.send_tool_items(
+                    client, sess.token, sess.baseurl, sess.wx_user_id, sess.context_token,
+                    [render.tool_item_result(call_id, name, st == "completed")])
+                seen.discard(dedup)
+        except Exception:  # noqa: BLE001
+            await _send(sess, text)
+        return
+    await _send(sess, text)
+
+
 async def _brief_round(workspace_id: str, task_id: str, state_: str = "completed") -> None:
-    """终态简报：completed/failed（含监控轮 idle）→ brief_on 用户收 MD 摘要。"""
+    """终态简报：completed/failed（含监控轮 idle）→ brief_on 用户收 MD 摘要。
+
+    微信自己派的任务（caller=nexus-weixin-clawbot）不发——详细流已全程推送（§4.3 去重）。
+    """
     with Session(engine) as s:
         task = s.get(models.A2aTask, task_id)
         if task is None:
@@ -90,6 +181,9 @@ async def _brief_round(workspace_id: str, task_id: str, state_: str = "completed
         row = s.get(models.WeixinLogin, uid)
         if row is None:
             return
+        if (task.caller or "") == "nexus-weixin-clawbot":
+            state.clear_pending(uid)
+            return  # 详细流已覆盖，免简报（防御性：_route 已分流）
         ws_name = ""
         if task.workspace_id:
             ws = s.get(models.Workspace, task.workspace_id)
@@ -109,10 +203,6 @@ async def _brief_round(workspace_id: str, task_id: str, state_: str = "completed
     if task.caller == "monitor" and not (answer or "").strip():
         state.clear_pending(uid)
         return
-    if task.caller == "monitor" and state_ == "completed":
-        # monitor_on 开着的窗口已实时看过 thinking/tool，简报仍发（用户要求）；
-        # 这里不再额外过滤
-        pass
     if not row.brief_on:
         state.clear_pending(uid)
         return

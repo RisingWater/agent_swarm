@@ -38,7 +38,17 @@ def brief_text(task_instr: str, answer: str, error: str, failed: bool, ws_name: 
 
 
 def task_accepted_text(task_id: str) -> str:
-    return f"📨 已派发任务 `{(task_id or '')[:8]}`，执行中。完成后这里会收到简报；发送 /swarm status 可查进度。"
+    return f"📨 已派发任务 `{(task_id or '')[:8]}`，执行中。过程会实时同步到这里；发送 /swarm status 可查进度。"
+
+
+def assistant_final(text: str, failed: bool = False, error: str = "") -> str:
+    """微信自己派的任务：最终回答全量（completed 时一次性发，替代简报）。"""
+    body = md(text)
+    if failed:
+        return f"❌ 任务失败\n{md(error) or body or '执行出错'}"
+    if not body:
+        return "✅ 任务完成（无文本回答）"
+    return f"💬 {body}"
 
 
 def thinking_text(text: str) -> str:
@@ -125,6 +135,45 @@ def monitor_texts(payload: dict) -> list[str]:
     if mtype == "text":
         return []  # 监控轮的中间 text 不发（回答由简报兜底），避免刷屏
     return []
+
+
+def a2a_stream_text(event: dict) -> tuple[str | None, str]:
+    """微信自己派的任务：A2A 事件 → 详细流文本。
+
+    metadata.nexus 标签为 snake_case（参照插件 nexus_a2a.ts：call_id/tool_state/part_id/mode）。
+    返回 (text | None, kind)；kind ∈ reasoning / tool_start / tool_done / final / failed / ""（跳过）。
+    """
+    kind = event.get("kind")
+    if kind == "artifact-update":
+        return None, ""  # 最终回答由 completed 一次性发（artifact 与流式 text 重复）
+    meta = event.get("metadata") or {}
+    state = str((event.get("status") or {}).get("state", ""))
+    if state == "input-required":
+        data = _input_data(event)
+        opts = [str(o if isinstance(o, str) else (o.get("label") or o.get("value") or ""))
+                for o in (data.get("options") or [])[:6]]
+        opts = [o for o in opts if o]
+        q = str(data.get("question") or "AI 需要确认")
+        return permission_text(str(event.get("taskId", "")), str(data.get("type", "permission")), q, opts), "input"
+    if state == "failed":
+        err = _parts_text(event) or "执行出错"
+        return f"❌ 任务 `{str(event.get('taskId',''))[:8]}` 失败：{md(err)[:400]}", "failed"
+    if state in ("completed", "canceled"):
+        # 最终回答全量（artifact 优先，退流式累积）——由调用方补 artifact，这里给状态头
+        return None, "final"
+    ntype = str(meta.get("nexus", ""))
+    if ntype == "reasoning":
+        t = str(meta.get("text", "") or "")
+        return (thinking_text(t), "reasoning") if t else (None, "")
+    if ntype == "tool":
+        name = str(meta.get("tool") or "工具调用")
+        st = str(meta.get("tool_state") or "running")
+        if st in ("running", "input-required", ""):
+            return tool_start_text(name), "tool_start"
+        return tool_done_text(name, st == "completed"), "tool_done"
+    if ntype == "text":
+        return None, ""  # 流式 text 不逐段发，completed 时全量发（避免碎片刷屏）
+    return None, ""
 
 
 def tool_item_start(call_id: str, tool: str) -> dict:

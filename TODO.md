@@ -48,6 +48,13 @@
   - 监控轮简报刷屏（"无最终回答文本"）：监控轮（caller=monitor）常无 text 事件（tool-only 轮），artifact 为空 → bridge 排除 caller=monitor 的简报（对齐飞书侧排除自身渠道）；微信简报只推渠道下发的任务（nexus-weixin-clawbot/nexus-web/agent 等的 artifact 是完整的）
   - **交互菜单化**（用户要求）：`/q` 出命令菜单回 /1-/7 执行；/swarm select 与未选工作区时自动出编号选择列表（/N 选择）；未识别 / 命令回菜单；监控/简报开关不带参数即翻转；交互状态 `_menus[uid]`（TTL 5 分钟）
   - 排查期日志：`data/weixin.log`（收发消息/过滤判定全链路），E2E 通过后可删
+- ✅ **分发模型统一（2026-09-19 晚，按用户拍板模型，设计文档 docs/channel-dispatch-design.md）**：
+  - **微信自己派的 A2A 任务 → 详细流**（此前完全没有）：`bridge._stream_task_event` 推 💭 thinking 文本、🔧 tool（官方 item 优先/文本降级，按 callId 节流）、input-required 编号选项卡（入 pending）、completed 时**最终回答全量一条**（artifact 优先，流式 text 不逐段发防碎片刷屏）；**终态免简报**（详细流已覆盖，`_brief_round` 加防御性 caller 守卫）
+  - **监控轮（TUI）**：monitor_on 推详细流（现状保留）+ idle 后有最终回答才发简报（tool-only 空轮静默）
+  - **其它来源**（web/飞书/agent 互调/A2A 外部）：终态简报 + input-required 单卡（现有逻辑保留）
+  - A2A 事件 metadata.nexus 为 **snake_case**（call_id/tool_state/part_id/mode，插件 nexus_a2a.ts:135 定义）——与 web 前端 camelCase 读法不同，桥接层必须用 snake_case
+  - 飞书侧 F2 微调：brief.py 监控轮 artifact 为空跳过（同微信守卫，防"无最终回答文本"卡刷屏）
+  - ⚠️ 真机验收清单见 docs/channel-dispatch-design.md §6（微信派任务全程详细流/权限应答/监控轮简报/飞书不回归）
 
 ### 静态内容落库加密（2026-09-19，E2E 快测通过）
 
