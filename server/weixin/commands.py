@@ -73,11 +73,18 @@ def _menu_text(title: str, items: list[tuple[str, str]], footer: str = "") -> st
 
 
 async def handle_inbound(sess: gateway.UserSession, text: str) -> None:
-    """入口：菜单编号 → /swarm 指令 → 待应答应答 → 普通任务下发。"""
+    """入口：待应答应答（最高优先）→ 菜单编号 → /swarm 指令 → 普通任务下发。"""
     uid = sess.user_id
     stripped = (text or "").strip()
     low = stripped.lower()
     log.info("weixin inbound user=%s text=%r", uid[:8], stripped[:60])
+
+    # 0) 待应答最高优先：权限/提问卡在等时，任何非空输入都是应答（用户拍板：
+    #    不能让菜单规则盖过 pending；pending 期间输入 /q 也按同意处理，不例外）
+    pending = state.get_pending(uid)
+    if pending and stripped:
+        await _answer_pending(sess, pending, stripped)
+        return
 
     # 1) 菜单编号应答（/1 /2 /3… 或纯数字）
     menu = _get_menu(uid)
@@ -92,10 +99,7 @@ async def handle_inbound(sess: gateway.UserSession, text: str) -> None:
             await reply_text(sess, f"✅ 已选择 **{name}**\n直接发文字即可派任务")
         return
     # 1.5) 斜杠命令但当前没有菜单：回命令菜单供选择（用户拍板：菜单规则只认斜杠+编号，
-    #      纯数字不属于菜单规则——无菜单时纯数字要么是 pending 应答，要么是误触）。
-    #      pending（权限/提问卡）在等时数字必须优先应答，
-    #      否则会被菜单规则抢走（真机事故 2026-09-20：回 2 触发命令菜单）。
-    pending = state.get_pending(uid)
+    #      纯数字不属于菜单规则——无菜单时纯数字要么是 pending 应答，要么是误触）
     if stripped.startswith("/") and stripped.isdigit():
         await reply_text(sess, _menu_text("🤖 命令菜单（回复编号执行）",
                                           [(l, a) for l, a in MENU_ITEMS],
@@ -103,7 +107,7 @@ async def handle_inbound(sess: gateway.UserSession, text: str) -> None:
         _set_menu(uid, "menu", list(MENU_ITEMS))
         return
     # 纯数字且无事可应答：提示而不是弹菜单/不当任务
-    if stripped.isdigit() and pending is None:
+    if stripped.isdigit():
         await reply_text(sess, "当前没有等待应答的授权或提问。\n发 /q 查看命令菜单，其他文字 = 派任务。")
         return
 
@@ -130,12 +134,7 @@ async def handle_inbound(sess: gateway.UserSession, text: str) -> None:
         _set_menu(uid, "menu", list(MENU_ITEMS))
         return
 
-    # 4) 待应答任务优先：权限/提问的编号或文字应答
-    if pending:
-        await _answer_pending(sess, pending, stripped)
-        return
-
-    # 5) 普通文本 = 下发任务
+    # 4) 普通文本 = 下发任务（pending 应答已在函数入口处理）
     row = state.get_login(uid)
     if not row or not row.workspace_id:
         await _start_select_ws(sess)
