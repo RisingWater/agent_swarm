@@ -55,6 +55,13 @@
   - A2A 事件 metadata.nexus 为 **snake_case**（call_id/tool_state/part_id/mode，插件 nexus_a2a.ts:135 定义）——与 web 前端 camelCase 读法不同，桥接层必须用 snake_case
   - 飞书侧 F2 微调：brief.py 监控轮 artifact 为空跳过（同微信守卫，防"无最终回答文本"卡刷屏）
   - ⚠️ 真机验收清单见 docs/channel-dispatch-design.md §6（微信派任务全程详细流/权限应答/监控轮简报/飞书不回归）
+- ✅ **E2E 第二轮修复（2026-09-19 晚）**：
+  - tool 消息重复四条：opencode running 阶段多次 part.update，call_id 去重失效 → **只发完成行**（✓/✗，天然一次），start 行取消
+  - tool 文本行带参数（用户要求）：`🔧 bash \`git status\` ✓` / `🔧 read \`D:/x/y.py\` ✓`（command/file_path/pattern 等键提取，120 字截断；任务流+监控轮统一）
+  - 官方 type 11/12 item 路径移除（真机证实普通微信客户端不渲染），gateway.send_tool_items 保留备用
+  - **permission 卡不达微信根因**：插件 `handleA2aRound` 的权限/提问去重借用了 `monRounds.inputState`，A2A 轮结束后无人清理——第一次权限后同 session 的后续权限全部被静默吞掉 → 改为独立 `a2aInputSeen` 集合（按 request.id 去重，session.idle 清空）
+  - 旧版 render 的 meta 污染手误（`(m or {}).get("nexus") and (...)` 产生空串）曾致 input-required 事件处理崩溃——已在实现轮清理，事故版本服务仍在跑过一段时间
+  - 插件已同步安装目录 + tarball 已重打；**需重启 opencode** 生效
 
 ### 静态内容落库加密（2026-09-19，E2E 快测通过）
 
