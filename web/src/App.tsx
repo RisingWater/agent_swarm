@@ -11,6 +11,7 @@ import {
   type ChatBindInfo,
   type ChatBindChat,
   type ChatBindPatch,
+  type WeixinStatus,
 } from "./api"
 import { copyText } from "./copy"
 import { AdminPage } from "./AdminPage"
@@ -521,9 +522,11 @@ function ChatBindPanel({ toast }: { toast: (m: string) => void }) {
       <>
         <p className="section-label">[ 聊天工具绑定 ]</p>
         <p style={{ fontSize: 13, color: "var(--text-weak)" }}>
-          还没有绑定聊天工具。在飞书里给机器人发送 <code>/swarm bind as_你的密钥</code> 完成绑定
-          （密钥在「API Key」页复制），绑定后这里会显示绑定账号与窗口设置。
+          还没有绑定聊天工具。在飞书里给机器人发送 <code>/swarm bind as_你的密钥</code>
+          （密钥在「API Key」页复制），或用下面的微信扫码登录（无需绑定，扫自己的号即可）。
+          绑定后这里会显示绑定账号与窗口设置。
         </p>
+        <WeixinPanel toast={toast} />
       </>
     )
   }
@@ -546,8 +549,156 @@ function ChatBindPanel({ toast }: { toast: (m: string) => void }) {
         修改会即时生效，飞书窗口会收到一条变更通知。监控模式 = TUI 对话按时间线实时同步；
         简报模式 = 任务完成后推送一张结果摘要卡。
       </p>
+      <WeixinPanel toast={toast} />
     </>
   )
+}
+
+/** 微信 ClawBot（扫码登录自己的微信号作为 bot，扫码后微信里出现 ClawBot 会话） */
+function WeixinPanel({ toast }: { toast: (m: string) => void }) {
+  const [st, setSt] = useState<WeixinStatus | null>(null)
+  const [verifyCode, setVerifyCode] = useState("")
+  const [busy, setBusy] = useState(false)
+
+  const refresh = useCallback(() => {
+    api.weixinStatus().then(setSt).catch(() => setSt(null))
+  }, [])
+  useEffect(() => { refresh() }, [refresh])
+
+  // 扫码流程中轮询状态
+  useEffect(() => {
+    if (!st?.flow || st.flow.status === "confirmed" || st.flow.status === "expired" || st.flow.status === "error") return
+    const t = setInterval(() => {
+      api.weixinLoginStatus().then(setSt).catch(() => {})
+    }, 1500)
+    return () => clearInterval(t)
+  }, [st?.flow?.status, st?.flow])
+
+  const start = async () => {
+    setBusy(true)
+    try {
+      setSt(await api.weixinLoginStart())
+    } catch (e: any) { toast(e.message) } finally { setBusy(false) }
+  }
+  const cancel = async () => {
+    try { await api.weixinLoginCancel() } catch { /* ignore */ }
+    refresh()
+  }
+  const submitVerify = async () => {
+    if (!verifyCode.trim()) return
+    try { await api.weixinLoginVerify(verifyCode.trim()); setVerifyCode(""); toast("配对码已提交") } catch (e: any) { toast(e.message) }
+  }
+  const logout = async () => {
+    try { await api.weixinLogout(); toast("已断开微信连接"); refresh() } catch (e: any) { toast(e.message) }
+  }
+
+  const wsList = useWorkspacesForSelect()
+  const flow = st?.flow
+
+  return (
+    <div style={{ marginTop: 26, paddingTop: 18, borderTop: "1px solid var(--border)" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+          {/* 微信风格气泡 */}
+          <path d="M8.5 4C5 4 2.5 6.3 2.5 9.2c0 1.7.9 3.2 2.3 4.2l-.6 2 2.2-1.1c.7.2 1.4.3 2.1.3" />
+          <path d="M9 13.6c0-2.6 2.5-4.6 5.5-4.6s5.5 2 5.5 4.6-2.5 4.6-5.5 4.6c-.6 0-1.2-.1-1.8-.2l-2 1 .5-1.8c-1.3-.9-2.2-2.2-2.2-3.6Z" />
+        </svg>
+        <b style={{ fontSize: 14 }}>微信 ClawBot</b>
+        {st?.logged_in ? <span style={{ fontSize: 12, color: "var(--ok, green)" }}>● 已连接</span>
+          : <span style={{ fontSize: 12, color: "var(--text-weak)" }}>未连接</span>}
+      </div>
+
+      {!st?.logged_in && !flow && (
+        <div>
+          <p style={{ fontSize: 13, color: "var(--text-weak)", maxWidth: 520 }}>
+            扫码把<b>你自己的微信号</b>登录为本平台的 ClawBot。登录后微信里会出现一个
+            ClawBot 会话：发文字给它即可选择工作区、派任务、收简报、应答 AI 的提问与授权请求。
+          </p>
+          <Btn size="sm" disabled={busy} onClick={start}>{busy ? "获取中…" : "扫码登录微信"}</Btn>
+        </div>
+      )}
+
+      {flow && flow.status !== "confirmed" && (
+        <div style={{ display: "flex", gap: 18, alignItems: "flex-start", flexWrap: "wrap" }}>
+          {flow.qrcode_img ? (
+            <div style={{ border: "1px solid var(--border)", borderRadius: 8, padding: 10, background: "#fff" }}>
+              <img src={flow.qrcode_img} alt="微信登录二维码" style={{ width: 180, height: 180, display: "block" }} />
+            </div>
+          ) : (
+            <div style={{ width: 180, height: 180, border: "1px dashed var(--border)", borderRadius: 8,
+              display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, color: "var(--text-weak)" }}>
+              二维码加载中…
+            </div>
+          )}
+          <div style={{ maxWidth: 320 }}>
+            <p style={{ fontSize: 13 }}>{flow.message}</p>
+            {flow.status === "need_verifycode" && (
+              <div className="keyrow" style={{ marginTop: 8 }}>
+                <input className="field" style={{ maxWidth: 140 }} placeholder="数字配对码"
+                  value={verifyCode} onChange={(e) => setVerifyCode(e.target.value)} />
+                <Btn size="sm" onClick={submitVerify}>提交</Btn>
+              </div>
+            )}
+            <div style={{ marginTop: 8 }}>
+              {flow.status === "expired" || flow.status === "error" ? (
+                <Btn size="sm" onClick={start}>重新获取二维码</Btn>
+              ) : (
+                <Btn size="sm" variant="ghost" onClick={cancel}>取消</Btn>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {flow && flow.status === "confirmed" && (
+        <p style={{ fontSize: 13, color: "var(--ok, green)" }}>✅ {flow.message}</p>
+      )}
+
+      {st?.logged_in && !flow && (
+        <div>
+          <p style={{ fontSize: 13 }}>
+            已登录：微信用户 <code>{(st.wx_user_id || "").slice(0, 18)}…</code>
+            {st.logged_at ? <span style={{ color: "var(--text-weak)", fontSize: 12 }}> · 登录于 {st.logged_at.slice(0, 16).replace("T", " ")}Z</span> : null}
+          </p>
+          <div style={{ display: "flex", gap: 18, alignItems: "center", flexWrap: "wrap", margin: "10px 0" }}>
+            <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, cursor: "pointer" }}>
+              <input type="checkbox" checked={!!st.monitor_on}
+                onChange={async (e) => { try { setSt(await api.weixinSettings({ monitor_on: e.target.checked })) } catch (err: any) { toast(err.message) } }} />
+              监控模式{st.monitor_on ? "（开）" : "（关）"}
+            </label>
+            <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, cursor: "pointer" }}>
+              <input type="checkbox" checked={st.brief_on !== false}
+                onChange={async (e) => { try { setSt(await api.weixinSettings({ brief_on: e.target.checked })) } catch (err: any) { toast(err.message) } }} />
+              简报模式{st.brief_on !== false ? "（开）" : "（关）"}
+            </label>
+          </div>
+          <div className="admin-toolbar">
+            <NexusWorkspaceSelect
+              list={wsList.map((w) => ({ id: w.id, name: w.name, path: w.path, agent_type: w.agent_type, owner: null }))}
+              value={st.workspace_id || ""}
+              onChange={async (id) => { try { setSt(await api.weixinSettings({ workspace_id: id })) } catch (err: any) { toast(err.message) } }}
+            />
+          </div>
+          <p style={{ fontSize: 12, color: "var(--text-weak)", maxWidth: 520 }}>
+            在微信 ClawBot 会话里也可以用指令管理：/swarm select、/swarm monitor on、/swarm brief off 等（发 help 查看）。
+            微信连接受官方约 24h 有效期限制，失效后会提示重新扫码。
+          </p>
+          <Btn size="sm" variant="ghost" onClick={logout}>断开连接</Btn>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** 微信面板用的本用户工作区列表（轻量拉取） */
+function useWorkspacesForSelect(): Workspace[] {
+  const [list, setList] = useState<Workspace[]>([])
+  useEffect(() => {
+    let alive = true
+    api.workspaces().then((r) => { if (alive) setList(r) }).catch(() => {})
+    return () => { alive = false }
+  }, [])
+  return list
 }
 
 function ApiKeyPanel({ toast }: { toast: (m: string) => void }) {

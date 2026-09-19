@@ -161,3 +161,28 @@ class FeishuChat(SQLModel, table=True):
     monitor_on: bool = Field(default=False)  # 前台会话监控同步开关（默认关）
     brief_on: bool = Field(default=True)  # 任务完成简报开关（默认开；飞书自己下发的任务不推）
     updated_at: datetime = Field(default_factory=utcnow)
+
+
+class WeixinLogin(SQLModel, table=True):
+    """微信 ClawBot 登录态与窗口设置（每用户扫自己的号，一人一行）。
+
+    谁扫码，谁的微信号就成为 bot（iLink 协议：本人 ↔ 自有 ClawBot 会话私聊交互）。
+    bot_token 用 server/crypto 按用户 apikey 加密落库（token_enc；明文列留空）。
+    """
+    __tablename__ = "weixin_logins"
+
+    user_id: str = Field(primary_key=True)  # 平台账号（扫码时已登录，天然绑定）
+    wx_bot_id: str = Field(default="")  # ilink_bot_id（confirmed 返回）
+    wx_user_id: str = Field(default="")  # ilink_user_id（本人 @im.wechat）
+    baseurl: str = Field(default="")  # iLink 节点（scaned_but_redirect 后切换）
+    bot_token: str = Field(default="")  # 明文列：加密未启用时为空串占位
+    token_enc: Optional[str] = Field(default=None, sa_column=Column(Text))  # bot_token 密文
+    cursor_buf: str = Field(default="")  # getupdates 游标（重启续收）
+    context_token: str = Field(default="")  # 最近入站消息 token（主动推送回复用）
+    context_at: Optional[datetime] = None  # context_token 取得时间（过期参考）
+    workspace_id: str = Field(default="", index=True)  # 当前选中工作区（空=未选）
+    monitor_on: bool = Field(default=False)  # 监控模式（thinking/tool 文本同步，默认关）
+    brief_on: bool = Field(default=True)  # 简报模式（任务完成 MD 摘要，默认开）
+    status: str = Field(default="offline")  # offline / connecting / online / need_relogin
+    logged_at: Optional[datetime] = None  # 最近登录成功时间（连接到期参考）
+    updated_at: datetime = Field(default_factory=utcnow)

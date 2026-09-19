@@ -1,8 +1,8 @@
 # agent_swarm 开发进度 TODO
 
-> 更新时间: 2026-09-19 · Windows 机（D:\wangxu\work\agent_swarm，workspace ID 4g8rHi43MHaWurH9XYsGNH）
+> 更新时间: 2026-09-19 深夜 · Windows 机（D:\wangxu\work\agent_swarm，workspace ID 4g8rHi43MHaWurH9XYsGNH）
 > 服务已跑在 :8700（.\deploy\start.ps1 后台窗口运行）· 前端构建产物由 8700 静态托管
-> **alpha-v0.1 已发布**（tag = dev 快照 d3daafa，master 为其发布流水；GHCR 镜像 CI 就绪）。0.1 后主线：nexus-feishu 飞书渠道、后台管理页（详见 git log，TODO 未逐条补记）；本次：**静态内容落库加密**（见已完成第 1 节）
+> **alpha-v0.1 已发布**（tag = dev 快照 d3daafa，master 为其发布流水；GHCR 镜像 CI 就绪）。0.1 后主线：nexus-feishu 飞书渠道、后台管理页（详见 git log，TODO 未逐条补记）；落库加密已完成；**nexus-weixin-clawbot 微信渠道代码完成，待真机扫码 E2E**（见已完成第 1 节）
 
 ## 项目一句话
 
@@ -27,6 +27,18 @@
 - ~~e2e 测试脚本~~（用户 2026-09-12 决定放弃，scripts/test_plugin_smoke.ts 是死代码可删可留）
 
 ## 已完成（除注明外均已进 git）
+
+### 微信 ClawBot 渠道 nexus-weixin-clawbot（2026-09-19，代码完成，待真机扫码 E2E）
+
+- ✅ **模型**：`weixin_logins` 表（一人一行：每用户扫**自己的**微信号登录为 bot，本人 ↔ ClawBot 会话私聊；bot_token 走 crypto 按用户 apikey 加密落库 `token_enc`；cursor_buf 游标/context_token/workspace/monitor/brief 同表）
+- ✅ **`server/weixin/gateway.py`**：iLink 2.4.6 HTTP 客户端（头规范/随机 UIN/base_info/ret=-14 判失效）+ 扫码登录（get_bot_qrcode→get_qrcode_status 轮询：wait/scaned/need_verifycode/scaned_but_redirect 切节点/confirmed）+ **每用户会话管理器**（getupdates 长轮询、游标持久化、-14 置 need_relogin、服务重启 start_all 恢复）
+- ✅ **`render.py`**：简报 MD（提问首行+回答/失败原因）、监控 thinking 文本、tool 官方 item（type 11/12）+ 文本行降级、权限/提问文本编号卡
+- ✅ **`commands.py`**：/swarm help|list|select（编号回复）|status|last|monitor on/off|brief on/off|/time|/重新连接；普通文本 = 待应答任务优先路由（reply_task_from_feishu 通用复用）→ 选中工作区下发（caller=nexus-weixin-clawbot）
+- ✅ **`bridge.py`**：internal_listeners → 简报推终态 MD、input-required 推文本卡+入待应答、监控轮按 monitor_on 转发（thinking 文本/tool 官方 item 带降级、节流去重）
+- ✅ **登录 API**（JWT）：login/start（二维码 HTTPS 链接直出）/login/status（1.5s 前端轮询）/login/verify（配对码）/login/cancel/logout/status/settings
+- ✅ **web 账号页**：「聊天工具绑定」tab 飞书区块**下方**新增微信 ClawBot 区块——未登录显示二维码+配对码输入；已登录显示账号/选中工作区（复用 NexusWorkspaceSelect）/monitor/brief 开关/断开按钮
+- ⚠️ **待真机 E2E（下一步必做）**：① 扫码后微信里出现 ClawBot 会话、本人发消息 getupdates 能收到（from_user_id=本人）② 官方 tool_call item（type 11/12）在普通微信客户端的显示效果 ③ Markdown 简报的实际渲染 ④ GENERATING 流式（用户已拍板**不做**打字机流式）
+- ⚠️ 已知约束：仅私聊（官方 ChatType=direct）；回复必须带最近入站 context_token（用户久未发言推不出去，重启后靠 DB 恢复）；媒体消息（AES+CDN）v1 不做
 
 ### 静态内容落库加密（2026-09-19，E2E 快测通过）
 

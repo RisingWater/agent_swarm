@@ -140,6 +140,63 @@ export const api = {
       method: "PUT",
       body: JSON.stringify(patch),
     }) as Promise<ChatBindChat>,
+
+  /** 微信 ClawBot：申请登录二维码 */
+  weixinLoginStart: () =>
+    request("/api/weixin/login/start", { method: "POST", body: "{}" }) as Promise<WeixinStatus>,
+
+  /** 微信 ClawBot：登录流程状态（1.5s 轮询） */
+  weixinLoginStatus: () => request("/api/weixin/login/status") as Promise<WeixinStatus>,
+
+  /** 微信 ClawBot：提交数字配对码 */
+  weixinLoginVerify: (code: string) =>
+    request("/api/weixin/login/verify", {
+      method: "POST",
+      body: JSON.stringify({ code }),
+    }) as Promise<{ ok: boolean }>,
+
+  /** 微信 ClawBot：取消本次扫码 */
+  weixinLoginCancel: () =>
+    request("/api/weixin/login/cancel", { method: "POST", body: "{}" }) as Promise<{ ok: boolean }>,
+
+  /** 微信 ClawBot：登录态概览 */
+  weixinStatus: () => request("/api/weixin/status") as Promise<WeixinStatus>,
+
+  /** 微信 ClawBot：断开登录 */
+  weixinLogout: () =>
+    request("/api/weixin/logout", { method: "POST", body: "{}" }) as Promise<{ ok: boolean }>,
+
+  /** 微信 ClawBot：修改选中工作区/监控/简报 */
+  weixinSettings: (patch: WeixinSettingsPatch) =>
+    request("/api/weixin/settings", {
+      method: "PUT",
+      body: JSON.stringify(patch),
+    }) as Promise<WeixinStatus>,
+}
+
+/** 微信 ClawBot */
+export interface WeixinFlow {
+  status: "wait" | "scanned" | "need_verifycode" | "confirmed" | "error" | "expired"
+  qrcode_img: string
+  message: string
+}
+
+export interface WeixinStatus {
+  flow: WeixinFlow | null
+  logged_in: boolean
+  wx_user_id?: string
+  wx_bot_id?: string
+  status?: string
+  logged_at?: string | null
+  workspace_id?: string
+  monitor_on?: boolean
+  brief_on?: boolean
+}
+
+export interface WeixinSettingsPatch {
+  workspace_id?: string
+  monitor_on?: boolean
+  brief_on?: boolean
 }
 
 /** 聊天工具绑定 */
