@@ -98,30 +98,6 @@ FEISHU_APP_SECRET=xxx
 
 Restart the service, then send `/swarm bind as_your-key` to the bot in Feishu.
 
-### Connect WeChat (optional)
-
-No server-side configuration needed — each user binds their **own** WeChat account through the web UI:
-
-1. Make sure the server is reachable from the machine where you open the web UI
-2. Open **Account → Chat bindings**, scroll to the **WeChat ClawBot** block
-3. Click **Scan to log in with WeChat**, scan the QR code with your WeChat (pairing code if the login flow asks for one)
-4. A **ClawBot** conversation appears on your phone — chat with it directly to dispatch tasks
-
-What YouChat can do:
-
-| Capability | Description |
-|---|---|
-| Dispatch | Plain text = an instruction to the selected workspace (pick one with `/swarm select` first) |
-| Live detail stream | Tasks you dispatch stream thinking (`💭`) + tool calls (`🔧 … ✓`) + final answer in full |
-| Monitor sync | YOUR foreground TUI conversations sync to the ClawBot chat while `monitor on` (thinking + tool lines) |
-| Completion briefs | Tasks from other sources (web / other agents / A2A) push a brief on completion (`brief on`, default on) |
-| Permission / question | Rendered as numbered text options — reply `1/2/3` (or just type, see below) to answer from your phone |
-| Command menu | `/q` or `/swarm` returns a numbered menu; `/1`–`/7` select an entry |
-
-Commands: `/q` (menu) · `/swarm select|list|status|last` · `/swarm monitor on|off` · `/swarm brief on|off` · `/time` · `/重新连接`. There is **no `/swarm bind`** for WeChat — binding happens via the QR scan on the account page (one account per user, no API key needed).
-
-> Gotchas: private chats only (no group routing); a pending permission/question tops all other routing — any text you send (even `/q`) answers it (bare digits answer, out-of-range/non-digit = allow once); the login token expires ~24h → re-scan. When a permission/question waits in the TUI, all channels (web / Feishu / WeChat) receive a card if brief mode is on — whoever answers first wins.
-
 ## Features in Detail
 
 ### Web hub (Nexus)
@@ -144,6 +120,17 @@ Pick an online workspace on the "Nexus" page and type an instruction:
 When enabled (on by default for opencode, toggle with `/swarm-monitor` in the TUI), your everyday TUI conversations sync to the web hub round-by-round: question, thinking, tool calls, answer — all visible, permission requests answerable remotely. Each round is archived as a `[monitor]` record on the Calls page.
 
 A workspace has at most one foreground round: starting a new round automatically closes the previous one, so entries never get stuck in "running" forever.
+
+### Brief mode (chat channels)
+
+The chat integrations (Feishu / WeChat) have two independent push modes:
+
+| Mode | Default | What you get |
+|---|---|---|
+| **Monitor sync** (`monitor on`) | off (Feishu) / off (WeChat) | Your own TUI conversations stream into the chat window in real time (💭 thinking, 🔧 tool lines, final answer) |
+| **Brief mode** (`brief on`) | **on** | Tasks **dispatched from other sources** (web hub, other agents, external A2A) push a single completion/failure summary card |
+
+Brief mode is on by default so you don't miss results for requests you made from the web or other agents; toggle with `/swarm brief on|off` in the chat, or on the web account page. When a task awaits a permission/question, a card is pushed to **all** channels (web / Feishu / WeChat) — whoever answers first wins.
 
 ### Feishu (nexus-feishu)
 
@@ -214,7 +201,7 @@ All cross-agent calls, hub instructions, monitor rounds, Feishu and WeChat dispa
 | `ADMIN_USERNAME` / `ADMIN_PASSWORD` | Admin console login (default `admin` / `Admin123!@#`, **change in production**) | `admin` / `Admin123!@#` |
 | `FEISHU_APP_ID` / `FEISHU_APP_SECRET` | Feishu custom-app credentials (the Feishu gateway starts when both are set) | not set: disabled |
 
-> WeChat (ClawBot) has **no server-side env config** — it activates per user: scan your own WeChat QR code on the web account page (see "Connect WeChat" above).
+> WeChat (ClawBot) has **no server-side env config** — it activates per user: scan your own WeChat QR code on the web account page (see "WeChat (nexus-weixin-clawbot)" above).
 
 Environment variables take precedence over the project-root `.env`.
 
