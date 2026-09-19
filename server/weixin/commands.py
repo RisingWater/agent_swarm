@@ -91,12 +91,20 @@ async def handle_inbound(sess: gateway.UserSession, text: str) -> None:
             state.update_ws_settings(uid, workspace_id=wid)
             await reply_text(sess, f"✅ 已选择 **{name}**\n直接发文字即可派任务")
         return
-    # 1.5) 编号但当前没有菜单：/N 不是任务——回命令菜单供选择
-    if (stripped.startswith("/") and _is_ws_directive(stripped)) or stripped.isdigit():
+    # 1.5) 斜杠命令但当前没有菜单：回命令菜单供选择（用户拍板：菜单规则只认斜杠+编号，
+    #      纯数字不属于菜单规则——无菜单时纯数字要么是 pending 应答，要么是误触）。
+    #      pending（权限/提问卡）在等时数字必须优先应答，
+    #      否则会被菜单规则抢走（真机事故 2026-09-20：回 2 触发命令菜单）。
+    pending = state.get_pending(uid)
+    if stripped.startswith("/") and stripped.isdigit():
         await reply_text(sess, _menu_text("🤖 命令菜单（回复编号执行）",
                                           [(l, a) for l, a in MENU_ITEMS],
                                           "其他文字 = 给选中工作区派任务"))
         _set_menu(uid, "menu", list(MENU_ITEMS))
+        return
+    # 纯数字且无事可应答：提示而不是弹菜单/不当任务
+    if stripped.isdigit() and pending is None:
+        await reply_text(sess, "当前没有等待应答的授权或提问。\n发 /q 查看命令菜单，其他文字 = 派任务。")
         return
 
     # 2) 菜单命令
@@ -123,7 +131,6 @@ async def handle_inbound(sess: gateway.UserSession, text: str) -> None:
         return
 
     # 4) 待应答任务优先：权限/提问的编号或文字应答
-    pending = state.get_pending(uid)
     if pending:
         await _answer_pending(sess, pending, stripped)
         return
@@ -315,13 +322,15 @@ async def _answer_pending(sess: gateway.UserSession, pending: dict, text: str) -
     task_id = pending["task_id"]
     kind = pending.get("kind", "permission")
     options = pending.get("options") or []
-    idx = _parse_index(text, len(options))
     if kind == "permission":
-        # 权限：只认编号（1=允许一次 2=始终允许 3=拒绝）；其它输入一律视为同意（once）
+        # 权限卡固定三选项（卡面 1=允许一次 2=始终允许 3=拒绝；options 字段为空，
+        # 编号必须按固定表解析——真机事故 2026-09-20：回 2 被当成自由文本归成 once）
+        idx = _parse_index(text, 3)
         if idx is None:
-            idx = 0
+            idx = 0  # 非编号输入 = 同意一次
         answer = ("once", "always", "reject")[idx]
     else:
+        idx = _parse_index(text, len(options))
         answer = options[idx] if idx is not None else text
     ok, msg = await reply_task_from_feishu(task_id, answer, f"wx-{uid[:8]}")
     if ok:
