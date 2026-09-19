@@ -2494,3 +2494,22 @@ table.ws-grid th {
   font-weight: 500;
   font-size: 12px;
 }
+
+/* 后台管理：筛选工具行（下拉/搜索框/按钮水平对齐，覆盖 .search-box 的默认下边距） */
+.admin-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.admin-toolbar .search-box {
+  margin-bottom: 0;
+  max-width: 320px;
+  flex: 1 1 240px;
+}
+
+.admin-toolbar .nexus-select-wrap {
+  flex: 0 0 auto;
+}

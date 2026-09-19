@@ -191,7 +191,9 @@ function PanelPage({ toast, onLogout }: { toast: (m: string) => void; onLogout: 
         {tab === "users" && (
           <>
             <p className="section-label">[ 用户 ]</p>
-            <SearchBox value={userQuery} onChange={setUserQuery} placeholder="搜索用户名 / 飞书 ID…" />
+            <div className="admin-toolbar">
+              <SearchBox value={userQuery} onChange={setUserQuery} placeholder="搜索用户名 / 飞书 ID…" />
+            </div>
             <table className="admin-table">
               <thead><tr><th>用户名</th><th>创建时间</th><th>绑定飞书 ID</th><th></th></tr></thead>
               <tbody>
@@ -220,7 +222,9 @@ function PanelPage({ toast, onLogout }: { toast: (m: string) => void; onLogout: 
         {tab === "workspaces" && (
           <>
             <p className="section-label">[ 工作区 ]</p>
-            <SearchBox value={wsQuery} onChange={setWsQuery} placeholder="搜索 ID / 名字 / 归属用户 / 用途 / 会话…" />
+            <div className="admin-toolbar">
+              <SearchBox value={wsQuery} onChange={setWsQuery} placeholder="搜索 ID / 名字 / 归属用户 / 用途 / 会话…" />
+            </div>
             <table className="admin-table">
               <thead>
                 <tr><th>ID</th><th>名字</th><th>归属用户</th><th>用途</th><th>会话</th><th>状态</th><th>24h 调用</th></tr>
@@ -253,7 +257,7 @@ function PanelPage({ toast, onLogout }: { toast: (m: string) => void; onLogout: 
         {tab === "calls" && (
           <>
             <p className="section-label">[ 调用记录 ]</p>
-            <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 10 }}>
+            <div className="admin-toolbar">
               <NexusWorkspaceSelect
                 list={workspaces.map((w) => ({ id: w.id, name: w.name, path: w.path, agent_type: w.agent_type, owner: w.owner }))}
                 value={callWs}
@@ -262,9 +266,6 @@ function PanelPage({ toast, onLogout }: { toast: (m: string) => void; onLogout: 
               />
               {callWs && <Btn size="sm" onClick={() => setCallWs("")}>全部工作区</Btn>}
               <SearchBox value={callQuery} onChange={setCallQuery} placeholder="搜索 ID / 目标 / 发起方 / 内容…" />
-              <span style={{ color: "var(--text-weak)", fontSize: 12 }}>
-                最近 500 条 · 开启落库加密后内容列仅显示占位（管理员不持有用户密钥）
-              </span>
             </div>
             <table className="admin-table">
               <thead>
