@@ -13,7 +13,7 @@ def _setup_debug_log() -> None:
     """排查期：nexus-weixin 日志落 data/weixin.log（E2E 通过后可删）。"""
     from pathlib import Path
 
-    log_file = Path(__file__).resolve().parent.parent / "data" / "weixin.log"
+    log_file = Path(__file__).resolve().parent.parent.parent / "data" / "weixin.log"
     log_file.parent.mkdir(parents=True, exist_ok=True)
     h = logging.FileHandler(log_file, encoding="utf-8")
     h.setFormatter(logging.Formatter("%(asctime)s %(name)s %(levelname)s %(message)s"))
