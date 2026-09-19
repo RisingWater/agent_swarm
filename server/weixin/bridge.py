@@ -155,12 +155,15 @@ async def _stream_task_event(sess: gateway.UserSession, task_id: str, event: dic
                 await gateway.send_tool_items(
                     client, sess.token, sess.baseurl, sess.wx_user_id, sess.context_token,
                     [render.tool_item_start(call_id, name)])
+                log.info("weixin tool item(start) sent task=%s tool=%s", task_id[:8], name)
             else:
                 await gateway.send_tool_items(
                     client, sess.token, sess.baseurl, sess.wx_user_id, sess.context_token,
                     [render.tool_item_result(call_id, name, st == "completed")])
                 seen.discard(dedup)
-        except Exception:  # noqa: BLE001
+                log.info("weixin tool item(result) sent task=%s tool=%s ok=%s", task_id[:8], name, st == "completed")
+        except Exception as exc:  # noqa: BLE001
+            log.warning("weixin tool item failed (%s), falling back to text: %r", type(exc).__name__, exc)
             await _send(sess, text)
         return
     await _send(sess, text)
@@ -295,6 +298,7 @@ async def _send(sess: gateway.UserSession, text: str) -> None:
     try:
         client = sess.client or httpx.AsyncClient()
         await gateway.send_text(client, sess.token, sess.baseurl, sess.wx_user_id, sess.context_token, text)
+        log.info("weixin push sent user=%s: %r", sess.user_id[:8], text[:60])
     except gateway.ILinkError as exc:
         if exc.stale_token:
             state.update(sess.user_id, status="need_relogin")
