@@ -27,8 +27,6 @@ from . import gateway, render, state
 
 log = logging.getLogger("nexus-weixin")
 
-MENU_TTL = 300.0
-
 MENU_ITEMS = [
     ("选择工作区", "select"),
     ("我的工作区", "list"),
@@ -51,15 +49,13 @@ HELP = """**🤖 agent_swarm 指令**
 
 # 交互菜单注册表：user_id → {"kind", "items", "ts"}
 # kind=menu: items=[(label, action)]；kind=select_ws: items=[(name, ws_id)]
+# 菜单长期有效（无 TTL），直到被新菜单替换或使用掉；纯内存即可——
+# 没有菜单时收到 /N 会回命令菜单而不是当任务派发（见 handle_inbound 1.5 步）
 _menus: dict[str, dict] = {}
 
 
 def _get_menu(uid: str) -> dict | None:
-    m = _menus.get(uid)
-    if m and _time.time() - m["ts"] > MENU_TTL:
-        _menus.pop(uid, None)
-        return None
-    return m
+    return _menus.get(uid)
 
 
 def _set_menu(uid: str, kind: str, items: list) -> None:
@@ -67,10 +63,7 @@ def _set_menu(uid: str, kind: str, items: list) -> None:
 
 
 def _pop_menu(uid: str) -> dict | None:
-    m = _get_menu(uid)
-    if m:
-        _menus.pop(uid, None)
-    return m
+    return _menus.pop(uid, None)
 
 
 def _menu_text(title: str, items: list[tuple[str, str]], footer: str = "") -> str:
@@ -100,6 +93,13 @@ async def handle_inbound(sess: gateway.UserSession, text: str) -> None:
             name, wid = menu["items"][idx]
             state.update_ws_settings(uid, workspace_id=wid)
             await reply_text(sess, f"✅ 已选择 **{name}**\n直接发文字即可派任务")
+        return
+    # 1.5) 编号但当前没有菜单：/N 不是任务——回命令菜单供选择
+    if (stripped.startswith("/") and _is_ws_directive(stripped)) or stripped.isdigit():
+        await reply_text(sess, _menu_text("🤖 命令菜单（回复编号执行）",
+                                          [(l, a) for l, a in MENU_ITEMS],
+                                          "其他文字 = 给选中工作区派任务"))
+        _set_menu(uid, "menu", list(MENU_ITEMS))
         return
 
     # 2) 菜单命令
