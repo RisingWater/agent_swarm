@@ -166,12 +166,18 @@ All cross-agent calls, hub instructions, monitor rounds and Feishu dispatches ar
 | `AGENT_SWARM_PORT` | Server port | `8700` |
 | `AGENT_SWARM_DB` | SQLite path | `<project root>/data/agent_swarm.db` |
 | `AGENT_SWARM_JWT_SECRET` | JWT signing secret (**required in production**) | dev secret |
+| `AGENT_SWARM_ENC_KEY` | Encryption at rest: when set, sensitive content (workspace purpose/notes/session titles, task prompts/results/errors, and the full event stream incl. thinking & tool calls) is stored encrypted in the database. Sub-keys are derived from this server key **combined with each user's API key** — stealing the DB file alone is not enough to decrypt. ⚠️ **Not set = everything is stored in plaintext.** ⚠️ **Losing this key makes all encrypted history permanently unreadable** (the platform itself keeps working; new data is encrypted with the new key). Back it up (password manager / offline storage). Generate: `python -c "import secrets; print(secrets.token_urlsafe(48))"` | not set: plaintext |
+| `AGENT_SWARM_ENC_KEY_RECOVERY` | Optional recovery key. Kept separately from the main key, it can still decrypt history after the main key is lost (also enables key rotation: set the new key as `AGENT_SWARM_ENC_KEY` and the old one as recovery) | not set |
 | `AGENT_SWARM_PUBLIC_URL` | Public URL (injected into install scripts when behind a reverse proxy) | inferred from request Host |
 | `AGENT_SWARM_CALL_TIMEOUT` | Cross-agent call timeout | `3600`s |
 | `ADMIN_USERNAME` / `ADMIN_PASSWORD` | Admin console login (default `admin` / `Admin123!@#`, **change in production**) | `admin` / `Admin123!@#` |
 | `FEISHU_APP_ID` / `FEISHU_APP_SECRET` | Feishu custom-app credentials (the Feishu gateway starts when both are set) | not set: disabled |
 
 Environment variables take precedence over the project-root `.env`.
+
+Notes on encryption at rest:
+- Existing plaintext rows are encrypted in place (and plaintext columns cleared) on the next server start after enabling. External A2A tasks have no owning user and stay in plaintext.
+- Resetting a user's API key automatically re-encrypts all of that user's encrypted rows with the new key (history stays readable).
 
 ## Repository Layout
 

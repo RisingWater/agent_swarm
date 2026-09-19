@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlmodel import Session, func, select
 
-from server import models
+from server import crypto, models
 from server.api.workspaces import ws_is_online
 from server.auth import admin_credentials, create_admin_token, require_admin
 from server.db import get_session
@@ -133,6 +133,7 @@ def admin_workspaces(request: Request, session: Session = Depends(get_session)):
         if wid:
             counts[wid] = n
     users = {u.id: u.username for u in session.exec(select(models.User)).all()}
+    apikeys = {u.id: (u.api_key or "") for u in session.exec(select(models.User)).all()}
     workspaces = session.exec(select(models.Workspace).order_by(models.Workspace.created_at)).all()
     return {
         "workspaces": [
@@ -141,12 +142,12 @@ def admin_workspaces(request: Request, session: Session = Depends(get_session)):
                 "name": w.name,
                 "path": w.path,
                 "owner": users.get(w.user_id, w.user_id),
-                "purpose": w.purpose,
+                "purpose": crypto.decrypt(apikeys.get(w.user_id, ""), w.purpose_enc, w.purpose),
                 "agent_type": w.agent_type or "",
                 "online": ws_is_online(w),
                 "status": w.status,
                 "session_id": w.session_id or "",
-                "session_title": w.session_title or "",
+                "session_title": crypto.decrypt(apikeys.get(w.user_id, ""), w.session_title_enc, w.session_title) or "",
                 "calls_24h": counts.get(w.id, 0),
             }
             for w in workspaces

@@ -164,12 +164,18 @@ FEISHU_APP_SECRET=xxx
 | `AGENT_SWARM_PORT` | 服务端口 | `8700` |
 | `AGENT_SWARM_DB` | SQLite 路径 | `<项目根>/data/agent_swarm.db` |
 | `AGENT_SWARM_JWT_SECRET` | JWT 签名密钥（**生产必设**） | dev secret |
+| `AGENT_SWARM_ENC_KEY` | **静态加密密钥**：设置后敏感内容全部密文落库（工作区描述/备注/会话标题、任务指令/结果/错误、事件流原文含 thinking 与工具调用）。子密钥 = 服务器密钥 **+ 用户 API Key** 联合派生——只拿走 DB 文件无法解密。⚠️ **不设置 = 全部明文落库。** ⚠️ **密钥丢失 = 已加密的历史内容永久不可读**（平台本身不受影响，新数据用新密钥继续加密）。务必备份（密码管理器 / 离线介质）。生成：`python -c "import secrets; print(secrets.token_urlsafe(48))"` | 未配置：明文 |
+| `AGENT_SWARM_ENC_KEY_RECOVERY` | 恢复密钥（可选）：与主密钥分开保存，主密钥丢失时仍可解密历史（也支持轮换：新密钥设为 `AGENT_SWARM_ENC_KEY`，旧密钥设为恢复密钥） | 未配置 |
 | `AGENT_SWARM_PUBLIC_URL` | 公网地址（注入 install 脚本，反代时设） | 从请求 Host 推断 |
 | `AGENT_SWARM_CALL_TIMEOUT` | 跨 agent 调用超时 | `3600`s |
 | `ADMIN_USERNAME` / `ADMIN_PASSWORD` | 后台管理登录（默认 `admin` / `Admin123!@#`，**生产必改**） | `admin` / `Admin123!@#` |
 | `FEISHU_APP_ID` / `FEISHU_APP_SECRET` | 飞书自建应用凭据（两者都配置后飞书网关随服务启动） | 未配置不启动 |
 
 环境变量优先于项目根 `.env`。
+
+静态加密补充说明：
+- 启用加密后的下次服务启动，会把存量明文就地加密并清空明文列；外部 A2A 任务无属主，保留明文。
+- 用户重置 API Key 时会自动用新 Key 重加密其全部密文行（历史记录保持可读）。
 
 ## 目录结构
 
