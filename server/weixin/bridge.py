@@ -67,6 +67,10 @@ async def _route(workspace_id: str, event: dict) -> None:
         task = s.get(models.A2aTask, task_id)
         if task is None:
             return
+        # 监控轮（TUI 前台对话）不发微信简报：内容已实时同步/本地可见，且轮内常无最终文本
+        # （tool-only 轮），推出去只会是"无最终回答文本"刷屏——对齐飞书侧排除自身渠道的逻辑
+        if task.caller == "monitor":
+            return
         uid = task.user_id or _owner_of(s, task.workspace_id)
         if not uid:
             return  # 外部任务无属主，不推微信

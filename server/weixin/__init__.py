@@ -6,3 +6,22 @@
 - 下发复用 nexus._send_message_core（caller="nexus-weixin-clawbot"），事件流自动落库 + 推 web
 - WEIXIN_CLAWBOT 未开启时整个模块静默不启动
 """
+import logging
+
+
+def _setup_debug_log() -> None:
+    """排查期：nexus-weixin 日志落 data/weixin.log（E2E 通过后可删）。"""
+    from pathlib import Path
+
+    log_file = Path(__file__).resolve().parent.parent / "data" / "weixin.log"
+    log_file.parent.mkdir(parents=True, exist_ok=True)
+    h = logging.FileHandler(log_file, encoding="utf-8")
+    h.setFormatter(logging.Formatter("%(asctime)s %(name)s %(levelname)s %(message)s"))
+    for name in ("nexus-weixin",):
+        lg = logging.getLogger(name)
+        lg.addHandler(h)
+        lg.setLevel(logging.DEBUG)
+
+
+_setup_debug_log()
+

@@ -39,6 +39,15 @@
 - ✅ **web 账号页**：「聊天工具绑定」tab 飞书区块**下方**新增微信 ClawBot 区块——未登录显示二维码+配对码输入；已登录显示账号/选中工作区（复用 NexusWorkspaceSelect）/monitor/brief 开关/断开按钮
 - ⚠️ **待真机 E2E（下一步必做）**：① 扫码后微信里出现 ClawBot 会话、本人发消息 getupdates 能收到（from_user_id=本人）② 官方 tool_call item（type 11/12）在普通微信客户端的显示效果 ③ Markdown 简报的实际渲染 ④ GENERATING 流式（用户已拍板**不做**打字机流式）
 - ⚠️ 已知约束：仅私聊（官方 ChatType=direct）；回复必须带最近入站 context_token（用户久未发言推不出去，重启后靠 DB 恢复）；媒体消息（AES+CDN）v1 不做
+- ✅ **E2E 修复轮（2026-09-19 下午，真机扫码后）**：
+  - 扫码登录 500（`gateway.httpx_client` 残留引用）→ 内联 httpx client
+  - 二维码显示为链接不是图片（iLink `qrcode_img_content` 是 liteapp URL，文档急开局节明确提过）→ 服务端 qrcode[pil] 渲染成 PNG data URI
+  - confirmed 后二维码残留（flow 终态不清理）→ confirmed/expired/error 都 pop flow + 关轮询 client；前端已连接视图不再显示二维码；过期/出错回未登录视图显示红字提示 + 重新获取按钮
+  - 提示文案折行（自己加的 maxWidth 画蛇添足）→ 去掉
+  - **消息无反应根因**：`gateway._handle_msg` 调了不存在的 `bridge.handle_inbound`（实际在 commands.py）→ 已接线；日志证明消息接收/from 过滤/游标推进全部正常，断在最后一跳
+  - 监控轮简报刷屏（"无最终回答文本"）：监控轮（caller=monitor）常无 text 事件（tool-only 轮），artifact 为空 → bridge 排除 caller=monitor 的简报（对齐飞书侧排除自身渠道）；微信简报只推渠道下发的任务（nexus-weixin-clawbot/nexus-web/agent 等的 artifact 是完整的）
+  - **交互菜单化**（用户要求）：`/q` 出命令菜单回 /1-/7 执行；/swarm select 与未选工作区时自动出编号选择列表（/N 选择）；未识别 / 命令回菜单；监控/简报开关不带参数即翻转；交互状态 `_menus[uid]`（TTL 5 分钟）
+  - 排查期日志：`data/weixin.log`（收发消息/过滤判定全链路），E2E 通过后可删
 
 ### 静态内容落库加密（2026-09-19，E2E 快测通过）
 

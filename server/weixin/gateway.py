@@ -277,9 +277,13 @@ class UserSession:
             self.client = None
 
     async def _handle_msg(self, msg: dict) -> None:
+        import json as _json
+
         from . import bridge
 
+        log.debug("weixin msg raw: %s", _json.dumps(msg, ensure_ascii=False)[:400])
         if msg.get("message_type") != 1:  # 只处理用户消息
+            log.debug("weixin msg skipped: message_type=%s", msg.get("message_type"))
             return
         ctx = str(msg.get("context_token", "") or "")
         from_id = str(msg.get("from_user_id", "") or "")
@@ -288,17 +292,22 @@ class UserSession:
             self.save(context_token=ctx, context_at=models.utcnow())
         # 隐私兜底：只处理本人消息（非本人发给自有 bot 的忽略）
         if self.wx_user_id and from_id and from_id != self.wx_user_id:
-            log.info("weixin msg from non-owner %s@ ignored", from_id[:12])
+            log.info("weixin msg from non-owner %s ignored (self=%s)", from_id[:16], self.wx_user_id[:16])
             return
         text = ""
         for item in msg.get("item_list") or []:
             if item.get("type") == 1:
                 text = str((item.get("text_item") or {}).get("text", "") or "")
                 break
+        log.debug("weixin inbound text=%r from=%s", text[:50], from_id[:16])
         if not text:
-            await bridge.reply_text(self, "（暂只支持文字消息，图片/语音/文件还不认识哦）")
+            from . import commands
+
+            await commands.reply_text(self, "（暂只支持文字消息，图片/语音/文件还不认识哦）")
             return
-        await bridge.handle_inbound(self, text)
+        from . import commands
+
+        await commands.handle_inbound(self, text)
 
     async def start(self) -> None:
         if self.task and not self.task.done():
