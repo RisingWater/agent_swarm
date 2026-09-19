@@ -610,9 +610,9 @@ function WeixinPanel({ toast }: { toast: (m: string) => void }) {
 
       {!st?.logged_in && !flow && (
         <div>
-          <p style={{ fontSize: 13, color: "var(--text-weak)", maxWidth: 520 }}>
-            扫码把<b>你自己的微信号</b>登录为本平台的 ClawBot。登录后微信里会出现一个
-            ClawBot 会话：发文字给它即可选择工作区、派任务、收简报、应答 AI 的提问与授权请求。
+          <p style={{ fontSize: 13, color: "var(--text-weak)" }}>
+            扫码把<b>你自己的微信号</b>登录为本平台的 ClawBot。登录后微信里会出现一个 ClawBot
+            会话：发文字给它即可选择工作区、派任务、收简报、应答 AI 的提问与授权请求。
           </p>
           <Btn size="sm" disabled={busy} onClick={start}>{busy ? "获取中…" : "扫码登录微信"}</Btn>
         </div>
@@ -679,7 +679,7 @@ function WeixinPanel({ toast }: { toast: (m: string) => void }) {
               onChange={async (id) => { try { setSt(await api.weixinSettings({ workspace_id: id })) } catch (err: any) { toast(err.message) } }}
             />
           </div>
-          <p style={{ fontSize: 12, color: "var(--text-weak)", maxWidth: 520 }}>
+          <p style={{ fontSize: 12, color: "var(--text-weak)" }}>
             在微信 ClawBot 会话里也可以用指令管理：/swarm select、/swarm monitor on、/swarm brief off 等（发 help 查看）。
             微信连接受官方约 24h 有效期限制，失效后会提示重新扫码。
           </p>
