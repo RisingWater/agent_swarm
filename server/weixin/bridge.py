@@ -140,10 +140,13 @@ async def _stream_task_event(sess: gateway.UserSession, task_id: str, event: dic
         return
     meta = event.get("metadata") or {}
     if str(meta.get("nexus", "")) == "tool":
-        # 用户拍板（2026-09-19）：tool 一律文本行并带关键参数（bash 命令/读写文件），
-        # 官方 type 11/12 item 在普通微信客户端不渲染——路径保留但默认不走
-        name = str(meta.get("tool") or "工具调用")
-        input_data = meta.get("input") if isinstance(meta.get("input"), dict) else None
+        # 用户拍板（2026-09-19）：tool 一律文本行并带关键参数（bash 命令/读写文件）；
+        # 官方 type 11/12 item 在普通微信客户端不渲染——不再尝试。
+        # 只发**完成行**（✓/✗，一条/工具）：opencode 的 running 阶段会多次 part.update，
+        # start 行实测一秒内重复四条；完成的最终态只到一次，天然去重。
+        st = str(meta.get("tool_state") or "")
+        if st in ("running", "input-required", ""):
+            return
         await _send(sess, text)
         return
 
@@ -245,13 +248,11 @@ async def _send_monitor(sess: gateway.UserSession, payload: dict, round_key: str
         input_data = payload.get("input") if isinstance(payload.get("input"), dict) else None
         key = f"{round_key}:{call_id}:{tool}"
         seen = _tool_seen.setdefault(sess.user_id, set())
-        # 用户拍板（2026-09-19）：tool 一律文本行带参数；官方 item 在普通微信不渲染，不再尝试
+        # 用户拍板（2026-09-19）：tool 一律文本行带参数；官方 item 在普通微信不渲染，不再尝试。
+        # 与任务详细流一致：只发完成行（running 阶段多次 update 会重复刷屏）
         if st in ("running", "input-required", ""):
-            if key in seen:
-                return
-            seen.add(key)
-            await _send(sess, render.tool_start_text(tool, input_data))
-        elif st in ("completed", "error"):
+            return
+        if st in ("completed", "error"):
             await _send(sess, render.tool_done_text(tool, st == "completed", input_data))
             seen.discard(key)
 
