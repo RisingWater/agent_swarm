@@ -47,6 +47,13 @@ async def _on_event(workspace_id: str, event: dict) -> None:
 async def _route(workspace_id: str, event: dict) -> None:
     # 监控 payload（无 kind，有 type）
     if not event.get("kind") and event.get("type"):
+        mtype = str(event.get("type", ""))
+        # 监控轮 idle 收尾：handle_monitor_event 只广播原始 payload（无 kind），
+        # 简报在这里触发（对齐 feishu/brief.py 的 idle 分支）——有最终回答才推
+        if mtype == "idle":
+            round_key = str(event.get("roundKey", ""))
+            await _brief_round(workspace_id, round_key)
+            return
         round_key = str(event.get("roundKey", ""))
         with Session(engine) as s:
             row = s.get(models.WeixinLogin, _owner_of(s, workspace_id) or "")
@@ -63,6 +70,16 @@ async def _route(workspace_id: str, event: dict) -> None:
     if not task_id:
         return
     state_ = str((event.get("status") or {}).get("state", "")) if event.get("kind") == "status-update" else ""
+    if state_ in ("completed", "failed"):
+        await _brief_round(workspace_id, task_id, state_)
+        return
+    if state_ == "input-required":
+        await _push_input_required(workspace_id, task_id, event)
+        return
+
+
+async def _brief_round(workspace_id: str, task_id: str, state_: str = "completed") -> None:
+    """终态简报：completed/failed（含监控轮 idle）→ brief_on 用户收 MD 摘要。"""
     with Session(engine) as s:
         task = s.get(models.A2aTask, task_id)
         if task is None:
@@ -73,7 +90,6 @@ async def _route(workspace_id: str, event: dict) -> None:
         row = s.get(models.WeixinLogin, uid)
         if row is None:
             return
-        brief_on = row.brief_on
         ws_name = ""
         if task.workspace_id:
             ws = s.get(models.Workspace, task.workspace_id)
@@ -85,32 +101,49 @@ async def _route(workspace_id: str, event: dict) -> None:
         instr = crypto.decrypt(key, task.message_enc, task.message)
         answer = crypto.decrypt(key, task.artifact_enc, task.artifact)
         error = crypto.decrypt(key, task.error_enc, task.error)
-    # 监控轮：只在有最终回答文本时发简报（tool-only 轮没有 text 事件，artifact 为空，
-    # 推出去只会是"无最终回答文本"刷屏）；有人在本机看着，无内容的轮不值得打扰
-    if task.caller == "monitor" and state_ == "completed" and not (answer or "").strip():
-        return
-
     sess = gateway.peek_session(uid)
     if sess is None or not sess.context_token:
         return
-
-    # input-required：推文本卡 + 入待应答
-    if state_ == "input-required":
-        data = _input_data_of(event)
-        kind = str(data.get("type", "permission"))
-        q = str(data.get("question") or "AI 需要确认")
-        opts = [str(o if isinstance(o, str) else (o.get("label") or o.get("value") or ""))
-                for o in (data.get("options") or [])[:6]]
-        opts = [o for o in opts if o]
-        state.set_pending(uid, task_id, kind, q, opts)
-        await _send(sess, render.permission_text(task_id, kind, q, opts))
-        return
-
-    # 终态简报
-    if state_ in ("completed", "failed") and brief_on:
-        text = render.brief_text(instr, answer, error, state_ == "failed", ws_name or "工作区")
-        await _send(sess, text)
+    # 监控轮：只在有最终回答文本时发（tool-only 轮没有 text 事件，artifact 为空，
+    # 推出去只会是"无最终回答文本"刷屏）；有人在本机看着，无内容的轮不值得打扰
+    if task.caller == "monitor" and not (answer or "").strip():
         state.clear_pending(uid)
+        return
+    if task.caller == "monitor" and state_ == "completed":
+        # monitor_on 开着的窗口已实时看过 thinking/tool，简报仍发（用户要求）；
+        # 这里不再额外过滤
+        pass
+    if not row.brief_on:
+        state.clear_pending(uid)
+        return
+    text = render.brief_text(instr, answer, error, state_ == "failed", ws_name or "工作区")
+    await _send(sess, text)
+    state.clear_pending(uid)
+
+
+async def _push_input_required(workspace_id: str, task_id: str, event: dict) -> None:
+    """input-required：推文本卡 + 入待应答注册表。"""
+    with Session(engine) as s:
+        task = s.get(models.A2aTask, task_id)
+        if task is None:
+            return
+        uid = task.user_id or _owner_of(s, task.workspace_id)
+        if not uid:
+            return
+        row = s.get(models.WeixinLogin, uid)
+    if row is None:
+        return
+    sess = gateway.peek_session(uid)
+    if sess is None or not sess.context_token:
+        return
+    data = _input_data_of(event)
+    kind = str(data.get("type", "permission"))
+    q = str(data.get("question") or "AI 需要确认")
+    opts = [str(o if isinstance(o, str) else (o.get("label") or o.get("value") or ""))
+            for o in (data.get("options") or [])[:6]]
+    opts = [o for o in opts if o]
+    state.set_pending(uid, task_id, kind, q, opts)
+    await _send(sess, render.permission_text(task_id, kind, q, opts))
 
 
 def _input_data_of(event: dict) -> dict:
