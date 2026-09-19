@@ -85,8 +85,15 @@ const plugin: Plugin = async (input) => {
 
   // ---------------- nexus A2A（中枢/互调统一链路）状态 ----------------
   let nexus: NexusA2AClient | null = null
-  /** 进行中的 A2A 任务：taskId → session（前台注入的任务轮；事件路由的判据） */
-  const a2aRuns = new Map<string, string>()
+  /** 进行中的 A2A 任务：taskId → 运行信息（前台注入的任务轮；事件路由的判据） */
+  interface A2aRun {
+    sessionId: string
+    /** promptAsync 已成功返回（在此之前收到的 session.idle 是上一轮的，不能当成任务完成） */
+    injected: boolean
+    /** 注入前会话最后一条 assistant 消息 id——idle 时只取其之后的文本，防止串轮 */
+    lastAssistantIdBefore: string
+  }
+  const a2aRuns = new Map<string, A2aRun>()
   /** A2A 轮已上报的权限/提问 id（去重；session.idle 清空） */
   const a2aInputSeen = new Set<string>()
   /** A2A 事件上报（走当前 WS 连接，断连入缓冲） */
@@ -150,6 +157,34 @@ const plugin: Plugin = async (input) => {
       if (texts.length) return texts.join("\n")
     }
     return ""
+  }
+
+  /** 消息数组里最后一条 assistant 消息的 id（快照用） */
+  function lastAssistantMsgId(messages: any[]): string {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i]
+      const info = m?.info ?? m
+      if (info?.role === "assistant") return String(info?.id ?? m?.id ?? "")
+    }
+    return ""
+  }
+
+  /** 只取「afterId 之后」的 assistant 文本——任务轮 artifact 不得回退到上一轮的回答。
+   *  opencode 消息按时间序追加，找到 afterId 后只看其后消息；找不到 afterId（被清理等）
+   *  时退化为全量取最后一条（与旧行为一致）。 */
+  function extractAssistantTextAfter(messages: any[], afterId: string): string {
+    if (!afterId) return extractLastAssistantText(messages)
+    let start = -1
+    for (let i = 0; i < messages.length; i++) {
+      const m = messages[i]
+      const mid = String(m?.info?.id ?? m?.id ?? "")
+      if (mid && mid === afterId) {
+        start = i
+        break
+      }
+    }
+    if (start < 0) return extractLastAssistantText(messages)
+    return extractLastAssistantText(messages.slice(start + 1))
   }
 
   /** 判断最后一条 assistant 消息是否停在工具调用上（需要 nudge） */
@@ -239,7 +274,15 @@ const plugin: Plugin = async (input) => {
       sessionId = created?.data?.id ?? created?.id ?? ""
     }
     if (!sessionId) return null
-    a2aRuns.set(task.taskId, sessionId)
+    // 注入前快照：记录最后一条 assistant 消息 id，idle 时只取其之后的新文本
+    let lastAssistantIdBefore = ""
+    try {
+      const before: any = await client.session.messages({ path: { id: sessionId } }).catch(() => null)
+      const msgsBefore: any[] = Array.isArray(before?.data) ? before.data : []
+      lastAssistantIdBefore = lastAssistantMsgId(msgsBefore)
+    } catch { /* 快照失败不阻塞注入 */ }
+    const run: A2aRun = { sessionId, injected: false, lastAssistantIdBefore }
+    a2aRuns.set(task.taskId, run)
     log(`a2a ${task.taskId.slice(0, 8)}: session ${sessionId}`)
 
     // working 状态 + 用户消息回显（时间线上的提问条目）
@@ -262,6 +305,7 @@ const plugin: Plugin = async (input) => {
         path: { id: sessionId },
         body: { parts: [{ type: "text", text: buildTaskPrompt(text, caller, task.taskId) }] },
       })
+      run.injected = true
     } catch (e) {
       a2aEmit(
         statusUpdate(task, "failed", {
@@ -285,8 +329,8 @@ const plugin: Plugin = async (input) => {
   /** sessionID 是否属于进行中的 A2A 任务（前台注入轮） */
   function isA2aSession(sid: unknown): boolean {
     if (typeof sid !== "string" || !sid) return false
-    for (const runSid of a2aRuns.values()) {
-      if (runSid === sid) return true
+    for (const run of a2aRuns.values()) {
+      if (run.sessionId === sid) return true
     }
     return false
   }
@@ -571,7 +615,7 @@ const plugin: Plugin = async (input) => {
         log(`a2a ${taskId.slice(0, 8)}: background process killed`)
         return // 进程 close 回调会上报 canceled/failed 终态
       }
-      const sessionId = a2aRuns.get(taskId)
+      const sessionId = a2aRuns.get(taskId)?.sessionId
       const task: A2aTaskRef = { taskId, contextId: taskId }
       a2aEmit(
         statusUpdate(task, "canceled", {
@@ -600,19 +644,24 @@ const plugin: Plugin = async (input) => {
       const isIdle = type === "session.idle"
 
       // ---- 1) A2A 任务轮（sessionID 命中进行中的任务）----
-      for (const [taskId, runSid] of a2aRuns) {
+      for (const [taskId, run] of a2aRuns) {
+        const runSid = run.sessionId
         if (runSid !== sid) continue
         const task: A2aTaskRef = { taskId, contextId: taskId }
         if (!isIdle) {
+          if (!run.injected) continue // 注入未完成：事件属于上一轮，不投影
           try { handleA2aRound(task, sid, type, props) } catch { /* 单任务失败不影响其他 */ }
         } else {
-          // session.idle：本轮 prompt 处理完毕 → 提取结果发 completed + Artifact
+          // session.idle：注入完成后的 idle 才是本轮完成信号；注入前的 idle 属于上一轮
+          if (!run.injected) continue
           try {
             // idle 后再等一拍，避免消息尚未落盘
             await new Promise((r) => setTimeout(r, 1_000))
             const rsp: any = await client.session.messages({ path: { id: sid } }).catch(() => null)
             const msgs: any[] = Array.isArray(rsp?.data) ? rsp.data : []
-            const lastText = extractLastAssistantText(msgs)
+            // 只取注入快照之后的新 assistant 消息——否则上一轮的回答会被当成
+            // 本轮 artifact（真机事故 2026-09-20：reject 中断的任务收到了上一轮的回答）
+            let lastText = extractAssistantTextAfter(msgs, run.lastAssistantIdBefore)
             if (lastText) {
               a2aEmit(artifactUpdate(task, lastText, true, `artifact-${taskId}`))
               a2aEmit(statusUpdate(task, "completed", { final: true, metadata: { session_id: sid } }))
