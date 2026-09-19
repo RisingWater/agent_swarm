@@ -74,12 +74,14 @@ _pending: dict[str, dict] = {}
 _PENDING_TTL = 3600.0
 
 
-def set_pending(user_id: str, task_id: str, kind: str, question: str, options: list[str]) -> None:
+def set_pending(user_id: str, task_id: str, kind: str, question: str, options: list[str],
+                request_id: str = "") -> None:
     _pending[user_id] = {
         "task_id": task_id,
         "kind": kind,
         "question": question,
         "options": options,
+        "request_id": request_id,
         "ts": time.time(),
     }
     _gc_pending()

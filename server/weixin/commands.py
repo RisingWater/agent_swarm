@@ -331,7 +331,7 @@ async def _answer_pending(sess: gateway.UserSession, pending: dict, text: str) -
     else:
         idx = _parse_index(text, len(options))
         answer = options[idx] if idx is not None else text
-    ok, msg = await reply_task_from_feishu(task_id, answer, f"wx-{uid[:8]}")
+    ok, msg = await reply_task_from_feishu(task_id, answer, pending.get("request_id") or f"wx-{uid[:8]}")
     if ok:
         state.clear_pending(uid)
         await reply_text(sess, "✅ 已应答，任务继续执行中。")

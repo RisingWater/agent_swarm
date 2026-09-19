@@ -140,14 +140,19 @@ async def _stream_task_event(sess: gateway.UserSession, task_id: str, event: dic
         _task_tool_seen.pop(task_id, None)
         return
     if kind == "input":
-        # input-required：入待应答（事件文本卡里已带编号选项）
+        # input-required：入待应答（事件文本卡里已带编号选项）。
+        # requestId 必须记下：应答时插件要拿它去 opencode 匹配待处理的权限请求，
+        # 传错（如用 wx-xxx 占位）opencode 找不到请求，TUI 会一直挂到超时
+        # （真机事故 2026-09-20：已应答 always 但 TUI 无反应）。
         data = _input_data_of(event)
         itype = str(data.get("type", "permission"))
         q = str(data.get("question") or "AI 需要确认")
         opts = [str(o if isinstance(o, str) else (o.get("label") or o.get("value") or ""))
                 for o in (data.get("options") or [])[:6]]
-        state.set_pending(uid, task_id, itype, q, [o for o in opts if o])
-        log.info("wx-stream input-required task=%s itype=%s pending set, sending card", task_id[:12], itype)
+        req_id = str(data.get("requestId") or "")
+        state.set_pending(uid, task_id, itype, q, [o for o in opts if o], request_id=req_id)
+        log.info("wx-stream input-required task=%s itype=%s req=%s pending set, sending card",
+                 task_id[:12], itype, req_id[:16])
     if not text:
         log.info("wx-stream skip: no text kind=%s", kind)
         return
@@ -231,7 +236,7 @@ async def _push_input_required(workspace_id: str, task_id: str, event: dict) -> 
     opts = [str(o if isinstance(o, str) else (o.get("label") or o.get("value") or ""))
             for o in (data.get("options") or [])[:6]]
     opts = [o for o in opts if o]
-    state.set_pending(uid, task_id, kind, q, opts)
+    state.set_pending(uid, task_id, kind, q, opts, request_id=str(data.get("requestId") or ""))
     await _send(sess, render.permission_text(task_id, kind, q, opts))
 
 
