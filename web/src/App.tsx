@@ -1479,14 +1479,17 @@ function toolCommand(input: Record<string, unknown> | undefined): string {
 }
 
 /** 自绘下拉：选项内可嵌 agent 图标（原生 option 不支持 SVG） */
-function NexusWorkspaceSelect({ list, value, onChange }: {
-  list: Workspace[]
+export function NexusWorkspaceSelect({ list, value, onChange, showOwner }: {
+  list: Array<{ id: string; name: string; path: string; agent_type?: string | null; owner?: string | { username: string } | null }>
   value: string
   onChange: (id: string) => void
+  showOwner?: boolean
 }) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
   const current = list.find((w) => w.id === value)
+  const ownerName = (w: { owner?: string | { username: string } | null }) =>
+    typeof w.owner === "string" ? w.owner : w.owner?.username || ""
 
   useEffect(() => {
     if (!open) return
@@ -1504,6 +1507,7 @@ function NexusWorkspaceSelect({ list, value, onChange }: {
           <>
             <AgentTypeIcon type={current.agent_type} />
             <span>{current.name}</span>
+            {showOwner && ownerName(current) ? <span className="nexus-select-item-path">@{ownerName(current)}</span> : null}
           </>
         ) : (
           <span className="nexus-select-placeholder">选择工作区…</span>
@@ -1522,7 +1526,7 @@ function NexusWorkspaceSelect({ list, value, onChange }: {
               onClick={() => { onChange(w.id); setOpen(false) }}
             >
               <AgentTypeIcon type={w.agent_type} />
-              <span className="nexus-select-item-name">{w.name}</span>
+              <span className="nexus-select-item-name">{w.name}{showOwner && ownerName(w) ? ` @${ownerName(w)}` : ""}</span>
               <span className="nexus-select-item-path">{w.path}</span>
             </button>
           ))}

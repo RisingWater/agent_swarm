@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useState } from "react"
 import { adminApi, type AdminStats, type AdminUser, type AdminWorkspace, type AdminCall } from "./api"
 import { copyText } from "./copy"
-import { Btn, Modal, SearchBox } from "./App"
+import { Btn, Modal, NexusWorkspaceSelect, SearchBox } from "./App"
 
 function fmtDate(iso: string): string {
   return iso.slice(0, 10)
@@ -254,13 +254,13 @@ function PanelPage({ toast, onLogout }: { toast: (m: string) => void; onLogout: 
           <>
             <p className="section-label">[ 调用记录 ]</p>
             <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 10 }}>
-              <select className="input" value={callWs} onChange={(e) => setCallWs(e.target.value)}
-                style={{ maxWidth: 260 }}>
-                <option value="">全部工作区</option>
-                {workspaces.map((w) => (
-                  <option key={w.id} value={w.id}>{w.name}（{w.owner}）</option>
-                ))}
-              </select>
+              <NexusWorkspaceSelect
+                list={workspaces.map((w) => ({ id: w.id, name: w.name, path: w.path, agent_type: w.agent_type, owner: w.owner }))}
+                value={callWs}
+                onChange={setCallWs}
+                showOwner
+              />
+              {callWs && <Btn size="sm" onClick={() => setCallWs("")}>全部工作区</Btn>}
               <SearchBox value={callQuery} onChange={setCallQuery} placeholder="搜索 ID / 目标 / 发起方 / 内容…" />
               <span style={{ color: "var(--text-weak)", fontSize: 12 }}>
                 最近 500 条 · 开启落库加密后内容列仅显示占位（管理员不持有用户密钥）
