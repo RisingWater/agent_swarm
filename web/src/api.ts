@@ -202,6 +202,22 @@ export interface AdminWorkspace {
   calls_24h: number
 }
 
+export interface AdminCall {
+  id: string
+  monitor: boolean
+  caller: string
+  from_workspace: string
+  target: string
+  owner: string
+  external_url: string
+  instruction: string
+  result: string
+  error: string
+  status: string
+  created_at: string
+  done_at: string | null
+}
+
 async function adminRequest(path: string, options: RequestInit = {}) {
   const token = localStorage.getItem("swarm_admin_token") ?? ""
   const rsp = await fetch(`${BASE}${path}`, {
@@ -238,4 +254,8 @@ export const adminApi = {
       body: JSON.stringify({}),
     }) as Promise<{ ok: boolean; new_password: string }>,
   workspaces: () => adminRequest("/api/admin/workspaces") as Promise<{ workspaces: AdminWorkspace[] }>,
+  calls: (workspaceId = "") =>
+    adminRequest(`/api/admin/calls${workspaceId ? `?workspace_id=${encodeURIComponent(workspaceId)}` : ""}`) as Promise<{
+      calls: AdminCall[]
+    }>,
 }
