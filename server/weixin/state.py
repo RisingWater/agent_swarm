@@ -99,6 +99,18 @@ def clear_pending(user_id: str) -> None:
     _pending.pop(user_id, None)
 
 
+def pop_pending_task(task_id: str) -> dict | None:
+    """按 task_id 清 pending（跨渠道先答先算：任务被别处应答/离开等待态时调用）。
+
+    命中返回被清的 pending，未命中返回 None（同一 user 只挂一个 pending）。
+    """
+    for uid, p in list(_pending.items()):
+        if p.get("task_id") == task_id:
+            _pending.pop(uid, None)
+            return p
+    return None
+
+
 def _gc_pending() -> None:
     now = time.time()
     for uid in [u for u, p in _pending.items() if now - p["ts"] > _PENDING_TTL]:

@@ -98,6 +98,10 @@ async def _route(workspace_id: str, event: dict) -> None:
         log.info("wx-route → stream task=%s state=%s", task_id[:12], state_)
         await _stream_task_event(sess, task_id, event, uid)
         return
+    # 跨渠道先答先算：pending 卡在微信挂着时任务被别处（飞书/web/TUI）应答或离开等待态
+    # （状态回到 working）→ 立即清微信 pending，否则用户再回数字会应答失败
+    if state_ == "working" and state.pop_pending_task(task_id):
+        log.info("wx-route pending cleared (answered elsewhere): task=%s", task_id[:12])
     if state_ in ("completed", "failed"):
         await _brief_round(workspace_id, task_id, state_)
         return
