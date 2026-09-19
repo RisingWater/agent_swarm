@@ -269,6 +269,13 @@ async def _send(sess: gateway.UserSession, text: str) -> None:
         if exc.stale_token:
             state.update(sess.user_id, status="need_relogin")
             await notify_relogin_needed(sess)
+        elif exc.ret == -2:
+            # "prepare failed" = context_token 已失效（协议：回复必须带最近入站消息的 token，
+            # 长时间无新消息/会话状态变化后服务端作废旧 token）。清缓存等新入站消息自然恢复，
+            # 避免对同一失效 token 反复重试。该条内容丢弃（无法补发——没有有效 token 就发不出去）。
+            log.warning("weixin push failed (ret=-2, context_token stale), clearing cached token user=%s", sess.user_id[:8])
+            sess.context_token = ""
+            state.update(sess.user_id, context_token="")
         else:
             log.warning("weixin push failed: %s", exc)
     except Exception:  # noqa: BLE001
