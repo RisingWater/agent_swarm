@@ -68,12 +68,17 @@ async def login_start(user: models.User = Depends(get_current_user)):
     _gc_flows()
     if user.id in _flows:
         return _status_out(user.id)  # 已有进行中的流程，直接复用
-    client = gateway.httpx_client()
+    import httpx
+
+    client = httpx.AsyncClient()
     try:
         qr = await gateway.fetch_login_qrcode(client)
     except gateway.ILinkError as exc:
         await client.aclose()
         raise HTTPException(502, f"获取二维码失败：{exc}")
+    except Exception:
+        await client.aclose()
+        raise
     flow = {
         "qrcode": qr["qrcode"],
         "img": str(qr.get("qrcode_img_content") or ""),
