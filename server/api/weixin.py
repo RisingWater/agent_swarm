@@ -142,10 +142,7 @@ async def login_cancel(user: models.User = Depends(get_current_user)):
         t = flow.get("task")
         if t:
             t.cancel()
-        try:
-            await flow["client"].aclose()
-        except Exception:  # noqa: BLE001
-            pass
+        await _close_flow(user.id, flow)
     return {"ok": True}
 
 
@@ -163,7 +160,7 @@ async def _poll_flow(uid: str, flow: dict) -> None:
                 if exc.stale_token:
                     pass
                 else:
-                    flow["message"] = f"轮询异常，重试中"
+                    flow["message"] = "轮询异常，重试中"
                 await asyncio.sleep(2)
                 continue
             st = str(data.get("status", ""))
@@ -187,18 +184,30 @@ async def _poll_flow(uid: str, flow: dict) -> None:
                 flow["status"] = "scanned"
                 flow["message"] = "已扫码，请在手机上确认"
             if st == "expired":
-                flow["status"] = "expired"
-                flow["message"] = "二维码已过期，请重新获取"
+                await _close_flow(uid, flow)
                 return
             await asyncio.sleep(0.5)
     except asyncio.CancelledError:
-        pass
+        await _close_flow(uid, flow)
     except Exception:  # noqa: BLE001
         import logging
 
         logging.getLogger("nexus-weixin").exception("weixin login flow crash")
         flow["status"] = "error"
-        flow["message"] = "登录流程异常，请重试"
+        flow["message"] = "二维码状态查询失败，请点「重新获取二维码」"
+        await _close_flow(uid, flow)
+
+
+async def _close_flow(uid: str, flow: dict) -> None:
+    """终态收尾：清注册表 + 关闭扫码轮询用的 httpx client。"""
+    if _flows.get(uid) is flow:
+        _flows.pop(uid, None)
+    client = flow.get("client")
+    if client is not None:
+        try:
+            await client.aclose()
+        except Exception:  # noqa: BLE001
+            pass
 
 
 async def _apply_confirmed(uid: str, data: dict, flow: dict) -> None:
@@ -228,8 +237,9 @@ async def _apply_confirmed(uid: str, data: dict, flow: dict) -> None:
         row.updated_at = models.utcnow()
         s.add(row)
         s.commit()
-    flow["status"] = "confirmed"
-    flow["message"] = "登录成功！在微信里找到 ClawBot 会话即可开始对话"
+    flow["client_close"] = True
+    _flows.pop(uid, None)
+    await _close_flow(uid, flow)  # confirmed 是终态：清流程关 client，前端切已登录视图（不再显示二维码）
     sess = gateway.get_session_mgr(uid)
     sess.load()
     await sess.start()

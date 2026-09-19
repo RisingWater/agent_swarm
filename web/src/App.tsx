@@ -559,25 +559,29 @@ function WeixinPanel({ toast }: { toast: (m: string) => void }) {
   const [st, setSt] = useState<WeixinStatus | null>(null)
   const [verifyCode, setVerifyCode] = useState("")
   const [busy, setBusy] = useState(false)
+  const [errHint, setErrHint] = useState("")  // 上次扫码失败/过期的提示（点重新获取后清除）
 
   const refresh = useCallback(() => {
     api.weixinStatus().then(setSt).catch(() => setSt(null))
   }, [])
   useEffect(() => { refresh() }, [refresh])
 
-  // 扫码流程中轮询状态
+  // 扫码流程中轮询状态（终态后端已清流程，这里兜底切视图 + 记录失败原因）
   useEffect(() => {
-    if (!st?.flow || st.flow.status === "confirmed" || st.flow.status === "expired" || st.flow.status === "error") return
+    if (!st?.flow || st.flow.status === "confirmed" || st.flow.status === "expired" || st.flow.status === "error") {
+      if (st?.flow && (st.flow.status === "expired" || st.flow.status === "error")) {
+        setErrHint(st.flow.message)
+      }
+      return
+    }
     const t = setInterval(() => {
-      api.weixinLoginStatus().then(async (s) => {
-        if (s.flow?.status === "confirmed") {
-          // 登录成功：结束扫码流程展示，切到已登录视图
-          try { await api.weixinLoginCancel() } catch { /* ignore */ }
-          setSt({ ...s, flow: null })
+      api.weixinLoginStatus().then((s) => {
+        if (s.flow?.status === "expired" || s.flow?.status === "error") {
+          setErrHint(s.flow.message)
+        } else if (!s.flow && s.logged_in) {
           toast("微信 ClawBot 已连接")
-        } else {
-          setSt(s)
         }
+        setSt(s)
       }).catch(() => {})
     }, 1500)
     return () => clearInterval(t)
@@ -623,21 +627,25 @@ function WeixinPanel({ toast }: { toast: (m: string) => void }) {
             扫码把<b>你自己的微信号</b>登录为本平台的 ClawBot。登录后微信里会出现一个 ClawBot
             会话：发文字给它即可选择工作区、派任务、收简报、应答 AI 的提问与授权请求。
           </p>
-          <Btn size="sm" disabled={busy} onClick={start}>{busy ? "获取中…" : "扫码登录微信"}</Btn>
+          {errHint && (
+            <p style={{ fontSize: 13, color: "var(--danger, #c0392b)", marginBottom: 8 }}>{errHint}</p>
+          )}
+          <Btn size="sm" disabled={busy} onClick={() => { setErrHint(""); start() }}>
+            {errHint ? "重新获取二维码" : busy ? "获取中…" : "扫码登录微信"}
+          </Btn>
         </div>
       )}
 
       {flow && flow.status !== "confirmed" && (
         <div style={{ display: "flex", gap: 18, alignItems: "flex-start", flexWrap: "wrap" }}>
-          {flow.qrcode_img && flow.status !== "scanned" ? (
+          {flow.qrcode_img ? (
             <div style={{ border: "1px solid var(--border)", borderRadius: 8, padding: 10, background: "#fff", position: "relative" }}>
-              <img src={flow.qrcode_img} alt="微信登录二维码" style={{ width: 180, height: 180, display: "block", opacity: 0.25 }} />
-              <span style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center",
-                fontSize: 13, color: "var(--ok, green)", fontWeight: 600 }}>✓ 已扫码</span>
-            </div>
-          ) : flow.qrcode_img ? (
-            <div style={{ border: "1px solid var(--border)", borderRadius: 8, padding: 10, background: "#fff" }}>
-              <img src={flow.qrcode_img} alt="微信登录二维码" style={{ width: 180, height: 180, display: "block" }} />
+              <img src={flow.qrcode_img} alt="微信登录二维码"
+                style={{ width: 180, height: 180, display: "block", opacity: flow.status === "scanned" ? 0.2 : 1 }} />
+              {flow.status === "scanned" && (
+                <span style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center",
+                  fontSize: 13, color: "var(--ok, green)", fontWeight: 600 }}>✓ 已扫码</span>
+              )}
             </div>
           ) : (
             <div style={{ width: 180, height: 180, border: "1px dashed var(--border)", borderRadius: 8,
@@ -655,18 +663,10 @@ function WeixinPanel({ toast }: { toast: (m: string) => void }) {
               </div>
             )}
             <div style={{ marginTop: 8 }}>
-              {flow.status === "expired" || flow.status === "error" ? (
-                <Btn size="sm" onClick={start}>重新获取二维码</Btn>
-              ) : (
-                <Btn size="sm" variant="ghost" onClick={cancel}>取消</Btn>
-              )}
+              <Btn size="sm" variant="ghost" onClick={cancel}>取消</Btn>
             </div>
           </div>
         </div>
-      )}
-
-      {flow && flow.status === "confirmed" && (
-        <p style={{ fontSize: 13, color: "var(--ok, green)" }}>✅ {flow.message}</p>
       )}
 
       {st?.logged_in && !flow && (
