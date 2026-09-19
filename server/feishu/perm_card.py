@@ -118,7 +118,10 @@ def perm_card(task: models.A2aTask, workspace_name: str, event: dict, owner_key:
         })
     else:
         perm = str(data.get("permission") or "操作")
-        title = str(data.get("title") or data.get("pattern") or "")
+        pats = [str(p) for p in (data.get("patterns") or []) if str(p).strip()]
+        title = str(data.get("title") or "")
+        if not title and pats:
+            title = "访问/执行：" + "；".join(p[:80] for p in pats)[:200]
         body.append(f"🔐 权限请求：{perm}" + (f" — {title[:160]}" if title else ""))
         elements = [
             {"tag": "div", "text": {"tag": "lark_md", "content": "\n\n".join(body)}},

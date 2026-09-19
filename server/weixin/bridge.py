@@ -288,7 +288,12 @@ async def _push_monitor_input_required(workspace_id: str, round_key: str, event:
         return
     itype = str(event.get("type", "permission"))
     req_id = str(event.get("requestId") or "")
-    q = str(event.get("question") or event.get("title") or (instr[:120] if instr else "") or "AI 需要确认")
+    pats = [str(p) for p in (event.get("patterns") or []) if str(p).strip()]
+    q = str(event.get("question") or event.get("title") or "")
+    if not q and pats:
+        q = "访问/执行：" + "；".join(p[:80] for p in pats)[:200]
+    if not q:
+        q = instr[:120] if instr else "AI 需要确认"
     opts = [str(o if isinstance(o, str) else (o.get("label") or o.get("value") or ""))
             for o in (event.get("options") or [])[:6]]
     state.set_pending(uid, round_key, itype, q, [o for o in opts if o], request_id=req_id)

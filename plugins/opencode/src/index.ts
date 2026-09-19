@@ -372,7 +372,8 @@ const plugin: Plugin = async (input) => {
             requestId: permissionId,
             sessionId,
             permission: String(request.permission ?? request.type ?? "unknown"),
-            title: String(request.title ?? request.pattern ?? ""),
+            title: String(request.title ?? ""),
+            patterns: Array.isArray(request.patterns) ? request.patterns.map(String) : [],
           }),
         )
       }
@@ -485,7 +486,8 @@ const plugin: Plugin = async (input) => {
           type: "permission",
           requestId: permissionId,
           permission: String(request.permission ?? request.type ?? "unknown"),
-          title: String(request.title ?? request.pattern ?? ""),
+          title: String(request.title ?? ""),
+          patterns: Array.isArray(request.patterns) ? request.patterns.map(String) : [],
         })
       }
     } else if (type === "question.asked") {
