@@ -258,7 +258,9 @@ async def logout(user: models.User = Depends(get_current_user)):
     sess = gateway.peek_session(user.id)
     if sess:
         await sess.stop()
-    wx_state.update(user.id, status="offline", token="", bot_token="")
+    # WeixinLogin 无 token 明文列：清 bot_token + token_enc + 游标/上下文
+    wx_state.update(user.id, status="offline", bot_token="", token_enc=None,
+                    cursor_buf="", context_token="")
     return {"ok": True}
 
 
