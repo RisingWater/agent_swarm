@@ -258,7 +258,7 @@ async def logout(user: models.User = Depends(get_current_user)):
     sess = gateway.peek_session(user.id)
     if sess:
         await sess.stop()
-    state.update(user.id, status="offline", token="", bot_token="")
+    wx_state.update(user.id, status="offline", token="", bot_token="")
     return {"ok": True}
 
 
