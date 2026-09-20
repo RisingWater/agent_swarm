@@ -554,6 +554,18 @@ function ChatBindPanel({ toast }: { toast: (m: string) => void }) {
             <span style={{ fontSize: 12, color: "var(--text-weak)" }}>
               {g.feishu_name ? g.open_id.slice(0, 12) + "…" : ""}{g.chats.length} 个窗口
             </span>
+            <span style={{ flex: 1 }} />
+            <ConfirmWrap text="解绑后所有窗口取消工作区选择，需要重新 /swarm bind 才能使用。确认？" onOk={async () => {
+              try {
+                await api.unbindChatAccount(g.open_id)
+                toast("已解绑，飞书窗口会收到通知")
+                refresh()
+              } catch (e: any) {
+                toast(e.message)
+              }
+            }}>
+              <Btn size="sm" variant="danger">解绑</Btn>
+            </ConfirmWrap>
           </div>
           {g.chats.map(renderChat)}
         </div>
@@ -827,7 +839,7 @@ function PasswordForm({ toast }: { toast: (m: string) => void }) {
 }
 
 // 简易 Popconfirm：点击按钮区域弹出
-function ConfirmWrap({ text, onOk, children }: { text: string; onOk: () => void; children: ReactNode }) {
+export function ConfirmWrap({ text, onOk, children }: { text: string; onOk: () => void; children: ReactNode }) {
   const [open, setOpen] = useState(false)
   return (
     <span style={{ position: "relative" }}>
