@@ -65,6 +65,7 @@ There is **no committed pytest suite** and no maintained E2E suite (user decided
 - Video `web/public/agent_swarm.mp4` (~39MB) is committed as a regular blob (user accepted; LFS considered and skipped for now). Autoplays once muted when scrolled into view, stops on last frame, no controls.
 - Results in call records render as markdown (react-markdown + remark-gfm) — task prompts ask agents to summarize in markdown-friendly prose.
 - Auth UX: logged-out visitors see Home/Docs only + a login *modal* (not a page); protected nav items hidden. Account page (click username) has a left sub-menu: API Key | change password.
+- **Workspace selection UI: ALWAYS use `NexusWorkspaceSelect`** (App.tsx exported component) — never a raw `<select>`. Applies to every workspace picker in web pages (Nexus, account chat-bind cards for Feishu/WeChat, admin, …): it carries the unified look (search, agent-type icon, online hint) the user expects (user decision 2026-09-20, after a raw select slipped into the chat-bind cards).
 
 ## Conventions
 - Comments and handoff notes are in Chinese; keep new ones consistent (TODO.md is the running handoff doc — read it before starting work).
