@@ -806,6 +806,44 @@ async def a2a_rpc(workspace_id: str, request: Request):
 # - 插件崩溃丢终态时任务停在 working：web 调用记录页可手动取消
 
 
+async def wait_task_final(task_id: str, owner_apikey: str, timeout: float) -> tuple[str, str, str]:
+    """事件驱动等任务终态，返回 (final_status, artifact, error)。
+
+    a2a_call(wait_seconds>0) 用：挂事件总线零轮询等待；先查一次 DB（终态可能已到）。
+    超时未完成则返回当前状态（不置 failed——发起方 AI 自己决定后续）。
+    artifact/error 走属主 apikey 解密。
+    """
+    q = _task_subscribe(task_id)
+    try:
+
+        def _read() -> tuple[str, str, str]:
+            with Session(engine) as session:
+                t = session.get(models.A2aTask, task_id)
+                if t is None:
+                    return "failed", "", "task not found"
+                artifact = crypto.decrypt(owner_apikey, t.artifact_enc, t.artifact or "")
+                error = crypto.decrypt(owner_apikey, t.error_enc, t.error or "")
+                return t.status, artifact or "", error or ""
+
+        status, artifact, error = _read()
+        if status in TERMINAL_STATES:
+            return status, artifact, error
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            remaining = deadline - time.monotonic()
+            try:
+                _, event = await asyncio.wait_for(q.get(), timeout=max(remaining, 0.1))
+            except asyncio.TimeoutError:
+                break
+            if event.get("kind") == "status-update":
+                state = str((event.get("status") or {}).get("state", ""))
+                if state in TERMINAL_STATES:
+                    return _read()
+        return _read()
+    finally:
+        _task_unsubscribe(task_id, q)
+
+
 async def _wait_final(task_id: str, timeout: float) -> None:
     """事件驱动等任务终态（handle_plugin_event 广播）；超时置 failed。"""
     q = _task_subscribe(task_id)

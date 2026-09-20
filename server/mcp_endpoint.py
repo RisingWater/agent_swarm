@@ -396,7 +396,7 @@ CALL_TIMEOUT_SECONDS = int(os.environ.get("AGENT_SWARM_CALL_TIMEOUT", "3600"))
 
 
 @mcp.tool()
-async def a2a_call(target: str, message: str, context_id: str = "", from_workspace: str = "") -> dict:
+async def a2a_call(target: str, message: str, context_id: str = "", from_workspace: str = "", wait_seconds: int = 0) -> dict:
     """通过 A2A 协议给另一个 agent 发任务（支持内部工作区与外部 A2A agent）。
 
     用 list_workspaces 找内部工作区（传 workspace ID），或直接传外部 agent 的
@@ -408,6 +408,9 @@ async def a2a_call(target: str, message: str, context_id: str = "", from_workspa
         context_id: 可选，延续之前的会话上下文（多轮任务）
         from_workspace: 你（发起方）所在的工作区 ID（list_workspaces 可查）。
             传入后调用记录会显示真实发起方；缺省时发起方标注为"agent（未注明）"
+        wait_seconds: 同步等待任务终态的秒数（0=立即返回只拿 task_id）。
+            >0 时服务端挂事件总线等任务完成（最多等这么久），返回体直接带
+            status/result——推荐派任务时传 300~600，免去轮询。
     """
     from server.nexus_a2a import call_external
 
@@ -419,6 +422,7 @@ async def a2a_call(target: str, message: str, context_id: str = "", from_workspa
         if from_workspace:
             from_ws = session.get(models.Workspace, from_workspace)
             from_ws_valid = from_ws is not None and from_ws.user_id == user.id
+        wait_seconds = max(0, min(int(wait_seconds or 0), 3600))
         if target.startswith("http://") or target.startswith("https://"):
             # 外部 A2A agent：message/send 非流式，等终态返回
             task_id, ctx, status = await call_external(target, message, context_id=context_id)
@@ -477,13 +481,27 @@ async def a2a_call(target: str, message: str, context_id: str = "", from_workspa
             from server.nexus_a2a import dispatch_queued_for
 
             asyncio.ensure_future(dispatch_queued_for(tgt.id))
-        return {
+        result = {
             "task_id": task.id,
             "context_id": task.context_id,
             "status": task.status,
             "target": {"id": tgt.id, "name": tgt.name},
-            "note": "poll with a2a_task",
         }
+        if wait_seconds > 0:
+            # 同步等待终态（事件总线驱动，零轮询）；返回体带结果
+            from server.nexus_a2a import wait_task_final
+
+            final_status, artifact, error = await wait_task_final(task.id, user.api_key or "", wait_seconds)
+            result["status"] = final_status
+            if artifact:
+                result["result"] = artifact
+            if error:
+                result["error"] = error
+            result["note"] = "task finished" if final_status in ("completed", "failed", "canceled") \
+                else f"still {final_status} after {wait_seconds}s; poll with a2a_task"
+        else:
+            result["note"] = "poll with a2a_task"
+        return result
     finally:
         session.close()
 
