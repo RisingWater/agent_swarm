@@ -141,6 +141,10 @@ export const api = {
       body: JSON.stringify(patch),
     }) as Promise<ChatBindChat>,
 
+  /** 解绑飞书账号（清绑定与窗口工作区选择，飞书端会收到通知） */
+  unbindChatAccount: (openId: string) =>
+    request(`/api/chat-binds/${encodeURIComponent(openId)}`, { method: "DELETE" }) as Promise<{ ok: boolean }>,
+
   /** 微信 ClawBot：申请登录二维码 */
   weixinLoginStart: () =>
     request("/api/weixin/login/start", { method: "POST", body: "{}" }) as Promise<WeixinStatus>,

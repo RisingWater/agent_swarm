@@ -3,7 +3,7 @@
 窗口属主校验：feishu_chats.user_id == 当前用户（飞书 bind/update_chat 写入）。
 web 端修改后通过 state.notify_chat 主动通知对应飞书窗口。
 """
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
@@ -102,3 +102,35 @@ async def update_chat_bind(
         await state.notify_chat(chat_id, "🖥 你在网页上修改了设置：" + "；".join(changes) + "。")
     # notify 在事件循环内 await（FastAPI async 端点）；这里同步收尾返回最新状态
     return _chat_out(row, session)
+
+
+@router.delete("/{open_id}")
+async def unbind_chat_account(
+    open_id: str,
+    request: Request,
+    user: models.User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+):
+    """解绑飞书账号（web 账号页操作）：删除绑定行并清该用户窗口的工作区选择。
+
+    通知该用户所有飞书窗口（bot 主动发消息；网关未启动时静默跳过）。
+    """
+    row = session.get(models.FeishuBinding, open_id)
+    if row is None or row.user_id != user.id:
+        raise HTTPException(404, "绑定不存在或不属于当前账号")
+    # 找属主窗口（通知用，解绑后 chat 行还在只是清了选择）
+    chat_ids = [c.chat_id for c in session.exec(
+        select(models.FeishuChat).where(models.FeishuChat.user_id == user.id)
+    ).all()]
+    session.delete(row)
+    for c in session.exec(
+        select(models.FeishuChat).where(models.FeishuChat.user_id == user.id)
+    ).all():
+        c.workspace_id = ""
+        session.add(c)
+    session.commit()
+    import asyncio
+
+    for cid in chat_ids:
+        await state.notify_chat(cid, "🖥 你在网页上解绑了飞书账号。下次使用请重新 `/swarm bind as_xxx`。")
+    return {"ok": True}
