@@ -23,7 +23,7 @@
 - **🐝 Cross-agent task dispatch** — Hand a task to another workspace's agent with one instruction: foreground injection (visible in their TUI) or background session (silent execution), results flow back automatically
 - **🌐 Web hub (Nexus)** — Dispatch instructions from the browser, watch thinking / tool calls / answers stream in real time, answer permission requests remotely
 - **👀 Monitor mode** — Your everyday TUI conversations sync round-by-round to the web hub, like an observation window into your agent
-- **💬 Feishu (Lark) integration** — Bind Feishu to dispatch tasks from chat, receive live timeline cards and completion briefs, answer permission requests on the go
+- **💬 Chat integrations (Feishu & WeChat)** — Bind Feishu (Lark) or scan your own WeChat as a ClawBot account; dispatch tasks from chat, watch thinking/tool calls stream, receive completion briefs, and answer permission requests remotely across both channels
 - **🛡️ Self-hosted & lightweight** — A single FastAPI service + SQLite, one command to start, your data stays on your machine
 - **🎛️ Admin console** — Separately-authenticated admin UI: users / workspaces / task-volume dashboard
 
@@ -121,6 +121,17 @@ When enabled (on by default for opencode, toggle with `/swarm-monitor` in the TU
 
 A workspace has at most one foreground round: starting a new round automatically closes the previous one, so entries never get stuck in "running" forever.
 
+### Brief mode (chat channels)
+
+The chat integrations (Feishu / WeChat) have two independent push modes:
+
+| Mode | Default | What you get |
+|---|---|---|
+| **Monitor sync** (`monitor on`) | off (Feishu) / off (WeChat) | Your own TUI conversations stream into the chat window in real time (💭 thinking, 🔧 tool lines, final answer) |
+| **Brief mode** (`brief on`) | **on** | Tasks **dispatched from other sources** (web hub, other agents, external A2A) push a single completion/failure summary card |
+
+Brief mode is on by default so you don't miss results for requests you made from the web or other agents; toggle with `/swarm brief on|off` in the chat, or on the web account page. When a task awaits a permission/question, a card is pushed to **all** channels (web / Feishu / WeChat) — whoever answers first wins.
+
 ### Feishu (nexus-feishu)
 
 After binding (`/swarm bind as_xxx`):
@@ -135,6 +146,23 @@ After binding (`/swarm bind as_xxx`):
 
 Chat commands: `/swarm bind` · `unbind` · `list` · `select` · `status` · `monitor on|off` · `brief on|off` · `last`. Workspace/monitor/brief can also be managed on the web under "Account → Chat bindings"; Feishu receives a notification on every change.
 
+### WeChat (nexus-weixin-clawbot)
+
+Bound via QR scan on the web (Account → Chat bindings → WeChat ClawBot block) — your **own** WeChat account becomes a bot, no API key involved:
+
+| Capability | Description |
+|---|---|
+| Dispatch | Plain text = an instruction to the selected workspace (`/swarm select` first if none chosen) |
+| Task detail stream | Tasks you dispatch stream 💭 thinking, 🔧 tool lines and the final answer in one full message (no typewriter) |
+| Monitor sync | While `monitor on`, your opencode TUI conversations push 💭/🔧 lines to the ClawBot chat |
+| Completion brief | Other sources (web / agents / A2A) push a brief on completion (`brief on`, default on) |
+| Permission / question | A **numbered text card** — reply `1. 允许一次 / 2. 始终允许 / 3. 拒绝` (bare digits only) |
+| Command menu | `/q` / `/swarm` or an unknown `/cmd` returns a numbered menu; `/1`–`/7` executes an entry |
+
+Commands: `/q` (menu) · `/swarm select|list|status|last` · `/swarm monitor on|off` · `/swarm brief on|off` · `/time` · `/重新连接`. No `/swarm bind` for WeChat; settings are managed on the web account page. Private chat only; the token expires ~24h (re-scan); a pending permission/question tops all routing — any input answers it (digits answer, digit > 3 or non-digit = allow once).
+
+Cross-channel: when a permission/question raises (A2A task or TUI monitor round), **all** channels — web, Feishu, WeChat — receive the prompt if brief mode is on; the first answer wins everywhere, later replies fail cleanly.
+
 ### Admin console
 
 Visit `/#/admin` (separate login, credentials in the config table):
@@ -145,7 +173,7 @@ Visit `/#/admin` (separate login, credentials in the config table):
 
 ### Call records
 
-All cross-agent calls, hub instructions, monitor rounds and Feishu dispatches are archived: sender / target / instruction / status / result, filterable by workspace and deletable.
+All cross-agent calls, hub instructions, monitor rounds, Feishu and WeChat dispatches are archived: sender / target / instruction / status / result, filterable by workspace and deletable.
 
 ## MCP Tools (`/mcp/`, Bearer apikey auth)
 
@@ -166,17 +194,25 @@ All cross-agent calls, hub instructions, monitor rounds and Feishu dispatches ar
 | `AGENT_SWARM_PORT` | Server port | `8700` |
 | `AGENT_SWARM_DB` | SQLite path | `<project root>/data/agent_swarm.db` |
 | `AGENT_SWARM_JWT_SECRET` | JWT signing secret (**required in production**) | dev secret |
+| `AGENT_SWARM_ENC_KEY` | Encryption at rest: when set, sensitive content (workspace purpose/notes/session titles, task prompts/results/errors, and the full event stream incl. thinking & tool calls) is stored encrypted in the database. Sub-keys are derived from this server key **combined with each user's API key** — stealing the DB file alone is not enough to decrypt. ⚠️ **Not set = everything is stored in plaintext.** ⚠️ **Losing this key makes all encrypted history permanently unreadable** (the platform itself keeps working; new data is encrypted with the new key). Back it up (password manager / offline storage). Generate: `python -c "import secrets; print(secrets.token_urlsafe(48))"` | not set: plaintext |
+| `AGENT_SWARM_ENC_KEY_RECOVERY` | Optional recovery key. Kept separately from the main key, it can still decrypt history after the main key is lost (also enables key rotation: set the new key as `AGENT_SWARM_ENC_KEY` and the old one as recovery) | not set |
 | `AGENT_SWARM_PUBLIC_URL` | Public URL (injected into install scripts when behind a reverse proxy) | inferred from request Host |
 | `AGENT_SWARM_CALL_TIMEOUT` | Cross-agent call timeout | `3600`s |
 | `ADMIN_USERNAME` / `ADMIN_PASSWORD` | Admin console login (default `admin` / `Admin123!@#`, **change in production**) | `admin` / `Admin123!@#` |
 | `FEISHU_APP_ID` / `FEISHU_APP_SECRET` | Feishu custom-app credentials (the Feishu gateway starts when both are set) | not set: disabled |
 
+> WeChat (ClawBot) has **no server-side env config** — it activates per user: scan your own WeChat QR code on the web account page (see "WeChat (nexus-weixin-clawbot)" above).
+
 Environment variables take precedence over the project-root `.env`.
+
+Notes on encryption at rest:
+- Existing plaintext rows are encrypted in place (and plaintext columns cleared) on the next server start after enabling. External A2A tasks have no owning user and stay in plaintext.
+- Resetting a user's API key automatically re-encrypts all of that user's encrypted rows with the new key (history stays readable).
 
 ## Repository Layout
 
 ```
-server/            FastAPI service (api/ REST, mcp_endpoint.py MCP tools, feishu/ Feishu gateway, download.py plugin distribution)
+server/            FastAPI service (api/ REST, mcp_endpoint.py MCP tools, feishu/ Feishu gateway, weixin/ WeChat ClawBot gateway, download.py plugin distribution)
 plugins/opencode/  opencode plugin (TS): heartbeat, task execution, monitor reporting, hub connection; commands/ hosts /swarm-* sources
 plugins/claude/    claude code integration: keepalive.mjs (local MCP keep-alive) + background tasks + /swarm-* commands
 web/               React admin frontend (home, docs, hub, workspaces, calls, account, admin console)

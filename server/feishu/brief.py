@@ -12,7 +12,7 @@ import logging
 
 from sqlmodel import Session
 
-from server import models
+from server import crypto, models
 from server.db import engine
 from server.nexus_a2a import internal_listeners
 
@@ -51,21 +51,21 @@ def _sender_desc(task: models.A2aTask) -> str:
     return CALLER_LABELS.get(task.caller, task.caller or "未知来源")
 
 
-def brief_card(task: models.A2aTask, workspace_name: str) -> dict:
-    """简报单卡：来源 + 提问首行 + 最终回答/失败原因。"""
+def brief_card(task: models.A2aTask, workspace_name: str, owner_key: str = "") -> dict:
+    """简报单卡：来源 + 提问首行 + 最终回答/失败原因。owner_key 用于内容列解密。"""
     failed = task.status == "failed"
     header_tpl = "red" if failed else "green"
     title = f"{'❌ 任务失败' if failed else '✅ 任务完成'} · {workspace_name}"
-    question = (task.message or "").strip().replace("\r", "\n")
+    question = crypto.decrypt(owner_key, task.message_enc, task.message).strip().replace("\r", "\n")
     first_line = next((ln.strip() for ln in question.split("\n") if ln.strip()), "")
     parts = [f"📤 {_sender_desc(task)}"]
     if first_line:
         parts.append(f"**❓ 提问**\n{first_line[:200]}")
     if failed:
-        err = (task.error or "").strip() or "执行出错"
+        err = crypto.decrypt(owner_key, task.error_enc, task.error).strip() or "执行出错"
         parts.append(f"**💥 失败原因**\n{err[:600]}")
     else:
-        answer = (task.artifact or "").strip()
+        answer = crypto.decrypt(owner_key, task.artifact_enc, task.artifact).strip()
         if answer:
             parts.append(f"**💬 回答**\n{answer[:1500]}")
         else:
@@ -104,13 +104,21 @@ async def _on_event(workspace_id: str, event: dict) -> None:
         # 飞书自己下发的任务：timeline 全程卡已覆盖
         if task.caller == "nexus-feishu":
             return
+        # 监控轮（caller=monitor）artifact 为空（tool-only 轮没有 text 事件）→ 不发简报卡，
+        # 否则全是"（无最终回答文本）"刷屏（对齐微信侧 bridge._brief_round 同款守卫）
+        if task.caller == "monitor" and not ((task.artifact_enc or "") or (task.artifact or "")).strip():
+            return
         ws_name = ""
         owner_user_id = ""
+        owner_key = ""
         ws = session.get(models.Workspace, workspace_id)
         if ws is not None:
             ws_name = ws.name
             owner_user_id = ws.user_id
+            u = session.get(models.User, ws.user_id) if ws.user_id else None
+            owner_key = (u.api_key or "") if u else ""
         card_task = task.model_copy()
+        card_owner_key = owner_key
     if not owner_user_id:
         return
     # 排除规则：
@@ -130,7 +138,7 @@ async def _on_event(workspace_id: str, event: dict) -> None:
     gw = _gw_ref()
     if gw is None:
         return
-    card = brief_card(card_task, ws_name or "工作区")
+    card = brief_card(card_task, ws_name or "工作区", card_owner_key)
     for chat in chats:
         try:
             await gw.send_card(chat.chat_id, card)

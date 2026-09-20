@@ -77,13 +77,16 @@ class Workspace(SQLModel, table=True):
     name: str
     path: str = Field(index=True)
     purpose: str = Field(default="", sa_column=Column(Text))
+    purpose_enc: Optional[str] = Field(default=None, sa_column=Column(Text))  # 密文（ENC_KEY 开启时用）
     capabilities: Optional[str] = Field(default=None, sa_column=Column(Text))
     notes: Optional[str] = Field(default=None, sa_column=Column(Text))
+    notes_enc: Optional[str] = Field(default=None, sa_column=Column(Text))  # 密文
     status: str = Field(default="online", index=True)  # online / offline / disabled
     agent_type: str = Field(default="")  # agent 工具类型（opencode / claude code / ...）
     last_heartbeat: Optional[datetime] = None
     session_id: Optional[str] = None
     session_title: Optional[str] = None  # 当前会话标题（心跳上报，web 展示用）
+    session_title_enc: Optional[str] = Field(default=None, sa_column=Column(Text))  # 密文
     created_at: datetime = Field(default_factory=utcnow)
     updated_at: datetime = Field(default_factory=utcnow)
 
@@ -99,14 +102,18 @@ class A2aTask(SQLModel, table=True):
     id: str = Field(primary_key=True)
     context_id: str = Field(index=True)  # A2A contextId（同一会话链多轮任务共享）
     workspace_id: str = Field(default="", index=True)  # 执行方工作区（内部任务）
+    user_id: str = Field(default="", index=True)  # 属主用户（加密子密钥派生用；外部任务=调用者）
     from_workspace_id: str = Field(default="")  # 发起方工作区（agent 互调时由 a2a_call 传入）
     external_url: str = Field(default="")  # 外部 A2A agent 端点（外部任务）
     caller: str = Field(default="")  # 调用方标注（agent / nexus-web / nexus-feishu / ...）
     message: str = Field(default="", sa_column=Column(Text))  # 初始指令文本
+    message_enc: Optional[str] = Field(default=None, sa_column=Column(Text))  # 密文（ENC_KEY 开启时用）
     status: str = Field(default="queued", index=True)
     session_id: Optional[str] = None  # 目标端执行该任务的 opencode 会话
     artifact: Optional[str] = Field(default=None, sa_column=Column(Text))  # 最终结果（markdown）
+    artifact_enc: Optional[str] = Field(default=None, sa_column=Column(Text))  # 密文
     error: Optional[str] = Field(default=None, sa_column=Column(Text))
+    error_enc: Optional[str] = Field(default=None, sa_column=Column(Text))  # 密文
     created_at: datetime = Field(default_factory=utcnow)
     accepted_at: Optional[datetime] = None
     done_at: Optional[datetime] = None
@@ -123,9 +130,11 @@ class A2aEvent(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     task_id: str = Field(index=True)
     workspace_id: str = Field(default="", index=True)  # 内部任务才有（外部任务为空串）
+    user_id: str = Field(default="", index=True)  # 属主用户（加密子密钥派生用）
     kind: str  # status / artifact / monitor（A2A 事件判别符）
     round_key: str = Field(default="", index=True)  # 轮次分组键（监控/任务轮）
     payload: str = Field(default="{}", sa_column=Column(Text))  # 事件 JSON（camelCase，原样存储）
+    payload_enc: Optional[str] = Field(default=None, sa_column=Column(Text))  # 密文（ENC_KEY 开启时用）
     created_at: datetime = Field(default_factory=utcnow)
 
 
@@ -151,4 +160,29 @@ class FeishuChat(SQLModel, table=True):
     workspace_id: str = Field(default="", index=True)  # 当前选中（空=未选）
     monitor_on: bool = Field(default=False)  # 前台会话监控同步开关（默认关）
     brief_on: bool = Field(default=True)  # 任务完成简报开关（默认开；飞书自己下发的任务不推）
+    updated_at: datetime = Field(default_factory=utcnow)
+
+
+class WeixinLogin(SQLModel, table=True):
+    """微信 ClawBot 登录态与窗口设置（每用户扫自己的号，一人一行）。
+
+    谁扫码，谁的微信号就成为 bot（iLink 协议：本人 ↔ 自有 ClawBot 会话私聊交互）。
+    bot_token 用 server/crypto 按用户 apikey 加密落库（token_enc；明文列留空）。
+    """
+    __tablename__ = "weixin_logins"
+
+    user_id: str = Field(primary_key=True)  # 平台账号（扫码时已登录，天然绑定）
+    wx_bot_id: str = Field(default="")  # ilink_bot_id（confirmed 返回）
+    wx_user_id: str = Field(default="")  # ilink_user_id（本人 @im.wechat）
+    baseurl: str = Field(default="")  # iLink 节点（scaned_but_redirect 后切换）
+    bot_token: str = Field(default="")  # 明文列：加密未启用时为空串占位
+    token_enc: Optional[str] = Field(default=None, sa_column=Column(Text))  # bot_token 密文
+    cursor_buf: str = Field(default="")  # getupdates 游标（重启续收）
+    context_token: str = Field(default="")  # 最近入站消息 token（主动推送回复用）
+    context_at: Optional[datetime] = None  # context_token 取得时间（过期参考）
+    workspace_id: str = Field(default="", index=True)  # 当前选中工作区（空=未选）
+    monitor_on: bool = Field(default=False)  # 监控模式（thinking/tool 文本同步，默认关）
+    brief_on: bool = Field(default=True)  # 简报模式（任务完成 MD 摘要，默认开）
+    status: str = Field(default="offline")  # offline / connecting / online / need_relogin
+    logged_at: Optional[datetime] = None  # 最近登录成功时间（连接到期参考）
     updated_at: datetime = Field(default_factory=utcnow)

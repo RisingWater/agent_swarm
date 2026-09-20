@@ -19,6 +19,13 @@ from server.db import get_session
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
 
+def _masked(enc: str | None, plain: str | None) -> str:
+    """管理员不持有用户 apikey，不解密内容列：加密行显示占位符，未加密行显示明文。"""
+    if enc:
+        return "[加密内容]"
+    return (plain or "").replace("\n", " ")
+
+
 class AdminLoginBody(BaseModel):
     username: str
     password: str
@@ -134,6 +141,7 @@ def admin_workspaces(request: Request, session: Session = Depends(get_session)):
             counts[wid] = n
     users = {u.id: u.username for u in session.exec(select(models.User)).all()}
     workspaces = session.exec(select(models.Workspace).order_by(models.Workspace.created_at)).all()
+
     return {
         "workspaces": [
             {
@@ -141,14 +149,54 @@ def admin_workspaces(request: Request, session: Session = Depends(get_session)):
                 "name": w.name,
                 "path": w.path,
                 "owner": users.get(w.user_id, w.user_id),
-                "purpose": w.purpose,
+                "purpose": _masked(w.purpose_enc, w.purpose),
                 "agent_type": w.agent_type or "",
                 "online": ws_is_online(w),
                 "status": w.status,
                 "session_id": w.session_id or "",
-                "session_title": w.session_title or "",
+                "session_title": _masked(w.session_title_enc, w.session_title),
                 "calls_24h": counts.get(w.id, 0),
             }
             for w in workspaces
         ]
     }
+
+
+@router.get("/calls")
+def admin_calls(
+    request: Request,
+    workspace_id: str = "",
+    session: Session = Depends(get_session),
+):
+    """调用记录全量列表（管理员视角，内容列不解密：加密行显示占位符）。"""
+    _check(request)
+    stmt = select(models.A2aTask).order_by(models.A2aTask.created_at.desc()).limit(500)
+    if workspace_id:
+        stmt = stmt.where(models.A2aTask.workspace_id == workspace_id)
+    rows = session.exec(stmt).all()
+    ws_names = {w.id: w.name for w in session.exec(select(models.Workspace)).all()}
+    usernames = {u.id: u.username for u in session.exec(select(models.User)).all()}
+    out = []
+    for t in rows:
+        owner = ""
+        if t.workspace_id:
+            ws = session.get(models.Workspace, t.workspace_id)
+            owner = usernames.get(ws.user_id, "") if ws else ""
+        out.append(
+            {
+                "id": t.id,
+                "monitor": t.caller == "monitor",
+                "caller": t.caller or "a2a-client",
+                "from_workspace": ws_names.get(t.from_workspace_id, "") if t.from_workspace_id else "",
+                "target": ws_names.get(t.workspace_id, "") if t.workspace_id else "",
+                "owner": owner,
+                "external_url": t.external_url or "",
+                "instruction": _masked(t.message_enc, t.message),
+                "result": _masked(t.artifact_enc, t.artifact),
+                "error": _masked(t.error_enc, t.error),
+                "status": t.status,
+                "created_at": t.created_at.isoformat() + "Z",
+                "done_at": t.done_at.isoformat() + "Z" if t.done_at else None,
+            }
+        )
+    return {"calls": out}

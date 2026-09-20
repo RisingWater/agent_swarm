@@ -21,7 +21,7 @@
 - **🐝 跨 agent 任务派发** —— 一条指令把任务交给另一个工作区的 agent；前台注入（对方 TUI 实时可见）或后台会话（静默执行）两种方式，结果自动回传
 - **🌐 Web 中枢（Nexus）** —— 网页上直接给在线工作区下指令，实时围观思考 / 工具调用 / 回答，权限请求远程点选应答
 - **👀 监控模式** —— 你在 TUI 里的日常对话按轮次实时同步到网页，像给 agent 开了一扇观察窗
-- **💬 飞书接入** —— 绑定飞书后在聊天里派任务、收时间线直播与完成简报、远程应答权限请求
+- **💬 飞书 & 微信接入** —— 绑定飞书，或把自己的微信扫码接入为 ClawBot 机器人；在聊天里派任务、收时间线直播/详细流与完成简报、远程应答权限请求（两个渠道全支持）
 - **🛡️ 自托管 & 轻量** —— 单个 FastAPI 服务 + SQLite，一条命令启动，数据完全留在自己机器上
 - **🎛️ 后台管理** —— 独立登录的管理控制台：用户 / 工作区 / 调用量面板
 
@@ -119,6 +119,17 @@ FEISHU_APP_SECRET=xxx
 
 一个工作区同时只有一个前台轮次：新一轮开始时上一轮自动收尾，不会出现永远卡在执行中的条目。
 
+### 简报模式（聊天渠道）
+
+聊天渠道（飞书 / 微信）有两种相互独立的推送模式：
+
+| 模式 | 默认 | 推什么 |
+|---|---|---|
+| **监控同步**（`monitor on`） | 关 | 你自己在 TUI 里与 agent 的对话实时推送到聊天窗口（💭 思考、🔧 工具行、最终回答） |
+| **简报模式**（`brief on`） | **开** | 由**其它来源**（网页中枢、其他 agent、外部 A2A）派发的任务，完成后推一条结果摘要卡/简报 |
+
+简报模式默认开，这样你在网页或其它渠道下发的任务结果不会错过；在聊天里用 `/swarm brief on|off` 或在网页账号页切换。当任务等待权限/提问时，**所有**渠道（web / 飞书 / 微信）同时收到提示卡——谁先应答谁生效。
+
 ### 飞书（nexus-feishu）
 
 绑定后（`/swarm bind as_xxx`）：
@@ -133,6 +144,23 @@ FEISHU_APP_SECRET=xxx
 
 聊天命令：`/swarm bind` · `unbind` · `list` · `select` · `status` · `monitor on|off` · `brief on|off` · `last`。工作区/监控/简报也可在网页「账号 → 聊天工具绑定」里管理，修改后飞书会收到通知。
 
+### 微信（nexus-weixin-clawbot）
+
+在网页「账号 → 聊天工具绑定 → 微信 ClawBot」扫码绑定（**你自己**的微信号成为机器人，无需 API Key）：
+
+| 能力 | 说明 |
+|---|---|
+| 派任务 | 发普通文本 = 给选中工作区下指令（未选先 `/swarm select`） |
+| 任务详细流 | 微信自己派的任务流式推 💭 思考、🔧 工具行与最终回答全文（一条发完，无打字机） |
+| 监控同步 | `monitor on` 期间 TUI 对话推 💭/🔧 行到 ClawBot 会话 |
+| 完成简报 | 其它来源（web/agent/A2A）任务完成推简报（默认开，`brief off` 关） |
+| 权限/提问 | 编号文本卡：回复 **1. 允许一次 / 2. 始终允许 / 3. 拒绝**（仅数字） |
+| 命令菜单 | `/q` / `/swarm` 或未识别的 `/cmd` 回编号菜单；`/1`–`/7` 执行 |
+
+聊天命令：`/q`（菜单）· `/swarm select|list|status|last` · `/swarm monitor on|off` · `/swarm brief on|off` · `/time` · `/重新连接`。微信**无** `/swarm bind`（账号页扫码即绑定），仅私聊；token 约 24h 失效需重扫；有 pending 时任何输入优先作应答（纯数字应答，>3 或非数字 = 允许一次）。
+
+跨渠道：当权限/提问被拉起（A2A 任务或 TUI 监控轮）且简报开着时，**所有**渠道——web、飞书、微信——同时收到提示卡，**先应答者生效**，其余渠道的后续应答干净失败。
+
 ### 后台管理
 
 访问 `/#/admin`（独立登录，凭据见配置表）：
@@ -143,7 +171,7 @@ FEISHU_APP_SECRET=xxx
 
 ### 调用记录
 
-所有跨 agent 调用、网页中枢指令、监控轮次、飞书派发都归档为记录：发起方 / 目标 / 指令 / 状态 / 结果，可按工作区筛选、可删除。
+所有跨 agent 调用、网页中枢指令、监控轮次、飞书与微信派发都归档为记录：发起方 / 目标 / 指令 / 状态 / 结果，可按工作区筛选、可删除。
 
 ## MCP 工具一览（`/mcp/`，Bearer apikey 鉴权）
 
@@ -164,17 +192,25 @@ FEISHU_APP_SECRET=xxx
 | `AGENT_SWARM_PORT` | 服务端口 | `8700` |
 | `AGENT_SWARM_DB` | SQLite 路径 | `<项目根>/data/agent_swarm.db` |
 | `AGENT_SWARM_JWT_SECRET` | JWT 签名密钥（**生产必设**） | dev secret |
+| `AGENT_SWARM_ENC_KEY` | **静态加密密钥**：设置后敏感内容全部密文落库（工作区描述/备注/会话标题、任务指令/结果/错误、事件流原文含 thinking 与工具调用）。子密钥 = 服务器密钥 **+ 用户 API Key** 联合派生——只拿走 DB 文件无法解密。⚠️ **不设置 = 全部明文落库。** ⚠️ **密钥丢失 = 已加密的历史内容永久不可读**（平台本身不受影响，新数据用新密钥继续加密）。务必备份（密码管理器 / 离线介质）。生成：`python -c "import secrets; print(secrets.token_urlsafe(48))"` | 未配置：明文 |
+| `AGENT_SWARM_ENC_KEY_RECOVERY` | 恢复密钥（可选）：与主密钥分开保存，主密钥丢失时仍可解密历史（也支持轮换：新密钥设为 `AGENT_SWARM_ENC_KEY`，旧密钥设为恢复密钥） | 未配置 |
 | `AGENT_SWARM_PUBLIC_URL` | 公网地址（注入 install 脚本，反代时设） | 从请求 Host 推断 |
 | `AGENT_SWARM_CALL_TIMEOUT` | 跨 agent 调用超时 | `3600`s |
 | `ADMIN_USERNAME` / `ADMIN_PASSWORD` | 后台管理登录（默认 `admin` / `Admin123!@#`，**生产必改**） | `admin` / `Admin123!@#` |
 | `FEISHU_APP_ID` / `FEISHU_APP_SECRET` | 飞书自建应用凭据（两者都配置后飞书网关随服务启动） | 未配置不启动 |
 
+> 微信（ClawBot）**无服务端环境变量配置**——按用户激活：在网页账号页扫码绑定的**自己**的微信（见上文「微信（nexus-weixin-clawbot）」）。
+
 环境变量优先于项目根 `.env`。
+
+静态加密补充说明：
+- 启用加密后的下次服务启动，会把存量明文就地加密并清空明文列；外部 A2A 任务无属主，保留明文。
+- 用户重置 API Key 时会自动用新 Key 重加密其全部密文行（历史记录保持可读）。
 
 ## 目录结构
 
 ```
-server/            FastAPI 服务端（api/ REST、mcp_endpoint.py MCP 工具、feishu/ 飞书网关、download.py 插件分发）
+server/            FastAPI 服务端（api/ REST、mcp_endpoint.py MCP 工具、feishu/ 飞书网关、weixin/ 微信 ClawBot 网关、download.py 插件分发）
 plugins/opencode/  opencode 插件（TS）：心跳、任务接收执行、监控上报、中枢直连；commands/ 为 /swarm-* 命令源
 plugins/claude/    claude code 接入：keepalive.mjs（本地 MCP 保活）+ 后台任务执行 + /swarm-* 命令
 web/               React 管理前端（首页、文档、中枢、工作区、调用记录、账号、后台管理）

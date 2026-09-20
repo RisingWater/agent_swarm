@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlmodel import Session, select
 
-from server import models
+from server import crypto, models
 from server.auth import get_current_user, get_user_either
 from server.db import get_session, engine
 
@@ -25,20 +25,21 @@ def ws_out(ws: models.Workspace, session: Session) -> dict:
     owner = session.get(models.User, ws.user_id)
     online = ws_is_online(ws)
     effective = "online" if online else ("disabled" if ws.status == "disabled" else "offline")
+    key = (owner.api_key or "") if owner else ""
     return {
         "id": ws.id,
         "name": ws.name,
         "path": ws.path,
-        "purpose": ws.purpose,
+        "purpose": crypto.decrypt(key, ws.purpose_enc, ws.purpose),
         "capabilities": ws.capabilities,
-        "notes": ws.notes,
+        "notes": crypto.decrypt(key, ws.notes_enc, ws.notes),
         "status": effective,
         "raw_status": ws.status,
         "agent_type": ws.agent_type or None,
         "owner": {"id": owner.id, "username": owner.username} if owner else None,
         "last_heartbeat": ws.last_heartbeat.isoformat() + "Z" if ws.last_heartbeat else None,
         "session_id": ws.session_id,
-        "session_title": ws.session_title,
+        "session_title": crypto.decrypt(key, ws.session_title_enc, ws.session_title),
         "created_at": ws.created_at.isoformat() + "Z",
     }
 
@@ -100,7 +101,9 @@ def create_workspace(
         created = False
     purpose = str(body.get("purpose") or "").strip()
     if purpose:
-        ws.purpose = purpose
+        purpose_enc = crypto.encrypt(user.api_key or "", purpose)
+        ws.purpose_enc = purpose_enc
+        ws.purpose = "" if purpose_enc else purpose
     capabilities = str(body.get("capabilities") or "").strip()
     if capabilities:
         ws.capabilities = capabilities
@@ -114,7 +117,7 @@ def create_workspace(
         "workspace_id": ws.id,
         "created": created,
         "name": ws.name,
-        "purpose": ws.purpose,
+        "purpose": crypto.decrypt(user.api_key or "", ws.purpose_enc, ws.purpose),
         "status": ws.status,
     }
 

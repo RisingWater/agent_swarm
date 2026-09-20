@@ -59,26 +59,31 @@ def _sender_desc(task: models.A2aTask) -> str:
     return task.caller or "a2a-client"
 
 
-def _task_line(task: models.A2aTask) -> str:
-    question = (task.message or "").strip().replace("\r", "\n")
+def _task_line(task: models.A2aTask, owner_key: str = "") -> str:
+    from server import crypto
+
+    question = crypto.decrypt(owner_key, task.message_enc, task.message).strip().replace("\r", "\n")
     return next((ln.strip() for ln in question.split("\n") if ln.strip()), "")[:120]
 
 
 def _input_data(event: dict) -> dict:
+    # A2A 事件：status.message.parts[].data；监控轮事件：扁平 payload（type/requestId/... 直接在顶层）
     msg = (event.get("status") or {}).get("message") or {}
     for p in msg.get("parts") or []:
         if p.get("kind") == "data":
             return p.get("data") or {}
+    if not event.get("kind") and event.get("type"):
+        return event
     return {}
 
 
-def perm_card(task: models.A2aTask, workspace_name: str, event: dict) -> dict:
+def perm_card(task: models.A2aTask, workspace_name: str, event: dict, owner_key: str = "") -> dict:
     """权限/提问操作卡：工作区名 + 任务摘要 + 请求内容 + 按钮组。"""
     data = _input_data(event)
     itype = str(data.get("type", "permission"))
     request_id = str(data.get("requestId") or task.id)
     body: list[str] = [f"📤 {_sender_desc(task)}"]
-    task_line = _task_line(task)
+    task_line = _task_line(task, owner_key)
     if task_line:
         body.append(f"📋 任务：{task_line}")
 
@@ -113,7 +118,10 @@ def perm_card(task: models.A2aTask, workspace_name: str, event: dict) -> dict:
         })
     else:
         perm = str(data.get("permission") or "操作")
-        title = str(data.get("title") or data.get("pattern") or "")
+        pats = [str(p) for p in (data.get("patterns") or []) if str(p).strip()]
+        title = str(data.get("title") or "")
+        if not title and pats:
+            title = "访问/执行：" + "；".join(p[:80] for p in pats)[:200]
         body.append(f"🔐 权限请求：{perm}" + (f" — {title[:160]}" if title else ""))
         elements = [
             {"tag": "div", "text": {"tag": "lark_md", "content": "\n\n".join(body)}},
@@ -173,7 +181,16 @@ def answered_card(task_id: str) -> dict:
 
 
 async def _on_event(workspace_id: str, event: dict) -> None:
-    if event.get("kind") != "status-update":
+    kind = event.get("kind")
+    if not kind and event.get("type") in ("permission", "question"):
+        # 监控轮（TUI 前台会话）的权限/提问：四方应答先答先算（TUI/web 现成），
+        # 飞书在这里发独立卡（随 brief_on 窗口）。task_id = roundKey（a2a_tasks 里
+        # caller=monitor 的轮行 id），按钮应答走 reply 端点与 web 同路。
+        task_id = str(event.get("roundKey", ""))
+        if task_id and workspace_id:
+            await _on_input_required(workspace_id, event, task_id, from_monitor=True)
+        return
+    if kind != "status-update":
         return
     state_ = str((event.get("status") or {}).get("state", ""))
     task_id = str(event.get("taskId", ""))
@@ -185,16 +202,24 @@ async def _on_event(workspace_id: str, event: dict) -> None:
         await _on_leave_input(workspace_id, task_id, state_)
 
 
-async def _on_input_required(workspace_id: str, event: dict, task_id: str) -> None:
+async def _on_input_required(workspace_id: str, event: dict, task_id: str, from_monitor: bool = False) -> None:
     with Session(engine) as session:
         task = session.get(models.A2aTask, task_id)
         if task is None:
             return
-        if task.caller in ("nexus-feishu", "monitor"):
+        if from_monitor:
+            # 监控轮事件（TUI 前台会话）：轮行 caller 必然是 monitor，这正是要发卡的来源，
+            # 不能走下面的排除逻辑。四方应答先答先算（TUI/web 现成，飞书卡 + 微信卡在此补齐）
+            pass
+        elif task.caller in ("nexus-feishu", "monitor"):
             return  # 飞书自发任务走时间线；monitor 轮时间线卡已有按钮
         ws = session.get(models.Workspace, workspace_id)
         ws_name = ws.name if ws else "工作区"
         owner_user_id = ws.user_id if ws else ""
+        owner_key = ""
+        if owner_user_id:
+            u = session.get(models.User, owner_user_id)
+            owner_key = (u.api_key or "") if u else ""
         card_task = task.model_copy()
     if not owner_user_id:
         return
@@ -204,7 +229,7 @@ async def _on_input_required(workspace_id: str, event: dict, task_id: str) -> No
         return
     info = _active.get(task_id)
     data = _input_data(event)
-    card = perm_card(card_task, ws_name, event)
+    card = perm_card(card_task, ws_name, event, owner_key)
     # 同一任务重复 input-required（多轮权限/提问）：只推未收过该轮卡的窗口；
     # 简化处理：重发同一张卡（飞书里就是一条新消息，用户点最新的即可），并刷新注册表
     chat_ids = {c.chat_id for c in chats}

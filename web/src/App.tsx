@@ -11,6 +11,7 @@ import {
   type ChatBindInfo,
   type ChatBindChat,
   type ChatBindPatch,
+  type WeixinStatus,
 } from "./api"
 import { copyText } from "./copy"
 import { AdminPage } from "./AdminPage"
@@ -437,6 +438,19 @@ function FeishuIcon({ size = 18 }: { size?: number }) {
   )
 }
 
+/** 微信品牌图标（官方 SVG，web/public/weixin.svg，绿色） */
+function WeixinIcon({ size = 18 }: { size?: number }) {
+  return (
+    <img
+      src="/weixin.svg"
+      alt="微信"
+      width={size}
+      height={size}
+      style={{ flexShrink: 0 }}
+    />
+  )
+}
+
 function ChatBindPanel({ toast }: { toast: (m: string) => void }) {
   const [info, setInfo] = useState<ChatBindInfo | null>(null)
   const [workspaces, setWorkspaces] = useState<Workspace[]>([])
@@ -521,9 +535,11 @@ function ChatBindPanel({ toast }: { toast: (m: string) => void }) {
       <>
         <p className="section-label">[ 聊天工具绑定 ]</p>
         <p style={{ fontSize: 13, color: "var(--text-weak)" }}>
-          还没有绑定聊天工具。在飞书里给机器人发送 <code>/swarm bind as_你的密钥</code> 完成绑定
-          （密钥在「API Key」页复制），绑定后这里会显示绑定账号与窗口设置。
+          还没有绑定聊天工具。在飞书里给机器人发送 <code>/swarm bind as_你的密钥</code>
+          （密钥在「API Key」页复制），或用下面的微信扫码登录（无需绑定，扫自己的号即可）。
+          绑定后这里会显示绑定账号与窗口设置。
         </p>
+        <WeixinPanel toast={toast} />
       </>
     )
   }
@@ -546,8 +562,167 @@ function ChatBindPanel({ toast }: { toast: (m: string) => void }) {
         修改会即时生效，飞书窗口会收到一条变更通知。监控模式 = TUI 对话按时间线实时同步；
         简报模式 = 任务完成后推送一张结果摘要卡。
       </p>
+      <WeixinPanel toast={toast} />
     </>
   )
+}
+
+/** 微信 ClawBot（扫码登录自己的微信号作为 bot，扫码后微信里出现 ClawBot 会话） */
+function WeixinPanel({ toast }: { toast: (m: string) => void }) {
+  const [st, setSt] = useState<WeixinStatus | null>(null)
+  const [verifyCode, setVerifyCode] = useState("")
+  const [busy, setBusy] = useState(false)
+  const [errHint, setErrHint] = useState("")  // 上次扫码失败/过期的提示（点重新获取后清除）
+
+  const refresh = useCallback(() => {
+    api.weixinStatus().then(setSt).catch(() => setSt(null))
+  }, [])
+  useEffect(() => { refresh() }, [refresh])
+
+  // 扫码流程中轮询状态（终态后端已清流程，这里兜底切视图 + 记录失败原因）
+  useEffect(() => {
+    if (!st?.flow || st.flow.status === "confirmed" || st.flow.status === "expired" || st.flow.status === "error") {
+      if (st?.flow && (st.flow.status === "expired" || st.flow.status === "error")) {
+        setErrHint(st.flow.message)
+      }
+      return
+    }
+    const t = setInterval(() => {
+      api.weixinLoginStatus().then((s) => {
+        if (s.flow?.status === "expired" || s.flow?.status === "error") {
+          setErrHint(s.flow.message)
+        } else if (!s.flow && s.logged_in) {
+          toast("微信 ClawBot 已连接")
+        }
+        setSt(s)
+      }).catch(() => {})
+    }, 1500)
+    return () => clearInterval(t)
+  }, [st?.flow?.status, st?.flow])
+
+  const start = async () => {
+    setBusy(true)
+    try {
+      setSt(await api.weixinLoginStart())
+    } catch (e: any) { toast(e.message) } finally { setBusy(false) }
+  }
+  const cancel = async () => {
+    try { await api.weixinLoginCancel() } catch { /* ignore */ }
+    refresh()
+  }
+  const submitVerify = async () => {
+    if (!verifyCode.trim()) return
+    try { await api.weixinLoginVerify(verifyCode.trim()); setVerifyCode(""); toast("配对码已提交") } catch (e: any) { toast(e.message) }
+  }
+  const logout = async () => {
+    try { await api.weixinLogout(); toast("已断开微信连接"); refresh() } catch (e: any) { toast(e.message) }
+  }
+
+  const wsList = useWorkspacesForSelect()
+  const flow = st?.flow
+
+  return (
+    <div style={{ marginTop: 26, paddingTop: 18, borderTop: "1px solid var(--border)" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+        <WeixinIcon size={18} />
+        <b style={{ fontSize: 14 }}>微信 ClawBot</b>
+        {st?.logged_in ? <span style={{ fontSize: 12, color: "var(--ok, green)" }}>● 已连接</span>
+          : <span style={{ fontSize: 12, color: "var(--text-weak)" }}>未连接</span>}
+      </div>
+
+      {!st?.logged_in && !flow && (
+        <div>
+          <p style={{ fontSize: 13, color: "var(--text-weak)" }}>
+            扫码把<b>你自己的微信号</b>登录为本平台的 ClawBot。登录后微信里会出现一个 ClawBot
+            会话：发文字给它即可选择工作区、派任务、收简报、应答 AI 的提问与授权请求。
+          </p>
+          {errHint && (
+            <p style={{ fontSize: 13, color: "var(--danger, #c0392b)", marginBottom: 8 }}>{errHint}</p>
+          )}
+          <Btn size="sm" disabled={busy} onClick={() => { setErrHint(""); start() }}>
+            {errHint ? "重新获取二维码" : busy ? "获取中…" : "扫码登录微信"}
+          </Btn>
+        </div>
+      )}
+
+      {flow && flow.status !== "confirmed" && (
+        <div style={{ display: "flex", gap: 18, alignItems: "flex-start", flexWrap: "wrap" }}>
+          {flow.qrcode_img ? (
+            <div style={{ border: "1px solid var(--border)", borderRadius: 8, padding: 10, background: "#fff", position: "relative" }}>
+              <img src={flow.qrcode_img} alt="微信登录二维码"
+                style={{ width: 180, height: 180, display: "block", opacity: flow.status === "scanned" ? 0.2 : 1 }} />
+              {flow.status === "scanned" && (
+                <span style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center",
+                  fontSize: 13, color: "var(--ok, green)", fontWeight: 600 }}>✓ 已扫码</span>
+              )}
+            </div>
+          ) : (
+            <div style={{ width: 180, height: 180, border: "1px dashed var(--border)", borderRadius: 8,
+              display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, color: "var(--text-weak)" }}>
+              二维码加载中…
+            </div>
+          )}
+          <div>
+            <p style={{ fontSize: 13 }}>{flow.message}</p>
+            {flow.status === "need_verifycode" && (
+              <div className="keyrow" style={{ marginTop: 8 }}>
+                <input className="field" style={{ maxWidth: 140 }} placeholder="数字配对码"
+                  value={verifyCode} onChange={(e) => setVerifyCode(e.target.value)} />
+                <Btn size="sm" onClick={submitVerify}>提交</Btn>
+              </div>
+            )}
+            <div style={{ marginTop: 8 }}>
+              <Btn size="sm" variant="ghost" onClick={cancel}>取消</Btn>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {st?.logged_in && !flow && (
+        <div>
+          <p style={{ fontSize: 13 }}>
+            已登录：微信用户 <code>{(st.wx_user_id || "").slice(0, 18)}…</code>
+            {st.logged_at ? <span style={{ color: "var(--text-weak)", fontSize: 12 }}> · 登录于 {st.logged_at.slice(0, 16).replace("T", " ")}Z</span> : null}
+          </p>
+          <div style={{ display: "flex", gap: 18, alignItems: "center", flexWrap: "wrap", margin: "10px 0" }}>
+            <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, cursor: "pointer" }}>
+              <input type="checkbox" checked={!!st.monitor_on}
+                onChange={async (e) => { try { setSt(await api.weixinSettings({ monitor_on: e.target.checked })) } catch (err: any) { toast(err.message) } }} />
+              监控模式{st.monitor_on ? "（开）" : "（关）"}
+            </label>
+            <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, cursor: "pointer" }}>
+              <input type="checkbox" checked={st.brief_on !== false}
+                onChange={async (e) => { try { setSt(await api.weixinSettings({ brief_on: e.target.checked })) } catch (err: any) { toast(err.message) } }} />
+              简报模式{st.brief_on !== false ? "（开）" : "（关）"}
+            </label>
+          </div>
+          <div className="admin-toolbar">
+            <NexusWorkspaceSelect
+              list={wsList.map((w) => ({ id: w.id, name: w.name, path: w.path, agent_type: w.agent_type, owner: null }))}
+              value={st.workspace_id || ""}
+              onChange={async (id) => { try { setSt(await api.weixinSettings({ workspace_id: id })) } catch (err: any) { toast(err.message) } }}
+            />
+          </div>
+          <p style={{ fontSize: 12, color: "var(--text-weak)" }}>
+            在微信 ClawBot 会话里也可以用指令管理：/swarm select、/swarm monitor on、/swarm brief off 等（发 help 查看）。
+            微信连接受官方约 24h 有效期限制，失效后会提示重新扫码。
+          </p>
+          <Btn size="sm" variant="ghost" onClick={logout}>断开连接</Btn>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** 微信面板用的本用户工作区列表（轻量拉取） */
+function useWorkspacesForSelect(): Workspace[] {
+  const [list, setList] = useState<Workspace[]>([])
+  useEffect(() => {
+    let alive = true
+    api.workspaces().then((r) => { if (alive) setList(r) }).catch(() => {})
+    return () => { alive = false }
+  }, [])
+  return list
 }
 
 function ApiKeyPanel({ toast }: { toast: (m: string) => void }) {
@@ -777,7 +952,7 @@ function HomePage({ toast, loggedIn, onGoAccount, onOpenLogin, onGoDocs }: { toa
               <FeatureIcon kind="chat" />
               <h3>即时聊天工具接入</h3>
             </div>
-            <p>绑定飞书后，直接在聊天里给 agent 派任务：按轮次时间线实时围观思考与工具调用，任务完成后收到<b>结果简报</b>，权限请求远程点选应答。</p>
+            <p>绑定飞书或微信后，直接在聊天里给 agent 派任务：按轮次时间线实时围观思考与工具调用，任务完成后收到<b>结果简报</b>，权限请求远程点选/回复应答。</p>
           </div>
           <div className="home-card">
             <div className="home-card-head">
@@ -804,7 +979,7 @@ function HomePage({ toast, loggedIn, onGoAccount, onOpenLogin, onGoDocs }: { toa
           <li>让一个 agent 去另一个仓库执行测试、汇总结果</li>
           <li>在网页「中枢」里给任意在线 agent 直接下达指令，实时围观它干活</li>
           <li>开启监控模式，把 TUI 里和 agent 的日常对话实时同步到网页，随时远程回看</li>
-          <li>绑定飞书等即时聊天工具，在聊天里派活、看进度、收完成简报</li>
+          <li>绑定飞书 / 微信等即时聊天工具，在聊天里派活、看进度、收完成简报</li>
           <li>集中管理所有 AI 工作区的用途说明、备注与在线状态</li>
           <li>回溯每一次跨 agent 调用的指令与结果（调用记录）</li>
         </ul>
@@ -1087,12 +1262,13 @@ function DocsPage() {
             每个工具实例作为一个<b>工作区</b>注册进来，任意 agent 都可以把任务派发给其他 agent 执行——
             你写代码，它跑测试，另一个整理文档。
           </p>
-          <p>三个核心特点：</p>
+          <p>五个核心特点：</p>
           <ul>
             <li><b>开放标准协议</b> —— agent 操作是标准 MCP 工具，任务派发走标准 A2A 协议（Linux Foundation 开放标准），任何兼容客户端均可接入</li>
             <li><b>跨 agent 任务派发</b> —— 支持前台注入（任务进入对方当前会话，实时可见）与后台会话（独立会话静默执行）两种方式，结果自动回传</li>
             <li><b>中枢 Nexus</b> —— 在网页上直接给任意在线 agent 下指令，实时观看它思考、调用工具、给出答复</li>
             <li><b>实时看板</b> —— 工作区在线状态、每次调用的指令与结果，随时可查</li>
+            <li><b>即时聊天工具接入</b> —— 绑定飞书/微信，在聊天里派任务、收时间线直播与完成简报、远程应答权限请求</li>
           </ul>
           <p>
             接入后，你的 agent 会多出一组「虫群工具」：注册工作区、查看其他工作区、派发任务、查询结果——
@@ -1268,7 +1444,7 @@ agent: (a2a_call) → 对方 TUI 实时出现任务 → 执行 → 结果自动�
           <p>
             把虫群接进你日常使用的聊天工具：在聊天里直接给 agent 派任务、实时围观
             思考与工具调用的时间线，任务完成后收到<b>结果简报</b>，权限请求/AI 提问
-            直接点按钮应答。所有设置也可以在网页「账号 → 聊天工具绑定」里管理。
+            点按钮或回复编号应答。所有设置也可以在网页「账号 → 聊天工具绑定」里管理。
           </p>
           <h3>支持的聊天工具</h3>
           <table>
@@ -1279,8 +1455,23 @@ agent: (a2a_call) → 对方 TUI 实时出现任务 → 执行 → 结果自动�
                 <td>给机器人发 <code>/swarm bind as_你的密钥</code>（密钥在「API Key」页复制）</td>
                 <td>派任务 / 时间线直播 / 完成简报 / 监控同步 / 权限应答</td>
               </tr>
+              <tr>
+                <td>微信 ClawBot</td>
+                <td>网页「账号 → 聊天工具绑定 → 微信 ClawBot」扫码登录（用自己的微信号，无需 API Key）</td>
+                <td>派任务 / 任务详细流 / 完成简报 / 监控同步 / 权限编号应答</td>
+              </tr>
             </tbody>
           </table>
+          <h3>微信 ClawBot 绑定与使用</h3>
+          <ol>
+            <li>在网页「账号 → 聊天工具绑定」滚动到<b>微信 ClawBot</b> 区块，点<b>扫码登录微信</b></li>
+            <li>用手机微信扫码（登录流程要求时输入数字配对码），确认后你的微信里出现一个 <b>ClawBot</b> 会话</li>
+            <li>直接和它聊天即可派任务；扫码登录 token 约 24h 失效，过期后在账号页重新扫码即可</li>
+          </ol>
+          <p>
+            微信<b>无需服务端配置</b>（不同于飞书需要服务端 <code>FEISHU_APP_ID/SECRET</code>）；支持单聊，
+            暂无群聊。向 ClawBot 发普通文本 = 给当前选中工作区派任务（未选过会先弹出编号选择列表）。
+          </p>
           <h3>聊天命令</h3>
           <p>
             在聊天窗口里发送以下命令（<code>/swarm</code> + 未知命令会返回一张
@@ -1289,21 +1480,29 @@ agent: (a2a_call) → 对方 TUI 实时出现任务 → 执行 → 结果自动�
           <table>
             <thead><tr><th>命令</th><th>说明</th></tr></thead>
             <tbody>
-              <tr><td><code>/swarm bind as_xxx</code></td><td>绑定平台账号（API Key 页复制的密钥）</td></tr>
-              <tr><td><code>/swarm unbind</code></td><td>解绑账号</td></tr>
+              <tr><td><code>/swarm bind as_xxx</code></td><td>绑定平台账号（API Key 页复制的密钥）——仅飞书，微信不需要</td></tr>
+              <tr><td><code>/swarm unbind</code></td><td>解绑账号（仅飞书；微信在账号页点「断开」）</td></tr>
+              <tr><td><code>/q</code> / <code>/swarm</code></td><td>命令菜单（微信侧：回复编号执行；飞书侧：菜单卡点按钮）</td></tr>
               <tr><td><code>/swarm list</code></td><td>列出我的工作区（在线/类型）</td></tr>
-              <tr><td><code>/swarm select</code></td><td>选择当前窗口使用的工作区（下拉卡）</td></tr>
+              <tr><td><code>/swarm select</code></td><td>选择当前窗口使用的工作区（下拉卡/编号列表）</td></tr>
               <tr><td><code>/swarm status</code></td><td>当前绑定/工作区/监控/简报状态</td></tr>
               <tr><td><code>/swarm monitor on|off</code></td><td>前台会话实时同步：开启后 TUI 里的对话按时间线推到这个窗口（默认关）</td></tr>
               <tr><td><code>/swarm brief on|off</code></td><td>任务完成简报：工作区的任务（网页/agent/A2A 下发）完成后推一张结果卡片（默认开）</td></tr>
               <tr><td><code>/swarm last</code></td><td>最近一轮问答摘要（单卡：提问 + 最终回答）</td></tr>
+              <tr><td><code>/time</code> · <code>/重新连接</code></td><td>微信侧：服务器时间 / 重连 ClawBot 会话</td></tr>
             </tbody>
           </table>
+          <p>
+            微信侧应答规则：有待应答的权限/提问时（输入框上方可能显示编号选项），<b>任何输入都优先作为应答</b>
+            （回复 <code>1</code>/<code>2</code>/<code>3</code> 分别 = 允许一次 / 始终允许 / 拒绝；超出 1–3 或非数字 = 允许一次），
+            完成后任务继续执行。
+          </p>
           <h3>两种推送模式</h3>
           <ul>
             <li>
-              <b>时间线直播（监控模式）</b>——你在 TUI 里和 agent 的对话按轮次推成一组小卡：
-              用户卡 → 💭 思考过程 → 每个工具调用一张卡（命令/输出）→ 🤖 最终答复，权限请求直接点按钮。
+              <b>详细流 / 时间线直播（监控模式）</b>——你在 TUI 里和 agent 的对话按轮次推成一组小卡
+              （飞书）；微信则推纯文本：💭 思考过程、🔧 每个工具调用一行（命令/输出）、🤖 最终答复
+              全文，权限请求直接点按钮 / 回复编号应答。
             </li>
             <li>
               <b>完成简报（简报模式，默认开）</b>——网页中枢、其他 agent、A2A 外部调用下发的任务
@@ -1313,6 +1512,11 @@ agent: (a2a_call) → 对方 TUI 实时出现任务 → 执行 → 结果自动�
           </ul>
           <p>
             直接发普通文本 = 给当前选中的工作区派任务；未选择工作区时会先弹出选择卡。
+          </p>
+          <p>
+            <b>跨渠道权限应答</b>：无论权限/提问来自网页中枢还是 TUI 监控轮，只要简报模式开着，
+            web / 飞书 / 微信会<b>同时</b>收到提示——谁先应答谁生效，其余渠道的后续应答会干净失败
+            （不会重复放行）。
           </p>
         </section>
 
@@ -1404,11 +1608,21 @@ agent: (a2a_call) → 对方 TUI 实时出现任务 → 执行 → 结果自动�
           <p>
             点击顶部用户名进入「账号 → API Key」，随时查看（默认打码）、复制或重置。
             重置后旧 Key 立即失效，已接入的 agent 需要重新安装或更新配置。
+            开启了落库加密时，重置会自动用新 Key 重加密你的历史记录，历史不丢。
           </p>
           <h3>安全吗？</h3>
           <p>
             所有请求都经过鉴权。跨 agent 任务会注入目标工作区的会话——
             只把你信任的机器接入虫群。
+          </p>
+          <h3>数据是明文存库的吗？</h3>
+          <p>
+            默认是。在服务器 <code>.env</code> 配置 <code>AGENT_SWARM_ENC_KEY</code> 后开启<b>落库加密</b>：
+            工作区描述/备注/会话标题、任务指令/结果/错误、以及中枢事件流原文（含思考与工具调用）都会加密存储，
+            管理后台也只能在服务器上解密查看。加密密钥由「服务器密钥 + 你的 API Key」联合派生——
+            泄露数据库文件本身无法解密内容。
+            <b>注意</b>：不配置该密钥则全部明文落库；密钥一旦丢失，已加密的历史内容将永久无法读取（平台本身不受影响），
+            请务必备份。可选配置 <code>AGENT_SWARM_ENC_KEY_RECOVERY</code> 恢复密钥兜底。
           </p>
         </section>
       </article>
@@ -1469,14 +1683,17 @@ function toolCommand(input: Record<string, unknown> | undefined): string {
 }
 
 /** 自绘下拉：选项内可嵌 agent 图标（原生 option 不支持 SVG） */
-function NexusWorkspaceSelect({ list, value, onChange }: {
-  list: Workspace[]
+export function NexusWorkspaceSelect({ list, value, onChange, showOwner }: {
+  list: Array<{ id: string; name: string; path: string; agent_type?: string | null; owner?: string | { username: string } | null }>
   value: string
   onChange: (id: string) => void
+  showOwner?: boolean
 }) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
   const current = list.find((w) => w.id === value)
+  const ownerName = (w: { owner?: string | { username: string } | null }) =>
+    typeof w.owner === "string" ? w.owner : w.owner?.username || ""
 
   useEffect(() => {
     if (!open) return
@@ -1494,6 +1711,7 @@ function NexusWorkspaceSelect({ list, value, onChange }: {
           <>
             <AgentTypeIcon type={current.agent_type} />
             <span>{current.name}</span>
+            {showOwner && ownerName(current) ? <span className="nexus-select-item-path">@{ownerName(current)}</span> : null}
           </>
         ) : (
           <span className="nexus-select-placeholder">选择工作区…</span>
@@ -1512,7 +1730,7 @@ function NexusWorkspaceSelect({ list, value, onChange }: {
               onClick={() => { onChange(w.id); setOpen(false) }}
             >
               <AgentTypeIcon type={w.agent_type} />
-              <span className="nexus-select-item-name">{w.name}</span>
+              <span className="nexus-select-item-name">{w.name}{showOwner && ownerName(w) ? ` @${ownerName(w)}` : ""}</span>
               <span className="nexus-select-item-path">{w.path}</span>
             </button>
           ))}

@@ -85,8 +85,17 @@ const plugin: Plugin = async (input) => {
 
   // ---------------- nexus A2A（中枢/互调统一链路）状态 ----------------
   let nexus: NexusA2AClient | null = null
-  /** 进行中的 A2A 任务：taskId → session（前台注入的任务轮；事件路由的判据） */
-  const a2aRuns = new Map<string, string>()
+  /** 进行中的 A2A 任务：taskId → 运行信息（前台注入的任务轮；事件路由的判据） */
+  interface A2aRun {
+    sessionId: string
+    /** promptAsync 已成功返回（在此之前收到的 session.idle 是上一轮的，不能当成任务完成） */
+    injected: boolean
+    /** 注入前会话最后一条 assistant 消息 id——idle 时只取其之后的文本，防止串轮 */
+    lastAssistantIdBefore: string
+  }
+  const a2aRuns = new Map<string, A2aRun>()
+  /** A2A 轮已上报的权限/提问 id（去重；session.idle 清空） */
+  const a2aInputSeen = new Set<string>()
   /** A2A 事件上报（走当前 WS 连接，断连入缓冲） */
   function a2aEmit(event: Record<string, unknown>) {
     nexus?.send({ type: "event", payload: event })
@@ -101,6 +110,10 @@ const plugin: Plugin = async (input) => {
     userMessageId: string // 开轮的 user 消息 id（其 text part 是提问本身，不当回答上报）
     messageIds: Set<string>
     inputState: "permission" | "question" | null
+    /** 已上报的权限/提问 request id：去重按 id，不按 inputState 单值——
+     *  同一轮内 reject/应答后还会弹新的权限框（新 id），单值状态会把它们全部吞掉
+     *  （真机事故 2026-09-20 00:54：TUI 弹框但微信/飞书静默） */
+    inputSeen: Set<string>
   }
   const monRounds = new Map<string, MonRound>()
 
@@ -148,6 +161,34 @@ const plugin: Plugin = async (input) => {
       if (texts.length) return texts.join("\n")
     }
     return ""
+  }
+
+  /** 消息数组里最后一条 assistant 消息的 id（快照用） */
+  function lastAssistantMsgId(messages: any[]): string {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i]
+      const info = m?.info ?? m
+      if (info?.role === "assistant") return String(info?.id ?? m?.id ?? "")
+    }
+    return ""
+  }
+
+  /** 只取「afterId 之后」的 assistant 文本——任务轮 artifact 不得回退到上一轮的回答。
+   *  opencode 消息按时间序追加，找到 afterId 后只看其后消息；找不到 afterId（被清理等）
+   *  时退化为全量取最后一条（与旧行为一致）。 */
+  function extractAssistantTextAfter(messages: any[], afterId: string): string {
+    if (!afterId) return extractLastAssistantText(messages)
+    let start = -1
+    for (let i = 0; i < messages.length; i++) {
+      const m = messages[i]
+      const mid = String(m?.info?.id ?? m?.id ?? "")
+      if (mid && mid === afterId) {
+        start = i
+        break
+      }
+    }
+    if (start < 0) return extractLastAssistantText(messages)
+    return extractLastAssistantText(messages.slice(start + 1))
   }
 
   /** 判断最后一条 assistant 消息是否停在工具调用上（需要 nudge） */
@@ -237,7 +278,15 @@ const plugin: Plugin = async (input) => {
       sessionId = created?.data?.id ?? created?.id ?? ""
     }
     if (!sessionId) return null
-    a2aRuns.set(task.taskId, sessionId)
+    // 注入前快照：记录最后一条 assistant 消息 id，idle 时只取其之后的新文本
+    let lastAssistantIdBefore = ""
+    try {
+      const before: any = await client.session.messages({ path: { id: sessionId } }).catch(() => null)
+      const msgsBefore: any[] = Array.isArray(before?.data) ? before.data : []
+      lastAssistantIdBefore = lastAssistantMsgId(msgsBefore)
+    } catch { /* 快照失败不阻塞注入 */ }
+    const run: A2aRun = { sessionId, injected: false, lastAssistantIdBefore }
+    a2aRuns.set(task.taskId, run)
     log(`a2a ${task.taskId.slice(0, 8)}: session ${sessionId}`)
 
     // working 状态 + 用户消息回显（时间线上的提问条目）
@@ -260,6 +309,7 @@ const plugin: Plugin = async (input) => {
         path: { id: sessionId },
         body: { parts: [{ type: "text", text: buildTaskPrompt(text, caller, task.taskId) }] },
       })
+      run.injected = true
     } catch (e) {
       a2aEmit(
         statusUpdate(task, "failed", {
@@ -283,8 +333,8 @@ const plugin: Plugin = async (input) => {
   /** sessionID 是否属于进行中的 A2A 任务（前台注入轮） */
   function isA2aSession(sid: unknown): boolean {
     if (typeof sid !== "string" || !sid) return false
-    for (const runSid of a2aRuns.values()) {
-      if (runSid === sid) return true
+    for (const run of a2aRuns.values()) {
+      if (run.sessionId === sid) return true
     }
     return false
   }
@@ -309,29 +359,31 @@ const plugin: Plugin = async (input) => {
         if (part.text?.trim()) a2aEmit(streamStatus(task, "text", partId, part.text))
       }
     } else if (type === "permission.asked") {
-      // 权限请求 → input-required（卡在 TUI 的授权菜单 web 端看不到）
+      // 权限请求 → input-required。
+      // 去重按 request.id 本轮内独立记录：不能借 monRounds 的 inputState——
+      // A2A 轮结束后无人清理，残留的 "permission" 会吞掉同 session 后续所有权限上报
+      // （真机事故 2026-09-19：第二个任务的权限卡永远不发）。
       const request = props as Record<string, any>
       const permissionId = String(request.id ?? "")
-      const taskInput = monRounds.get(sessionId) // 借用轮次表记录 input 去重（A2A 轮自身无表项）
-      if (permissionId && taskInput?.inputState !== "permission") {
-        if (taskInput) taskInput.inputState = "permission"
+      if (permissionId && !a2aInputSeen.has(permissionId)) {
+        a2aInputSeen.add(permissionId)
         a2aEmit(
           inputRequired(task, "permission", {
             requestId: permissionId,
             sessionId,
             permission: String(request.permission ?? request.type ?? "unknown"),
-            title: String(request.title ?? request.pattern ?? ""),
+            title: String(request.title ?? ""),
+            patterns: Array.isArray(request.patterns) ? request.patterns.map(String) : [],
           }),
         )
       }
     } else if (type === "question.asked") {
-      // AI 提问 → input-required
+      // AI 提问 → input-required（去重同上：按 question.id，独立于监控轮状态）
       const request = props as Record<string, any>
       const questionId = String(request.id ?? "")
       const q = Array.isArray(request.questions) ? request.questions[0] : undefined
-      const taskInput = monRounds.get(sessionId)
-      if (questionId && q && taskInput?.inputState !== "question") {
-        if (taskInput) taskInput.inputState = "question"
+      if (questionId && q && !a2aInputSeen.has(questionId)) {
+        a2aInputSeen.add(questionId)
         a2aEmit(
           inputRequired(task, "question", {
             requestId: questionId,
@@ -379,6 +431,7 @@ const plugin: Plugin = async (input) => {
         userMessageId: msgId,
         messageIds: new Set([msgId]),
         inputState: null,
+        inputSeen: new Set(),
       }
       monRounds.set(sid, round)
       // 先发空文本 user 事件开轮（服务端建行依赖它），再异步补拉提问文本
@@ -426,20 +479,23 @@ const plugin: Plugin = async (input) => {
     } else if (type === "permission.asked") {
       const request = props as Record<string, any>
       const permissionId = String(request.id ?? "")
-      if (permissionId && round.inputState !== "permission") {
+      if (permissionId && !round.inputSeen.has(permissionId)) {
+        round.inputSeen.add(permissionId)
         round.inputState = "permission"
         monEmit(round, sid, {
           type: "permission",
           requestId: permissionId,
           permission: String(request.permission ?? request.type ?? "unknown"),
-          title: String(request.title ?? request.pattern ?? ""),
+          title: String(request.title ?? ""),
+          patterns: Array.isArray(request.patterns) ? request.patterns.map(String) : [],
         })
       }
     } else if (type === "question.asked") {
       const request = props as Record<string, any>
       const questionId = String(request.id ?? "")
       const q = Array.isArray(request.questions) ? request.questions[0] : undefined
-      if (questionId && q && round.inputState !== "question") {
+      if (questionId && q && !round.inputSeen.has(questionId)) {
+        round.inputSeen.add(questionId)
         round.inputState = "question"
         monEmit(round, sid, {
           type: "question",
@@ -547,19 +603,20 @@ const plugin: Plugin = async (input) => {
     onPermissionReply: async (requestId, reply, replyTaskId) => {
       await onPermissionReplyImpl("", requestId, reply)
       // 应答后补 working 状态：服务端/前端结束 input-required 等待态。
-      // replyTaskId 非空 = 监控轮（A2A 轮走 onReply 路径自行处理）；同一轮可能有多个权限排队，仅在无其他等待时回 working
+      // replyTaskId 非空 = 监控轮（A2A 轮走 onReply 路径自行处理）；等待结束清 inputState，
+      // 同轮后续新权限框（新 id）会重新上报并刷新状态
       if (replyTaskId) {
-        const still = [...monRounds.values()].some((r) => r.roundKey === replyTaskId && r.inputState)
-        if (!still) monitorEmit({ roundKey: replyTaskId, type: "replied", requestId })
-        else monitorEmit({ roundKey: replyTaskId, type: "replied", requestId, stillWaiting: true })
+        const round = [...monRounds.values()].find((r) => r.roundKey === replyTaskId)
+        if (round) round.inputState = null
+        monitorEmit({ roundKey: replyTaskId, type: "replied", requestId })
       }
     },
     onQuestionReply: async (requestId, answers, replyTaskId) => {
       await onQuestionReplyImpl("", requestId, answers)
       if (replyTaskId) {
-        const still = [...monRounds.values()].some((r) => r.roundKey === replyTaskId && r.inputState)
-        if (!still) monitorEmit({ roundKey: replyTaskId, type: "replied", requestId })
-        else monitorEmit({ roundKey: replyTaskId, type: "replied", requestId, stillWaiting: true })
+        const round = [...monRounds.values()].find((r) => r.roundKey === replyTaskId)
+        if (round) round.inputState = null
+        monitorEmit({ roundKey: replyTaskId, type: "replied", requestId })
       }
     },
     onTaskCancel: (taskId) => {
@@ -568,7 +625,7 @@ const plugin: Plugin = async (input) => {
         log(`a2a ${taskId.slice(0, 8)}: background process killed`)
         return // 进程 close 回调会上报 canceled/failed 终态
       }
-      const sessionId = a2aRuns.get(taskId)
+      const sessionId = a2aRuns.get(taskId)?.sessionId
       const task: A2aTaskRef = { taskId, contextId: taskId }
       a2aEmit(
         statusUpdate(task, "canceled", {
@@ -595,21 +652,31 @@ const plugin: Plugin = async (input) => {
       const type = anyEvt?.type as string
       const props = (anyEvt?.properties ?? {}) as Record<string, any>
       const isIdle = type === "session.idle"
+      // 事件到达时的 A2A 会话快照：任务轮的 idle 会在分支 1 里 cleanupRun，
+      // 到分支 2 时 isA2aSession() 已经查不到——必须用事件入口的快照判断，
+      // 否则任务轮的 idle 会被当成监控轮 idle 上报，服务端误发简报
+      // （真机事故 2026-09-20：微信任务完成后收到上一轮的监控简报）。
+      const sidIsA2a = isA2aSession(sid)
 
       // ---- 1) A2A 任务轮（sessionID 命中进行中的任务）----
-      for (const [taskId, runSid] of a2aRuns) {
+      for (const [taskId, run] of a2aRuns) {
+        const runSid = run.sessionId
         if (runSid !== sid) continue
         const task: A2aTaskRef = { taskId, contextId: taskId }
         if (!isIdle) {
+          if (!run.injected) continue // 注入未完成：事件属于上一轮，不投影
           try { handleA2aRound(task, sid, type, props) } catch { /* 单任务失败不影响其他 */ }
         } else {
-          // session.idle：本轮 prompt 处理完毕 → 提取结果发 completed + Artifact
+          // session.idle：注入完成后的 idle 才是本轮完成信号；注入前的 idle 属于上一轮
+          if (!run.injected) continue
           try {
             // idle 后再等一拍，避免消息尚未落盘
             await new Promise((r) => setTimeout(r, 1_000))
             const rsp: any = await client.session.messages({ path: { id: sid } }).catch(() => null)
             const msgs: any[] = Array.isArray(rsp?.data) ? rsp.data : []
-            const lastText = extractLastAssistantText(msgs)
+            // 只取注入快照之后的新 assistant 消息——否则上一轮的回答会被当成
+            // 本轮 artifact（真机事故 2026-09-20：reject 中断的任务收到了上一轮的回答）
+            let lastText = extractAssistantTextAfter(msgs, run.lastAssistantIdBefore)
             if (lastText) {
               a2aEmit(artifactUpdate(task, lastText, true, `artifact-${taskId}`))
               a2aEmit(statusUpdate(task, "completed", { final: true, metadata: { session_id: sid } }))
@@ -634,13 +701,14 @@ const plugin: Plugin = async (input) => {
             log(`a2a ${taskId.slice(0, 8)}: execute failed: ${e}`)
           }
           cleanupRun(taskId)
+          a2aInputSeen.clear() // 轮次结束：清权限/提问去重表（避免残留吞后续上报）
         }
       }
 
       // ---- 2) 前台监控轮（非任务会话 + monitor 开 + 本地当前会话）----
       // 后台会话（headless spawn）不经过本进程 event hook，天然排除；
-      // A2A 注入的轮次因 a2aRuns 命中已在上面处理，这里不会重复上报。
-      if (!isA2aSession(sid) && monitorEnabled() && sid && sid === currentSessionId) {
+      // A2A 注入的轮次用事件入口快照排除（不能用 isA2aSession 实时判断——分支 1 可能已 cleanup）。
+      if (!sidIsA2a && monitorEnabled() && sid && sid === currentSessionId) {
         try { handleMonitorRound(sid, type, props, isIdle) } catch { /* 监控失败不影响主流程 */ }
       }
 

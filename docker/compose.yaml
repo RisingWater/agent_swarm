@@ -24,6 +24,10 @@ services:
     environment:
       # 生产环境务必改成随机长字符串
       AGENT_SWARM_JWT_SECRET: ${AGENT_SWARM_JWT_SECRET:-agent-swarm-dev-secret-change-me}
+      # 静态内容落库加密（推荐）：设置后敏感内容密文落库；密钥丢失=加密历史永久不可读，务必备份
+      # AGENT_SWARM_ENC_KEY: ${AGENT_SWARM_ENC_KEY:-}
+      # 恢复密钥（可选，与主密钥分开保存）：主密钥丢失时的解密兜底
+      # AGENT_SWARM_ENC_KEY_RECOVERY: ${AGENT_SWARM_ENC_KEY_RECOVERY:-}
       # 有公网域名/反代时设置，注入到 /download/install.* 的服务地址
       # AGENT_SWARM_PUBLIC_URL: https://swarm.example.com
     volumes:

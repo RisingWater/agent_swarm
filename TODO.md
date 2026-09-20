@@ -1,12 +1,12 @@
 # agent_swarm 开发进度 TODO
 
-> 更新时间: 2026-09-15 深夜 · Windows 机（D:\wangxu\work\agent_swarm，workspace ID 4g8rHi43MHaWurH9XYsGNH）
+> 更新时间: 2026-09-20 · Windows 机（D:\wangxu\work\agent_swarm，workspace ID 4g8rHi43MHaWurH9XYsGNH）
 > 服务已跑在 :8700（.\deploy\start.ps1 后台窗口运行）· 前端构建产物由 8700 静态托管
-> **前台会话实时监控（nexus monitor）已完成并全链路 E2E 验证**（见已完成第 1 节）；下一个功能：nexus-feishu
+> **alpha-v0.1 已发布**（tag = dev 快照 d3daafa，master 为其发布流水；GHCR 镜像 CI 就绪）。0.1 后主线：nexus-feishu 飞书渠道、后台管理页（详见 git log，TODO 未逐条补记）；落库加密已完成；**nexus-weixin-clawbot 微信渠道真机 E2E 已过（2026-09-20）**，含跨渠道权限四方先答先算
 
 ## 项目一句话
 
-多 agent 协作平台（虫群）：FastAPI 单服务（管理 API + MCP 端点 + A2A 网关 + 插件分发）+ 多 agent 插件（plugins/ 下 opencode / claude）+ 纯 React 前端。面向 agent 的操作全部走服务端 MCP 工具；工作区互调 / web 中枢 / 外部 agent 统一走 A2A 协议（`server/nexus_a2a.py` 手写子集）；插件负责心跳保活 + A2A 任务接收执行 + 前台会话实时监控上报。
+多 agent 协作平台（虫群）：FastAPI 单服务（管理 API + MCP 端点 + A2A 网关 + 插件分发）+ 多 agent 插件（plugins/ 下 opencode / claude）+ 纯 React 前端。面向 agent 的操作全部走服务端 MCP 工具；工作区互调 / web 中枢 / 外部 agent 统一走 A2A 协议（`server/nexus_a2a.py` 手写子集）；插件负责心跳保活 + A2A 任务接收执行 + 前台会话实时监控上报。敏感内容可选密文落库（`server/crypto.py`，`AGENT_SWARM_ENC_KEY` 开启）。
 
 ## 架构演进史（历次用户拍板，读懂再动手）
 
@@ -19,6 +19,14 @@
 - **2026-09-14 claude 只做后台（用户拍板）**：claude 无前台注入，全部任务走 headless `claude -p` 后台执行；keepalive 进程兼任 A2A 任务接收
 - **2026-09-14 /swarm-* 命令 TUI 化**：md 命令 → 原生 TUI 命令（tui.ts）；后 /swarm-add 因 headless 总结方案废弃**回退 md 命令**，其余 4 个保持 TUI
 - **2026-09-15 监控模式（用户拍板）**：前台会话实时监控——TUI 日常对话按轮次实时同步网页中枢，与 A2A 任务轮混排（单 event hook 管道分流，中枢任务不重复上报）；只监控前台会话；`/swarm-monitor` 开关默认开；监控轮入调用记录（[monitor] 标注，双方=工作区自己）；权限远程应答与 A2A 轮共用 reply 端点
+- **2026-09-15 本地状态目录化 + 后台会话收尾**：工作区本地状态统一收进项目根 `.agent_swarm/`（`workspace.md` 的 WORKSPACE_ID + `sessions.json` 的 caller→后台会话映射）；claude 后台会话全链路修复（Linux 机：strict-mcp-config 启动、input_json_delta 累积工具输入、事件缓冲跨 WS 断连、server 侧 working 超时 reaper）；web 中枢给 claude 拆专属 claude-tui 终端主题与控制；服务端关掉 MCP SDK 的 DNS rebinding host 校验（LAN IP 客户端直连）；docker 镜像内嵌 plugin-dist（不再依赖外部挂载）
+- **2026-09-16 nexus-feishu 飞书渠道（用户排期第 1 项）**：飞书自建应用（服务端 env `FEISHU_APP_ID/SECRET`）接入中枢，caller=nexus-feishu，复用 A2A 下发/事件流/应答链路；`/swarm bind as_密钥` 绑定；卡片对齐 opencode-feishu 风格——**timeline 时间线多卡模式**（用户卡→💭思考→逐工具卡→🤖回答）、未知指令（含所有非 /swarm 斜杠命令）→ 状态摘要+命令按钮菜单卡、sequence 冲突修复
+- **2026-09-17 简报模式 + 前台唯一轮 + 聊天绑定管理（用户拍板）**：聊天渠道区分「详细流/监控模式」（你自己 TUI 对话实时直播）与「**简报模式**」（其它来源——web/agent/外部 A2A 派发的任务完成后推摘要卡，默认开）；一个工作区同时只有一个前台轮次（新一轮自动收尾上一轮，杜绝永远 running）；web 账号页「聊天工具绑定」统一管理各窗口的 workspace/monitor/brief；调用记录显示真实发起工作区（a2a_call 加 from_workspace）；显示飞书真实用户名
+- **2026-09-18 权限/提问卡无条件推 + 后台管理页 + 发行准备**：权限/提问卡**不受简报开关限制**（任何来源任务等待输入即推飞书，权限可远程应答优先）；彻底移除 1800s 任务超时收割（改为懒超时，见 `AGENT_SWARM_CALL_TIMEOUT`）；新增后台管理页（`/#/admin` 独立登录：面板/用户/工作区/调用记录 tab）；CI 构建镜像推 GHCR（v* tag 或手动触发）；README 重写双语（功能摘要/部署/详细功能三段）+ **双许可（AGPL-3.0 + 商业许可）+ CLA**
+- **2026-09-19 静态内容落库加密**：`AGENT_SWARM_ENC_KEY` 可选启用；**子密钥 = sha256(server_key+":"+user_apikey) 每用户独立**——盗库文件单独无用；密文 `enc1:<fernet>`；存量明文幂等回填、密钥轮换恢复密钥、apikey 重置联动重加密；加密列（purpose/notes/session_title/message/artifact/error/payload）
+- **2026-09-19 微信 ClawBot 渠道（nexus-weixin-clawbot）**：与飞书同构但传输完全不同——官方 Tencent iLink Bot API 2.4.6（HTTP/JSON 长轮询，无 SDK，协议参考 D:\wangxu\work\weixin-ClawBot-API）；**每用户扫自己的微信做成 bot**（一人一行表，token 加密落库，无服务端 env 配置）；扫码二维码是 liteapp URL → qrcode[pil] 渲染 PNG；仅私聊、回复必须带最近入站 context_token、getupdates 游标持久化、token ~24h 过期重扫；**无卡片无按钮**——权限/提问渲染为编号文本选项（1/2/3 → once/always/reject），**纯数字应答**
+- **2026-09-19 分发模型统一（用户拍板，docs/channel-dispatch-design.md）**：微信自己派的 A2A 任务 → **详细流**（💭思考/🔧工具行/最终回答全量，终态免简报）；监控轮 → monitor_on 推详细流 + idle 有最终回答才简报（tool-only 空轮静默）；其它来源（web/飞书/agent 互调/A2A 外部）→ 终态简报 + input-required 单卡；飞书侧对齐（简报入口跳过 artifact 为空的监控轮）
+- **2026-09-20 跨渠道权限/提问四方先答先算（用户拍板）**：TUI 监控轮或 A2A 任务拉起 permission/question 且简报开着 → **web/飞书/微信同时收卡**，谁先应答谁生效、任务翻出 input-required、其余渠道后续应答干净失败；插件权限/提问改按 **request id** 去重（`inputSeen`/`a2aInputSeen` 集合，非单值状态——同轮第二个权限曾全渠道被吞）；opencode 权限事件**无 title**、路径/命令在 `patterns[]` → 渠道卡显示 `访问/执行：<patterns>`；微信渠道真机 E2E 全过（任务详细流/权限应答/简报/菜单/监控同步）
 - ~~**headless spawn opencode 生成 purpose**~~（2026-09-14 已废弃）：挂 `--session 当前会话` 把对话上下文带进总结上传过屁话；专属 summarySessionId 复用会话方案复杂度又高，写了又删。purpose 回归前台 agent 自己分析（md 命令流程）
 - ~~teams 团队功能~~（API/前端已删，**表保留**，用户"想好后再加"）
 - ~~request_help 求助体系~~（被 workspace_call 替代后整体删除，help_requests 表已 DROP）
@@ -27,6 +35,59 @@
 - ~~e2e 测试脚本~~（用户 2026-09-12 决定放弃，scripts/test_plugin_smoke.ts 是死代码可删可留）
 
 ## 已完成（除注明外均已进 git）
+
+### 微信 ClawBot 渠道 nexus-weixin-clawbot（2026-09-19 实现 + 2026-09-20 真机 E2E 全过）
+
+- ✅ **模型**：`weixin_logins` 表（一人一行：每用户扫**自己的**微信号登录为 bot，本人 ↔ ClawBot 会话私聊；bot_token 走 crypto 按用户 apikey 加密落库 `token_enc`；cursor_buf 游标/context_token/workspace/monitor/brief 同表）
+- ✅ **`server/weixin/gateway.py`**：iLink 2.4.6 HTTP 客户端（头规范/随机 UIN/base_info/ret=-14 判失效）+ 扫码登录（get_bot_qrcode→get_qrcode_status 轮询：wait/scaned/need_verifycode/scaned_but_redirect 切节点/confirmed）+ **每用户会话管理器**（getupdates 长轮询、游标持久化、-14 置 need_relogin、服务重启 start_all 恢复）
+- ✅ **`render.py`**：简报 MD（提问首行+回答/失败原因）、监控 thinking 文本、tool 官方 item（type 11/12）+ 文本行降级、权限/提问文本编号卡
+- ✅ **`commands.py`**：/swarm help|list|select（编号回复）|status|last|monitor on/off|brief on/off|/time|/重新连接；普通文本 = 待应答任务优先路由（reply_task_from_feishu 通用复用）→ 选中工作区下发（caller=nexus-weixin-clawbot）
+- ✅ **`bridge.py`**：internal_listeners → 简报推终态 MD、input-required 推文本卡+入待应答、监控轮按 monitor_on 转发（thinking 文本/tool 官方 item 带降级、节流去重）
+- ✅ **登录 API**（JWT）：login/start（二维码 HTTPS 链接直出）/login/status（1.5s 前端轮询）/login/verify（配对码）/login/cancel/logout/status/settings
+- ✅ **web 账号页**：「聊天工具绑定」tab 飞书区块**下方**新增微信 ClawBot 区块——未登录显示二维码+配对码输入；已登录显示账号/选中工作区（复用 NexusWorkspaceSelect）/monitor/brief 开关/断开按钮
+- ⚠️ **待真机 E2E（下一步必做）**：① 扫码后微信里出现 ClawBot 会话、本人发消息 getupdates 能收到（from_user_id=本人）② 官方 tool_call item（type 11/12）在普通微信客户端的显示效果 ③ Markdown 简报的实际渲染 ④ GENERATING 流式（用户已拍板**不做**打字机流式）
+- ⚠️ 已知约束：仅私聊（官方 ChatType=direct）；回复必须带最近入站 context_token（用户久未发言推不出去，重启后靠 DB 恢复）；媒体消息（AES+CDN）v1 不做
+- ✅ **E2E 修复轮（2026-09-19 下午，真机扫码后）**：
+  - 扫码登录 500（`gateway.httpx_client` 残留引用）→ 内联 httpx client
+  - 二维码显示为链接不是图片（iLink `qrcode_img_content` 是 liteapp URL，文档急开局节明确提过）→ 服务端 qrcode[pil] 渲染成 PNG data URI
+  - confirmed 后二维码残留（flow 终态不清理）→ confirmed/expired/error 都 pop flow + 关轮询 client；前端已连接视图不再显示二维码；过期/出错回未登录视图显示红字提示 + 重新获取按钮
+  - 提示文案折行（自己加的 maxWidth 画蛇添足）→ 去掉
+  - **消息无反应根因**：`gateway._handle_msg` 调了不存在的 `bridge.handle_inbound`（实际在 commands.py）→ 已接线；日志证明消息接收/from 过滤/游标推进全部正常，断在最后一跳
+  - 监控轮简报刷屏（"无最终回答文本"）：监控轮（caller=monitor）常无 text 事件（tool-only 轮），artifact 为空 → bridge 排除 caller=monitor 的简报（对齐飞书侧排除自身渠道）；微信简报只推渠道下发的任务（nexus-weixin-clawbot/nexus-web/agent 等的 artifact 是完整的）
+  - **交互菜单化**（用户要求）：`/q` 出命令菜单回 /1-/7 执行；/swarm select 与未选工作区时自动出编号选择列表（/N 选择）；未识别 / 命令回菜单；监控/简报开关不带参数即翻转；交互状态 `_menus[uid]`（TTL 5 分钟）
+  - 排查期日志：`data/weixin.log`（收发消息/过滤判定全链路），E2E 通过后可删
+- ✅ **分发模型统一（2026-09-19 晚，按用户拍板模型，设计文档 docs/channel-dispatch-design.md）**：
+  - **微信自己派的 A2A 任务 → 详细流**（此前完全没有）：`bridge._stream_task_event` 推 💭 thinking 文本、🔧 tool（官方 item 优先/文本降级，按 callId 节流）、input-required 编号选项卡（入 pending）、completed 时**最终回答全量一条**（artifact 优先，流式 text 不逐段发防碎片刷屏）；**终态免简报**（详细流已覆盖，`_brief_round` 加防御性 caller 守卫）
+  - **监控轮（TUI）**：monitor_on 推详细流（现状保留）+ idle 后有最终回答才发简报（tool-only 空轮静默）
+  - **其它来源**（web/飞书/agent 互调/A2A 外部）：终态简报 + input-required 单卡（现有逻辑保留）
+  - A2A 事件 metadata.nexus 为 **snake_case**（call_id/tool_state/part_id/mode，插件 nexus_a2a.ts:135 定义）——与 web 前端 camelCase 读法不同，桥接层必须用 snake_case
+  - 飞书侧 F2 微调：brief.py 监控轮 artifact 为空跳过（同微信守卫，防"无最终回答文本"卡刷屏）
+  - ⚠️ 真机验收清单见 docs/channel-dispatch-design.md §6（微信派任务全程详细流/权限应答/监控轮简报/飞书不回归）
+- ✅ **E2E 第二轮修复（2026-09-19 晚）**：
+  - tool 消息重复四条：opencode running 阶段多次 part.update，call_id 去重失效 → **只发完成行**（✓/✗，天然一次），start 行取消
+  - tool 文本行带参数（用户要求）：`🔧 bash \`git status\` ✓` / `🔧 read \`D:/x/y.py\` ✓`（command/file_path/pattern 等键提取，120 字截断；任务流+监控轮统一）
+  - 官方 type 11/12 item 路径移除（真机证实普通微信客户端不渲染），gateway.send_tool_items 保留备用
+  - **permission 卡不达微信根因**：插件 `handleA2aRound` 的权限/提问去重借用了 `monRounds.inputState`，A2A 轮结束后无人清理——第一次权限后同 session 的后续权限全部被静默吞掉 → 改为独立 `a2aInputSeen` 集合（按 request.id 去重，session.idle 清空）
+  - 旧版 render 的 meta 污染手误（`(m or {}).get("nexus") and (...)` 产生空串）曾致 input-required 事件处理崩溃——已在实现轮清理，事故版本服务仍在跑过一段时间
+  - 插件已同步安装目录 + tarball 已重打；**需重启 opencode** 生效
+- ✅ **真机 E2E 完成（2026-09-20）**：全链路验证通过——扫码登录、账号页二维码（qrcode[pil] PNG）、消息收发、任务派发详细流（💭/🔧/最终回答全量免简报）、权限编号卡应答（1/2/3 → once/always/reject）任务放行、简报、命令菜单、/q、监控同步
+- ✅ **跨渠道权限/提问四方先答先算（2026-09-20，用户拍板）**：TUI（监控轮）或 A2A 任务拉起 permission/question 且简报开着时，web / 飞书 / 微信同时收卡，谁先应答谁生效，任务翻出 input-required，其余渠道后续应答干净失败。飞书 perm_card 支持无 kind 扁平 monitor payload（`from_monitor=True`），微信 monitor 分支推编号卡+入 pending；应答端点统一 `reply_task_from_feishu(task_id=roundKey)`。设计见 docs/channel-dispatch-design.md §4.6
+- ✅ **插件权限去重改 request id**（2026-09-20）：监控轮 `inputState` 单值状态去重曾致同轮第二个权限（新 id）被吞（TUI 弹框但微信/飞书静默）→ 改按 `inputSeen`（监控轮）/`a2aInputSeen`（A2A 轮）集合按 request.id 去重，reject/应答后同类型可再次上报
+- ✅ **permission 卡带 patterns[]**（2026-09-20）：opencode 权限事件无 title，路径/命令在 `patterns[]`——插件 A2A+监控轮都带上，微信卡显示 `访问/执行：<patterns>`、飞书权限行同（修复"卡面显示轮首用户指令"）
+- ✅ **受理回执去掉任务 ID**（2026-09-20，微信派任务后）：`render.task_accepted_text` 文案改为「📨 已派发任务，执行中。过程会实时同步到这里；发送 /swarm status 可查进度。」
+- ⚠️ 遗留：微信排查日志 `data/weixin.log` 保留（wx-route/wx-monitor 全链路，后续渠道排障有用）；真机测试单 `D:\test_perm3\` 等目录仅演示用
+
+### 静态内容落库加密（2026-09-19，E2E 快测通过）
+
+- ✅ **`server/crypto.py`（新文件）**：`AGENT_SWARM_ENC_KEY` 设置即启用；子密钥 = sha256(服务器密钥+":"+用户apikey) 每用户独立；密文 `enc1:<fernet>`；`AGENT_SWARM_ENC_KEY_RECOVERY` 第二服务器密钥解密兜底（轮换场景：新主密钥+旧主密钥作恢复密钥）；`decrypt(key, enc, plain_fallback)` 统一读入口——密文缺失/坏/密钥不匹配回退明文列（密钥丢失=历史不可读但不崩）；未启用时全零行为变化
+- ✅ **加密范围**：`workspaces.purpose/notes/session_title`、`a2a_tasks.message/artifact/error`、`a2a_events.payload`（thinking/tool/回答全在 payload 里）；写入密文列并**清空明文列**；模型加对应 `*_enc` 列 + `a2a_tasks/a2a_events.user_id`（密钥归属；db.py 自动迁移）
+- ✅ **存量回填**（决策 a）：`init_db` 幂等回填——有密钥时把明文就地加密并清空明文列；外部任务（无属主）保持明文
+- ✅ **写点改造**：nexus_a2a（任务/监控事件 payload、监控轮 message、artifact、错误文本、web 下发 `_new_task`、`_mark_task`）+ mcp_endpoint（workspace_add/update_info purpose、update_notes、heartbeat session_title、a2a_call 内外部任务、超时错误）
+- ✅ **读点改造**（出参不变，web/feishu/admin 无感知）：`task_obj`（error 解密）、`event_payload_text`/`_apikeys_for_rows`（批量防 N+1）、SSE 回放、`/api/nexus` 历史与 rounds 分页、`/api/calls`（instruction/result/error）、`/api/workspaces` ws_out、admin workspaces（purpose/session_title）、mcp list/info/notes、feishu brief/perm_card/last（新增 `feishu/event_text.py` 共用解密）
+- ✅ **apikey 重置联动**（决策 2）：`/api/me/apikey/reset` → `_reencrypt_user_rows` 全量解密→新 key 重加密（旧 key 解不开的行跳过不动）；admin 重置密码不动 apikey 无需处理
+- ✅ **文档**：README/README_CN 配置表加 ENC_KEY/RECOVERY（明文默认、密钥丢失后果、备份要求）+ 回填/重置两条补充说明；web 文档页 FAQ 加「数据是明文存库的吗？」+ API Key 重置条目补重加密说明；AGENTS.md Server facts 加 Encryption at rest bullet；`.env.example` 新建（全部配置项 + 密钥生成命令）
+- ✅ 验证：crypto 单测（加密/解密/错误密钥回退/恢复密钥轮换/未启用模式）+ 临时 DB E2E 六阶段（明文播种→启用回填→解密读回→密钥丢失回退→apikey 重置重加密→幂等重启）全部通过；所有 server py ast.parse 通过
+- ⚠️ 真实服务（:8700，存量数据）尚未带密钥实测——用户启用时提醒：**先备份 `.env` 密钥再重启**
 
 ### 前台会话实时监控 nexus monitor（2026-09-15，已提交推送，E2E 全链路验证）
 

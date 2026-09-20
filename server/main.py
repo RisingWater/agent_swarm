@@ -11,6 +11,8 @@ from server.api import auth, me, workspaces, calls, chat_binds, admin
 from server.download import routes as download_routes
 from server.mcp_endpoint import build_mcp_asgi_app, mcp_lifespan
 from server.nexus_a2a import router as nexus_a2a_router
+from server.weixin import gateway as weixin_gateway
+from server.api.weixin import router as weixin_router
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
@@ -42,11 +44,22 @@ def create_app() -> FastAPI:
     async def lifespan(app: FastAPI):
         async with mcp_lifespan():
             feishu = _start_feishu()
+            # 微信 ClawBot：恢复已登录用户的收消息循环（登录本身由用户在账号页扫码触发）
+            try:
+                await weixin_gateway.start_all()
+                from server.weixin import bridge as weixin_bridge
+
+                weixin_bridge.bind_listener()
+            except Exception:
+                import logging
+
+                logging.getLogger("nexus-weixin").exception("weixin start_all failed")
             try:
                 yield
             finally:
                 if feishu is not None:
                     feishu.stop()
+                await weixin_gateway.stop_all()
 
     app = FastAPI(title="agent_swarm", version="0.1.0", lifespan=lifespan)
 
@@ -65,6 +78,7 @@ def create_app() -> FastAPI:
     app.include_router(chat_binds.router)
     app.include_router(admin.router)
     app.include_router(nexus_a2a_router)
+    app.include_router(weixin_router)
 
     # 插件分发（免鉴权）
     for r in download_routes:
