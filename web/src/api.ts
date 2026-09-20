@@ -193,6 +193,7 @@ export interface WeixinStatus {
   status?: string
   logged_at?: string | null
   workspace_id?: string
+  workspace_name?: string
   monitor_on?: boolean
   brief_on?: boolean
 }

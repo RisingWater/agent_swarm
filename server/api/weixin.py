@@ -50,12 +50,18 @@ def _status_out(uid: str) -> dict:
         "logged_in": bool(row and row.bot_token) or (row is not None and row.status == "online"),
     }
     if row is not None:
+        ws_name = ""
+        if row.workspace_id:
+            with Session(engine) as s:
+                ws = s.get(models.Workspace, row.workspace_id)
+                ws_name = ws.name if ws else ""
         out.update({
             "wx_user_id": row.wx_user_id,
             "wx_bot_id": row.wx_bot_id,
             "status": row.status,
             "logged_at": row.logged_at.isoformat() + "Z" if row.logged_at else None,
             "workspace_id": row.workspace_id or "",
+            "workspace_name": ws_name,
             "monitor_on": bool(row.monitor_on),
             "brief_on": bool(row.brief_on),
         })

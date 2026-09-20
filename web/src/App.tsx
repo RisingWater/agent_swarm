@@ -9,7 +9,6 @@ import {
   type WorkspaceCall,
   type User,
   type ChatBindInfo,
-  type ChatBindChat,
   type ChatBindPatch,
   type WeixinStatus,
 } from "./api"
@@ -477,58 +476,6 @@ function ChatBindPanel({ toast }: { toast: (m: string) => void }) {
     }
   }
 
-  const onlineWs = workspaces.filter((w) => w.status === "online")
-
-  const renderChat = (c: ChatBindChat) => (
-    <div key={c.chat_id} style={{
-      border: "1px solid var(--border)", borderRadius: 8, padding: "10px 14px",
-      marginBottom: 10, display: "flex", flexDirection: "column", gap: 8,
-      opacity: saving === c.chat_id ? 0.6 : 1,
-    }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
-        <span style={{ color: "var(--text-weak)" }}>
-          {c.chat_type === "group" ? "群聊" : "私聊"} · {c.chat_id.slice(0, 14)}…
-        </span>
-      </div>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-        <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13 }}>
-          工作区
-          <select
-            value={c.workspace_id}
-            onChange={(e) => update(c.chat_id, { workspace_id: e.target.value })}
-            style={{ padding: "4px 8px", borderRadius: 6, border: "1px solid var(--border)", background: "var(--bg)" }}
-          >
-            <option value="">（未选择）</option>
-            {workspaces.map((w) => (
-              <option key={w.id} value={w.id}>
-                {w.name}（{w.agent_type || "未知"}{w.status === "online" ? "" : "，离线"}）
-              </option>
-            ))}
-          </select>
-        </label>
-        <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, cursor: "pointer" }}>
-          <input
-            type="checkbox"
-            checked={c.monitor_on}
-            onChange={(e) => update(c.chat_id, { monitor_on: e.target.checked })}
-          />
-          监控模式{c.monitor_on ? "（开）" : "（关）"}
-        </label>
-        <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, cursor: "pointer" }}>
-          <input
-            type="checkbox"
-            checked={c.brief_on}
-            onChange={(e) => update(c.chat_id, { brief_on: e.target.checked })}
-          />
-          简报模式{c.brief_on ? "（开）" : "（关）"}
-        </label>
-      </div>
-      {onlineWs.length === 0 && workspaces.length > 0 && (
-        <span style={{ fontSize: 12, color: "var(--text-weak)" }}>当前没有在线的工作区（下拉仍可选择，任务会在工作区上线后可派发）</span>
-      )}
-    </div>
-  )
-
   if (!info) return <p className="section-label">[ loading… ]</p>
   if (!info.bindings.length && !info.unbound_chats.length) {
     return (
@@ -548,32 +495,90 @@ function ChatBindPanel({ toast }: { toast: (m: string) => void }) {
       <p className="section-label">[ 聊天工具绑定 ]</p>
       {info.bindings.map((g) => (
         <div key={g.open_id} style={{ marginBottom: 22 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-            <FeishuIcon />
-            <b style={{ fontSize: 14 }}>飞书{g.feishu_name ? ` · ${g.feishu_name}` : ""}</b>
-            <span style={{ fontSize: 12, color: "var(--text-weak)" }}>
-              {g.feishu_name ? g.open_id.slice(0, 12) + "…" : ""}{g.chats.length} 个窗口
-            </span>
-            <span style={{ flex: 1 }} />
-            <ConfirmWrap text="解绑后所有窗口取消工作区选择，需要重新 /swarm bind 才能使用。确认？" onOk={async () => {
-              try {
-                await api.unbindChatAccount(g.open_id)
-                toast("已解绑，飞书窗口会收到通知")
-                refresh()
-              } catch (e: any) {
-                toast(e.message)
-              }
+          {g.chats.map((c) => (
+            <div key={c.chat_id} style={{
+              border: "1px solid var(--border)", borderRadius: 10, padding: "14px 18px",
+              marginBottom: 12, display: "flex", flexDirection: "column", gap: 9,
+              opacity: saving === c.chat_id ? 0.6 : 1,
             }}>
-              <Btn size="sm" variant="danger">解绑</Btn>
-            </ConfirmWrap>
-          </div>
-          {g.chats.map(renderChat)}
+              {/* 行1：logo + 名字 + 连接状态（飞书绑定即已连接） */}
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <FeishuIcon size={18} />
+                <b style={{ fontSize: 14 }}>飞书{g.feishu_name ? ` · ${g.feishu_name}` : ""}</b>
+                <span style={{ fontSize: 12, color: "var(--ok, green)", display: "flex", alignItems: "center", gap: 4 }}>
+                  <span style={{ width: 7, height: 7, borderRadius: "50%", background: "var(--ok, #2ecc71)", display: "inline-block" }} />
+                  已连接
+                </span>
+                <span style={{ fontSize: 12, color: "var(--text-weak)" }}>
+                  {g.chats.length} 个窗口
+                </span>
+                <span style={{ flex: 1 }} />
+                <ConfirmWrap text="解绑后所有窗口取消工作区选择，需要重新 /swarm bind 才能使用。确认？" onOk={async () => {
+                  try {
+                    await api.unbindChatAccount(g.open_id)
+                    toast("已解绑，飞书窗口会收到通知")
+                    refresh()
+                  } catch (e: any) {
+                    toast(e.message)
+                  }
+                }}>
+                  <Btn size="sm" variant="danger">🔌 解绑</Btn>
+                </ConfirmWrap>
+              </div>
+              {/* 行2：账号标识（飞书 = open_id） */}
+              <div style={{ fontSize: 12, color: "var(--text-weak)" }}>
+                ID：<code>{g.open_id.slice(0, 22)}…</code>
+              </div>
+              {/* 行3：监控 / 简报 */}
+              <div style={{ display: "flex", gap: 18, alignItems: "center", flexWrap: "wrap" }}>
+                <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, cursor: "pointer" }}>
+                  <input
+                    type="checkbox"
+                    checked={c.monitor_on}
+                    onChange={(e) => update(c.chat_id, { monitor_on: e.target.checked })}
+                  />
+                  监控模式{c.monitor_on ? "（开）" : "（关）"}
+                </label>
+                <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, cursor: "pointer" }}>
+                  <input
+                    type="checkbox"
+                    checked={c.brief_on}
+                    onChange={(e) => update(c.chat_id, { brief_on: e.target.checked })}
+                  />
+                  简报模式{c.brief_on ? "（开）" : "（关）"}
+                </label>
+              </div>
+              {/* 行4：所选工作区 */}
+              <div style={{ fontSize: 13 }}>
+                所选工作区：
+                <select
+                  value={c.workspace_id}
+                  onChange={(e) => update(c.chat_id, { workspace_id: e.target.value })}
+                  style={{ marginLeft: 6, padding: "4px 8px", borderRadius: 6, border: "1px solid var(--border)", background: "var(--bg)" }}
+                >
+                  <option value="">（未选择）</option>
+                  {workspaces.map((w) => (
+                    <option key={w.id} value={w.id}>
+                      {w.name}（{w.agent_type || "未知"}{w.status === "online" ? "" : "，离线"}）
+                    </option>
+                  ))}
+                </select>
+              </div>
+              {/* 行5：说明文字 */}
+              <p style={{ fontSize: 12, color: "var(--text-weak)", margin: 0 }}>
+                监控模式 = TUI 对话按时间线实时同步；简报模式 = 任务完成后推送结果摘要卡。
+                窗口：{c.chat_type === "group" ? "群聊" : "私聊"} <code>{c.chat_id.slice(0, 14)}…</code>。
+                修改会即时生效，飞书窗口会收到变更通知。
+              </p>
+            </div>
+          ))}
         </div>
       ))}
-      <p style={{ fontSize: 12, color: "var(--text-weak)", marginTop: 4 }}>
-        修改会即时生效，飞书窗口会收到一条变更通知。监控模式 = TUI 对话按时间线实时同步；
-        简报模式 = 任务完成后推送一张结果摘要卡。
-      </p>
+      {info.bindings.length === 0 && (
+        <p style={{ fontSize: 13, color: "var(--text-weak)" }}>
+          还没有绑定飞书。在飞书里给机器人发送 <code>/swarm bind as_你的密钥</code>（密钥在「API Key」页复制）。
+        </p>
+      )}
       <WeixinPanel toast={toast} />
     </>
   )
@@ -638,8 +643,15 @@ function WeixinPanel({ toast }: { toast: (m: string) => void }) {
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
         <WeixinIcon size={18} />
         <b style={{ fontSize: 14 }}>微信 ClawBot</b>
-        {st?.logged_in ? <span style={{ fontSize: 12, color: "var(--ok, green)" }}>● 已连接</span>
-          : <span style={{ fontSize: 12, color: "var(--text-weak)" }}>未连接</span>}
+        {st?.logged_in
+          ? <span style={{ fontSize: 12, color: "var(--ok, green)", display: "flex", alignItems: "center", gap: 4 }}>
+              <span style={{ width: 7, height: 7, borderRadius: "50%", background: "var(--ok, #2ecc71)", display: "inline-block" }} />
+              已连接
+            </span>
+          : <span style={{ fontSize: 12, color: "var(--text-weak)", display: "flex", alignItems: "center", gap: 4 }}>
+              <span style={{ width: 7, height: 7, borderRadius: "50%", background: "var(--border)", display: "inline-block" }} />
+              未连接
+            </span>}
       </div>
 
       {!st?.logged_in && !flow && (
@@ -691,12 +703,30 @@ function WeixinPanel({ toast }: { toast: (m: string) => void }) {
       )}
 
       {st?.logged_in && !flow && (
-        <div>
-          <p style={{ fontSize: 13 }}>
-            已登录：微信用户 <code>{(st.wx_user_id || "").slice(0, 18)}…</code>
-            {st.logged_at ? <span style={{ color: "var(--text-weak)", fontSize: 12 }}> · 登录于 {st.logged_at.slice(0, 16).replace("T", " ")}Z</span> : null}
-          </p>
-          <div style={{ display: "flex", gap: 18, alignItems: "center", flexWrap: "wrap", margin: "10px 0" }}>
+        <div style={{
+          border: "1px solid var(--border)", borderRadius: 10, padding: "14px 18px",
+          display: "flex", flexDirection: "column", gap: 9,
+        }}>
+          {/* 行1：logo + 名字 + 连接状态 */}
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <WeixinIcon size={18} />
+            <b style={{ fontSize: 14 }}>微信 ClawBot</b>
+            <span style={{ fontSize: 12, color: "var(--ok, green)", display: "flex", alignItems: "center", gap: 4 }}>
+              <span style={{ width: 7, height: 7, borderRadius: "50%", background: "var(--ok, #2ecc71)", display: "inline-block" }} />
+              已连接
+            </span>
+            <span style={{ flex: 1 }} />
+            <ConfirmWrap text="断开后微信 ClawBot 会话停止工作，需要重新扫码登录。确认？" onOk={logout}>
+              <Btn size="sm" variant="danger">🔌 断开连接</Btn>
+            </ConfirmWrap>
+          </div>
+          {/* 行2：用户名 + user id + 登录时间 */}
+          <div style={{ fontSize: 12, color: "var(--text-weak)" }}>
+            用户：微信用户 · <code>{(st.wx_user_id || "").slice(0, 18)}…</code>
+            {st.logged_at ? <> · 登录于 {st.logged_at.slice(0, 16).replace("T", " ")}Z</> : null}
+          </div>
+          {/* 行3：监控 / 简报 */}
+          <div style={{ display: "flex", gap: 18, alignItems: "center", flexWrap: "wrap" }}>
             <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, cursor: "pointer" }}>
               <input type="checkbox" checked={!!st.monitor_on}
                 onChange={async (e) => { try { setSt(await api.weixinSettings({ monitor_on: e.target.checked })) } catch (err: any) { toast(err.message) } }} />
@@ -708,18 +738,22 @@ function WeixinPanel({ toast }: { toast: (m: string) => void }) {
               简报模式{st.brief_on !== false ? "（开）" : "（关）"}
             </label>
           </div>
-          <div className="admin-toolbar">
-            <NexusWorkspaceSelect
-              list={wsList.map((w) => ({ id: w.id, name: w.name, path: w.path, agent_type: w.agent_type, owner: null }))}
-              value={st.workspace_id || ""}
-              onChange={async (id) => { try { setSt(await api.weixinSettings({ workspace_id: id })) } catch (err: any) { toast(err.message) } }}
-            />
+          {/* 行4：所选工作区 */}
+          <div style={{ fontSize: 13 }}>
+            所选工作区：
+            <span style={{ marginLeft: 6 }}>
+              <NexusWorkspaceSelect
+                list={wsList.map((w) => ({ id: w.id, name: w.name, path: w.path, agent_type: w.agent_type, owner: null }))}
+                value={st.workspace_id || ""}
+                onChange={async (id) => { try { setSt(await api.weixinSettings({ workspace_id: id })) } catch (err: any) { toast(err.message) } }}
+              />
+            </span>
           </div>
-          <p style={{ fontSize: 12, color: "var(--text-weak)" }}>
+          {/* 行5：说明文字 */}
+          <p style={{ fontSize: 12, color: "var(--text-weak)", margin: 0 }}>
             在微信 ClawBot 会话里也可以用指令管理：/swarm select、/swarm monitor on、/swarm brief off 等（发 help 查看）。
             微信连接受官方约 24h 有效期限制，失效后会提示重新扫码。
           </p>
-          <Btn size="sm" variant="ghost" onClick={logout}>断开连接</Btn>
         </div>
       )}
     </div>
