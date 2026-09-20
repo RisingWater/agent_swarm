@@ -522,7 +522,7 @@ function ChatBindPanel({ toast }: { toast: (m: string) => void }) {
                     toast(e.message)
                   }
                 }}>
-                  <Btn size="sm" variant="danger">🔌 解绑</Btn>
+                  <Btn size="sm" variant="danger">🔌 断开连接</Btn>
                 </ConfirmWrap>
               </div>
               {/* 行2：账号标识（飞书 = open_id） */}
@@ -549,20 +549,13 @@ function ChatBindPanel({ toast }: { toast: (m: string) => void }) {
                 </label>
               </div>
               {/* 行4：所选工作区 */}
-              <div style={{ fontSize: 13 }}>
+              <div style={{ fontSize: 13, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
                 所选工作区：
-                <select
+                <NexusWorkspaceSelect
+                  list={workspaces.map((w) => ({ id: w.id, name: w.name, path: w.path, agent_type: w.agent_type, owner: null }))}
                   value={c.workspace_id}
-                  onChange={(e) => update(c.chat_id, { workspace_id: e.target.value })}
-                  style={{ marginLeft: 6, padding: "4px 8px", borderRadius: 6, border: "1px solid var(--border)", background: "var(--bg)" }}
-                >
-                  <option value="">（未选择）</option>
-                  {workspaces.map((w) => (
-                    <option key={w.id} value={w.id}>
-                      {w.name}（{w.agent_type || "未知"}{w.status === "online" ? "" : "，离线"}）
-                    </option>
-                  ))}
-                </select>
+                  onChange={(id) => update(c.chat_id, { workspace_id: id })}
+                />
               </div>
               {/* 行5：说明文字 */}
               <p style={{ fontSize: 12, color: "var(--text-weak)", margin: 0 }}>
@@ -640,20 +633,6 @@ function WeixinPanel({ toast }: { toast: (m: string) => void }) {
 
   return (
     <div style={{ marginTop: 26, paddingTop: 18, borderTop: "1px solid var(--border)" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-        <WeixinIcon size={18} />
-        <b style={{ fontSize: 14 }}>微信 ClawBot</b>
-        {st?.logged_in
-          ? <span style={{ fontSize: 12, color: "var(--ok, green)", display: "flex", alignItems: "center", gap: 4 }}>
-              <span style={{ width: 7, height: 7, borderRadius: "50%", background: "var(--ok, #2ecc71)", display: "inline-block" }} />
-              已连接
-            </span>
-          : <span style={{ fontSize: 12, color: "var(--text-weak)", display: "flex", alignItems: "center", gap: 4 }}>
-              <span style={{ width: 7, height: 7, borderRadius: "50%", background: "var(--border)", display: "inline-block" }} />
-              未连接
-            </span>}
-      </div>
-
       {!st?.logged_in && !flow && (
         <div>
           <p style={{ fontSize: 13, color: "var(--text-weak)" }}>
