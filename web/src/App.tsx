@@ -477,22 +477,30 @@ function ChatBindPanel({ toast }: { toast: (m: string) => void }) {
   }
 
   if (!info) return <p className="section-label">[ loading… ]</p>
-  if (!info.bindings.length && !info.unbound_chats.length) {
-    return (
-      <>
-        <p className="section-label">[ 聊天工具绑定 ]</p>
-        <p style={{ fontSize: 13, color: "var(--text-weak)" }}>
-          还没有绑定聊天工具。在飞书里给机器人发送 <code>/swarm bind as_你的密钥</code>
-          （密钥在「API Key」页复制），或用下面的微信扫码登录（无需绑定，扫自己的号即可）。
-          绑定后这里会显示绑定账号与窗口设置。
-        </p>
-        <WeixinPanel toast={toast} />
-      </>
-    )
-  }
+  const hasAnyBinding = info.bindings.length > 0
   return (
     <>
       <p className="section-label">[ 聊天工具绑定 ]</p>
+      {/* 飞书：有绑定显示已连接卡，否则显示未连接卡（列出支持 IM + 如何连接，不再有空文案分支） */}
+      {!hasAnyBinding && (
+        <div style={{
+          border: "1px solid var(--border)", borderRadius: 10, padding: "14px 18px",
+          display: "flex", flexDirection: "column", gap: 9, marginBottom: 22,
+        }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <FeishuIcon size={18} />
+            <b style={{ fontSize: 14 }}>飞书</b>
+            <span style={{ fontSize: 12, color: "var(--text-weak)", display: "flex", alignItems: "center", gap: 4 }}>
+              <span style={{ width: 7, height: 7, borderRadius: "50%", background: "var(--border)", display: "inline-block" }} />
+              未连接
+            </span>
+          </div>
+          <p style={{ fontSize: 12, color: "var(--text-weak)", margin: 0 }}>
+            在飞书里给机器人发送 <code>/swarm bind as_你的密钥</code> 完成绑定
+            （密钥在「API Key」页复制）。绑定后可在聊天里派任务、收时间线直播与完成简报、远程应答权限请求。
+          </p>
+        </div>
+      )}
       {info.bindings.map((g) => (
         <div key={g.open_id} style={{ marginBottom: 22 }}>
           {g.chats.map((c) => (
@@ -567,27 +575,6 @@ function ChatBindPanel({ toast }: { toast: (m: string) => void }) {
           ))}
         </div>
       ))}
-      {info.bindings.length === 0 && (
-        <div style={{
-          border: "1px solid var(--border)", borderRadius: 10, padding: "14px 18px",
-          display: "flex", flexDirection: "column", gap: 9, marginBottom: 22,
-        }}>
-          {/* 行1：logo + 名字 + 未连接灰点 */}
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <FeishuIcon size={18} />
-            <b style={{ fontSize: 14 }}>飞书</b>
-            <span style={{ fontSize: 12, color: "var(--text-weak)", display: "flex", alignItems: "center", gap: 4 }}>
-              <span style={{ width: 7, height: 7, borderRadius: "50%", background: "var(--border)", display: "inline-block" }} />
-              未连接
-            </span>
-          </div>
-          {/* 行2：说明 + 连接方式 */}
-          <p style={{ fontSize: 12, color: "var(--text-weak)", margin: 0 }}>
-            在飞书里给机器人发送 <code>/swarm bind as_你的密钥</code> 完成绑定
-            （密钥在「API Key」页复制）。绑定后可在聊天里派任务、收时间线直播与完成简报、远程应答权限请求。
-          </p>
-        </div>
-      )}
       <WeixinPanel toast={toast} />
     </>
   )
