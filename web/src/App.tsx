@@ -568,9 +568,25 @@ function ChatBindPanel({ toast }: { toast: (m: string) => void }) {
         </div>
       ))}
       {info.bindings.length === 0 && (
-        <p style={{ fontSize: 13, color: "var(--text-weak)" }}>
-          还没有绑定飞书。在飞书里给机器人发送 <code>/swarm bind as_你的密钥</code>（密钥在「API Key」页复制）。
-        </p>
+        <div style={{
+          border: "1px solid var(--border)", borderRadius: 10, padding: "14px 18px",
+          display: "flex", flexDirection: "column", gap: 9, marginBottom: 22,
+        }}>
+          {/* 行1：logo + 名字 + 未连接灰点 */}
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <FeishuIcon size={18} />
+            <b style={{ fontSize: 14 }}>飞书</b>
+            <span style={{ fontSize: 12, color: "var(--text-weak)", display: "flex", alignItems: "center", gap: 4 }}>
+              <span style={{ width: 7, height: 7, borderRadius: "50%", background: "var(--border)", display: "inline-block" }} />
+              未连接
+            </span>
+          </div>
+          {/* 行2：说明 + 连接方式 */}
+          <p style={{ fontSize: 12, color: "var(--text-weak)", margin: 0 }}>
+            在飞书里给机器人发送 <code>/swarm bind as_你的密钥</code> 完成绑定
+            （密钥在「API Key」页复制）。绑定后可在聊天里派任务、收时间线直播与完成简报、远程应答权限请求。
+          </p>
+        </div>
       )}
       <WeixinPanel toast={toast} />
     </>
@@ -632,24 +648,52 @@ function WeixinPanel({ toast }: { toast: (m: string) => void }) {
   const flow = st?.flow
 
   return (
-    <div style={{ marginTop: 26, paddingTop: 18, borderTop: "1px solid var(--border)" }}>
+    <div>
       {!st?.logged_in && !flow && (
-        <div>
-          <p style={{ fontSize: 13, color: "var(--text-weak)" }}>
+        <div style={{
+          border: "1px solid var(--border)", borderRadius: 10, padding: "14px 18px",
+          display: "flex", flexDirection: "column", gap: 9, marginBottom: 22,
+        }}>
+          {/* 行1：logo + 名字 + 未连接灰点 */}
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <WeixinIcon size={18} />
+            <b style={{ fontSize: 14 }}>微信 ClawBot</b>
+            <span style={{ fontSize: 12, color: "var(--text-weak)", display: "flex", alignItems: "center", gap: 4 }}>
+              <span style={{ width: 7, height: 7, borderRadius: "50%", background: "var(--border)", display: "inline-block" }} />
+              未连接
+            </span>
+          </div>
+          {/* 行2：说明 + 连接方式 */}
+          <p style={{ fontSize: 12, color: "var(--text-weak)", margin: 0 }}>
             扫码把<b>你自己的微信号</b>登录为本平台的 ClawBot。登录后微信里会出现一个 ClawBot
             会话：发文字给它即可选择工作区、派任务、收简报、应答 AI 的提问与授权请求。
           </p>
           {errHint && (
-            <p style={{ fontSize: 13, color: "var(--danger, #c0392b)", marginBottom: 8 }}>{errHint}</p>
+            <p style={{ fontSize: 13, color: "var(--danger, #c0392b)", margin: 0 }}>{errHint}</p>
           )}
-          <Btn size="sm" disabled={busy} onClick={() => { setErrHint(""); start() }}>
-            {errHint ? "重新获取二维码" : busy ? "获取中…" : "扫码登录微信"}
-          </Btn>
+          <div>
+            <Btn size="sm" disabled={busy} onClick={() => { setErrHint(""); start() }}>
+              {errHint ? "重新获取二维码" : busy ? "获取中…" : "扫码登录微信"}
+            </Btn>
+          </div>
         </div>
       )}
 
       {flow && flow.status !== "confirmed" && (
-        <div style={{ display: "flex", gap: 18, alignItems: "flex-start", flexWrap: "wrap" }}>
+        <div style={{
+          border: "1px solid var(--border)", borderRadius: 10, padding: "14px 18px",
+          display: "flex", flexDirection: "column", gap: 9, marginBottom: 22,
+        }}>
+          {/* 行1：logo + 名字 + 扫码中状态 */}
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <WeixinIcon size={18} />
+            <b style={{ fontSize: 14 }}>微信 ClawBot</b>
+            <span style={{ fontSize: 12, color: "var(--text-weak)", display: "flex", alignItems: "center", gap: 4 }}>
+              <span style={{ width: 7, height: 7, borderRadius: "50%", background: "var(--border)", display: "inline-block" }} />
+              连接中…
+            </span>
+          </div>
+          <div style={{ display: "flex", gap: 18, alignItems: "flex-start", flexWrap: "wrap" }}>
           {flow.qrcode_img ? (
             <div style={{ border: "1px solid var(--border)", borderRadius: 8, padding: 10, background: "#fff", position: "relative" }}>
               <img src={flow.qrcode_img} alt="微信登录二维码"
@@ -679,12 +723,13 @@ function WeixinPanel({ toast }: { toast: (m: string) => void }) {
             </div>
           </div>
         </div>
+        </div>
       )}
 
       {st?.logged_in && !flow && (
         <div style={{
           border: "1px solid var(--border)", borderRadius: 10, padding: "14px 18px",
-          display: "flex", flexDirection: "column", gap: 9,
+          display: "flex", flexDirection: "column", gap: 9, marginBottom: 22,
         }}>
           {/* 行1：logo + 名字 + 连接状态 */}
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
