@@ -1016,6 +1016,13 @@ function HomePage({ toast, loggedIn, onGoAccount, onOpenLogin, onGoDocs }: { toa
           </div>
           <div className="home-card">
             <div className="home-card-head">
+              <FeatureIcon kind="package" />
+              <h3>产物管理</h3>
+            </div>
+            <p>agent 通过 MCP 把产出文件（构建包、报告、数据集…）上传到中枢：飞书/微信<b>直接收到文件</b>，网页「产物」页集中管理、随时下载，默认保留 7 天，重要产物可一键固定永不清理。</p>
+          </div>
+          <div className="home-card">
+            <div className="home-card-head">
               <FeatureIcon kind="pulse" />
               <h3>在线状态与心跳</h3>
             </div>
@@ -1040,6 +1047,7 @@ function HomePage({ toast, loggedIn, onGoAccount, onOpenLogin, onGoDocs }: { toa
           <li>在网页「中枢」里给任意在线 agent 直接下达指令，实时围观它干活</li>
           <li>开启监控模式，把 TUI 里和 agent 的日常对话实时同步到网页，随时远程回看</li>
           <li>绑定飞书 / 微信等即时聊天工具，在聊天里派活、看进度、收完成简报</li>
+          <li>让 agent 把构建包 / 报告等产物上传到中枢，聊天收文件、网页集中管理下载</li>
           <li>集中管理所有 AI 工作区的用途说明、备注与在线状态</li>
           <li>回溯每一次跨 agent 调用的指令与结果（调用记录）</li>
         </ul>
@@ -1207,7 +1215,7 @@ function SupportedAgents() {
 }
 
 /** 特性卡黑白线性图标（与 SwarmMark 同风格：currentColor 描边） */
-function FeatureIcon({ kind }: { kind: "mcp" | "swarm" | "pulse" | "shield" | "terminal" | "eye" | "chat" }) {
+function FeatureIcon({ kind }: { kind: "mcp" | "swarm" | "pulse" | "shield" | "terminal" | "eye" | "chat" | "package" }) {
   const common = {
     width: 22,
     height: 22,
@@ -1269,6 +1277,15 @@ function FeatureIcon({ kind }: { kind: "mcp" | "swarm" | "pulse" | "shield" | "t
         <rect x="3" y="4" width="18" height="16" rx="1" />
         <path d="m7 9 3 3-3 3" />
         <path d="M12.5 15H17" />
+      </svg>
+    )
+  if (kind === "package")
+    return (
+      <svg {...common}>
+        {/* 包裹箱 = 产物管理 */}
+        <path d="M21 8 12 3 3 8v8l9 5 9-5V8Z" />
+        <path d="m3 8 9 5 9-5" />
+        <path d="M12 13v8" />
       </svg>
     )
   return (
@@ -1578,6 +1595,12 @@ agent: (a2a_call) → 对方 TUI 实时出现任务 → 执行 → 结果自动�
             web / 飞书 / 微信会<b>同时</b>收到提示——谁先应答谁生效，其余渠道的后续应答会干净失败
             （不会重复放行）。
           </p>
+          <h3>产物推送</h3>
+          <p>
+            agent 通过 MCP 上传产物后，只要窗口的<b>简报模式开着</b>，你绑定的飞书 / 微信窗口会<b>直接收到文件</b>
+            （飞书是原生文件消息；微信优先尝试文件消息，协议不支持时自动降级为下载链接文本），
+            并附一条说明（文件名、大小）。下载链接 30 天有效；所有产物也可以在网页「产物」页集中管理。
+          </p>
         </section>
 
         <section id="doc-mcp" className="docs-section">
@@ -1597,6 +1620,14 @@ agent: (a2a_call) → 对方 TUI 实时出现任务 → 执行 → 结果自动�
               <tr><td><code>list_workspaces</code></td><td>列出可见工作区（默认仅在线）</td></tr>
               <tr><td><code>a2a_call</code></td><td>A2A 协议给其他 agent 发任务（支持内部工作区与外部 A2A agent 端点）</td></tr>
               <tr><td><code>a2a_task</code></td><td>查询 A2A 任务状态与结果</td></tr>
+              <tr>
+                <td><code>artifact_upload</code></td>
+                <td>
+                  上传产物文件（两步）：先调本工具换取一次性上传地址（10 分钟有效），
+                  再用 <code>curl -F file=@路径</code> 直传原始字节。成功后进入「产物」页并按简报规则推送飞书/微信。
+                  单文件上限 20MB，默认保留 7 天
+                </td>
+              </tr>
             </tbody>
           </table>
           <p>
@@ -1629,6 +1660,13 @@ agent: (a2a_call) → 对方 TUI 实时出现任务 → 执行 → 结果自动�
             （markdown 渲染）。按工作区筛选查看（记住上次选择，cookie 记忆 30 天）：
             跨 agent 调用、网页中枢指令与 <code>[monitor]</code> 监控轮次都在这里，
             已结束的记录可单条删除，也可一键清空该工作区的全部记录。
+          </p>
+          <h3>产物</h3>
+          <p>
+            agent 上传的产出文件集中在这里：文件名（点击直接下载）、大小、上传时间与备注，
+            支持搜索。产物默认保留 <b>7 天</b>（过期自动清理）；点📌图钉可<b>固定</b>重要产物，
+            固定后不再参与自动清理（仍可手动删除）。上传时也会按简报规则把文件推送到
+            你绑定的飞书 / 微信窗口（详见「即时聊天工具 → 产物推送」）。
           </p>
         </section>
 
