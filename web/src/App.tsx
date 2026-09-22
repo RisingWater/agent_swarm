@@ -3077,6 +3077,7 @@ function ArtifactsPage({ toast }: { toast: (m: string) => void }) {
   const [loaded, setLoaded] = useState(false)
   const [query, setQuery] = useState("")
   const [busy, setBusy] = useState<string | null>(null)
+  const [confirmDel, setConfirmDel] = useState<Artifact | null>(null)
 
   const load = useCallback(() => {
     api.artifacts().then((rows) => { setList(rows); setLoaded(true) }).catch(() => setLoaded(true))
@@ -3173,17 +3174,16 @@ function ArtifactsPage({ toast }: { toast: (m: string) => void }) {
                       <path d="M12 15V3" />
                     </svg>
                   </a>
-                  <ConfirmWrap text={`删除产物「${a.name}」？该操作不可恢复。`} onOk={() => remove(a)}>
-                    <Btn variant="icon" size="sm" className="btn-danger-hover" title="删除该产物" disabled={busy === a.id}>
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
-                        strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                        <path d="M3 6h18" />
-                        <path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2" />
-                        <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
-                        <path d="M10 11v6M14 11v6" />
-                      </svg>
-                    </Btn>
-                  </ConfirmWrap>
+                  <Btn variant="icon" size="sm" className="btn-danger-hover" title="删除该产物"
+                    disabled={busy === a.id} onClick={() => setConfirmDel(a)}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
+                      strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                      <path d="M3 6h18" />
+                      <path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2" />
+                      <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+                      <path d="M10 11v6M14 11v6" />
+                    </svg>
+                  </Btn>
                 </div>
               </td>
             </tr>
@@ -3195,6 +3195,17 @@ function ArtifactsPage({ toast }: { toast: (m: string) => void }) {
           )}
         </tbody>
       </table>
+      {confirmDel && (
+        <Modal title="删除产物？" onClose={() => setConfirmDel(null)}>
+          <p style={{ margin: "0 0 16px", fontSize: 14 }}>
+            将删除产物 <b>{confirmDel.name}</b>，该操作不可恢复。
+          </p>
+          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+            <Btn size="sm" variant="ghost" onClick={() => setConfirmDel(null)}>取消</Btn>
+            <Btn size="sm" variant="danger" onClick={() => { const t = confirmDel; setConfirmDel(null); if (t) remove(t) }}>删除</Btn>
+          </div>
+        </Modal>
+      )}
     </>
   )
 }

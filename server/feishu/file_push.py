@@ -71,8 +71,8 @@ async def _send_file(gw, chat_id: str, path: Path, name: str) -> bool:
                 .build()
             ).build()
             resp = gw.lark.im.v1.file.create(req)
-        if resp.success() and resp.data and resp.data.file_id:
-            return resp.data.file_id
+        if resp.success() and resp.data and resp.data.file_key:
+            return resp.data.file_key
         log.error("飞书文件上传失败 %s: %s", name, resp.msg)
         return None
 
