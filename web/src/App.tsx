@@ -7,6 +7,7 @@ import {
   pageOrigin,
   type Workspace,
   type WorkspaceCall,
+  type Artifact,
   type User,
   type ChatBindInfo,
   type ChatBindPatch,
@@ -206,7 +207,7 @@ function Confirm({ text, onOk, onClose }: { text: string; onOk: () => void; onCl
 
 // ---------------- 应用骨架 ----------------
 
-export type Page = "home" | "docs" | "workspaces" | "calls" | "account" | "nexus" | "login"
+export type Page = "home" | "docs" | "workspaces" | "calls" | "artifacts" | "account" | "nexus" | "login"
 
 export default function App() {
   const { msg, show: toast } = useToast()
@@ -228,7 +229,7 @@ export default function App() {
 
   // 未登录：可见页面只有 首页/文档，受保护页面跳回首页
   const effectivePage: Page =
-    !loggedIn && (page === "workspaces" || page === "calls" || page === "account" || page === "nexus")
+    !loggedIn && (page === "workspaces" || page === "calls" || page === "artifacts" || page === "account" || page === "nexus")
       ? "home"
       : page
 
@@ -252,6 +253,7 @@ export default function App() {
               <a className={effectivePage === "nexus" ? "active" : ""} onClick={() => goto("nexus")}>中枢</a>
               <a className={effectivePage === "workspaces" ? "active" : ""} onClick={() => goto("workspaces")}>工作区</a>
               <a className={effectivePage === "calls" ? "active" : ""} onClick={() => goto("calls")}>调用记录</a>
+              <a className={effectivePage === "artifacts" ? "active" : ""} onClick={() => goto("artifacts")}>产物</a>
             </>
           )}
           {loggedIn ? (
@@ -309,6 +311,7 @@ export default function App() {
         {effectivePage === "nexus" && <NexusPage toast={toast} />}
         {effectivePage === "workspaces" && <WorkspacesPage toast={toast} />}
         {effectivePage === "calls" && <CallsPage toast={toast} />}
+        {effectivePage === "artifacts" && <ArtifactsPage toast={toast} />}
         {effectivePage === "account" && <AccountPage toast={toast} />}
       </main>
       <Toast msg={msg} />
@@ -3065,6 +3068,141 @@ function WorkspacesPage({ toast }: { toast: (m: string) => void }) {
       )}
     </>
   )
+}
+
+// ---------------- 产物 ----------------
+
+function ArtifactsPage({ toast }: { toast: (m: string) => void }) {
+  const [list, setList] = useState<Artifact[]>([])
+  const [loaded, setLoaded] = useState(false)
+  const [query, setQuery] = useState("")
+  const [busy, setBusy] = useState<string | null>(null)
+
+  const load = useCallback(() => {
+    api.artifacts().then((rows) => { setList(rows); setLoaded(true) }).catch(() => setLoaded(true))
+  }, [])
+  useEffect(() => {
+    load()
+    const t = setInterval(load, 30_000)
+    return () => clearInterval(t)
+  }, [load])
+
+  const togglePin = async (a: Artifact) => {
+    setBusy(a.id)
+    try {
+      const updated = await api.pinArtifact(a.id, !a.pinned)
+      setList((prev) => prev.map((x) => (x.id === a.id ? updated : x)))
+      toast(a.pinned ? "已取消固定，将随 7 天保留期自动清理" : "已固定，不再自动清理")
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "操作失败")
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const remove = async (a: Artifact) => {
+    setBusy(a.id)
+    try {
+      await api.deleteArtifact(a.id)
+      setList((prev) => prev.filter((x) => x.id !== a.id))
+      toast("产物已删除")
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "删除失败")
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const shown = list.filter((a) => {
+    const q = query.trim().toLowerCase()
+    if (!q) return true
+    return hit(a.name, q) || hit(a.note, q) || hit(a.mime, q)
+  })
+
+  return (
+    <>
+      <h1 className="page-title">产物</h1>
+      <p className="page-sub">
+        agent 通过 MCP 上传的产出文件（默认保留 7 天，固定后不自动清理；上传后也会按简报规则推送到飞书/微信窗口）。
+      </p>
+      <SearchBox value={query} onChange={setQuery} placeholder="搜索文件名 / 备注 / 类型…" />
+      <table className="grid">
+        <thead>
+          <tr>
+            <th>文件</th>
+            <th style={{ width: 90 }}>大小</th>
+            <th style={{ width: 150 }}>上传时间</th>
+            <th style={{ width: 130 }}>保留</th>
+            <th style={{ width: 170 }}></th>
+          </tr>
+        </thead>
+        <tbody>
+          {shown.map((a) => (
+            <tr key={a.id}>
+              <td>
+                <a className="link" href={a.download_url} download={a.name}>{a.name}</a>
+                {a.note && <div style={{ fontSize: 12, color: "var(--text-weak)", marginTop: 2 }}>{a.note}</div>}
+              </td>
+              <td style={{ color: "var(--text-weak)", fontSize: 12 }}>{fmtSize(a.size)}</td>
+              <td style={{ color: "var(--text-weak)", fontSize: 12 }}>{fmtTime(a.created_at, "datetime")}</td>
+              <td>
+                {a.pinned ? (
+                  <span className="status-pill accepted" title="固定后不参与自动清理">已固定</span>
+                ) : (
+                  <span style={{ fontSize: 12, color: "var(--text-weak)" }}>
+                    {a.remain_days > 0 ? `${a.remain_days} 天后清理` : "即将清理"}
+                  </span>
+                )}
+              </td>
+              <td>
+                <div style={{ display: "flex", gap: 4, justifyContent: "flex-end" }}>
+                  <Btn variant="icon" size="sm" title={a.pinned ? "取消固定（恢复自动清理）" : "固定（不自动清理）"}
+                    disabled={busy === a.id} onClick={() => togglePin(a)}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill={a.pinned ? "currentColor" : "none"}
+                      stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                      <path d="M12 17v5" />
+                      <path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z" />
+                    </svg>
+                  </Btn>
+                  <a className="btn-icon" href={a.download_url} download={a.name} title="下载"
+                    style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 28, height: 28 }}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
+                      strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                      <path d="M7 10l5 5 5-5" />
+                      <path d="M12 15V3" />
+                    </svg>
+                  </a>
+                  <ConfirmWrap text={`删除产物「${a.name}」？该操作不可恢复。`} onOk={() => remove(a)}>
+                    <Btn variant="icon" size="sm" className="btn-danger-hover" title="删除该产物" disabled={busy === a.id}>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
+                        strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                        <path d="M3 6h18" />
+                        <path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2" />
+                        <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+                        <path d="M10 11v6M14 11v6" />
+                      </svg>
+                    </Btn>
+                  </ConfirmWrap>
+                </div>
+              </td>
+            </tr>
+          ))}
+          {loaded && !shown.length && (
+            <tr><td colSpan={5} style={{ color: "var(--text-weak)", textAlign: "center", padding: 32 }}>
+              {list.length ? `[*] 没有匹配「${query.trim()}」的产物` : "[*] 暂无产物——让 agent 调用 artifact_upload 工具上传文件"}
+            </td></tr>
+          )}
+        </tbody>
+      </table>
+    </>
+  )
+}
+
+function fmtSize(n: number): string {
+  if (n >= 1048576) return `${(n / 1048576).toFixed(1)} MB`
+  if (n >= 1024) return `${(n / 1024).toFixed(1)} KB`
+  return `${n} B`
 }
 
 // ---------------- 调用记录 ----------------

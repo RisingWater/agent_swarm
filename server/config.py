@@ -23,3 +23,11 @@ def _env_file() -> dict:
 def get(key: str, default: str = "") -> str:
     """环境变量优先，其次项目根 .env。"""
     return os.environ.get(key) or _env_file().get(key, default)
+
+
+def get_int(key: str, default: int) -> int:
+    """int 配置（env 优先 → .env → default；非法值回退 default）。"""
+    try:
+        return int(get(key, str(default)))
+    except ValueError:
+        return default

@@ -186,3 +186,24 @@ class WeixinLogin(SQLModel, table=True):
     status: str = Field(default="offline")  # offline / connecting / online / need_relogin
     logged_at: Optional[datetime] = None  # 最近登录成功时间（连接到期参考）
     updated_at: datetime = Field(default_factory=utcnow)
+
+
+class Artifact(SQLModel, table=True):
+    """产物：agent 通过 MCP 上传的文件（代码包/文档/数据集等），IM 推送 + web 下载。
+
+    文件落盘 data/artifacts/<id>_<name>；元数据落库。默认保留 7 天（TTL 配置），
+    pinned=True 的不自动清理（用户手动固定），用户仍可手动删除任意产物。
+    """
+    __tablename__ = "artifacts"
+
+    id: str = Field(primary_key=True)
+    user_id: str = Field(index=True)  # 属主（上传 MCP 凭证归属用户）
+    name: str  # 原始文件名（展示 + 下载 filename）
+    size: int = Field(default=0)  # 字节
+    mime: str = Field(default="application/octet-stream")
+    note: str = Field(default="", sa_column=Column(Text))  # 上传时备注（可空）
+    task_id: str = Field(default="")  # 关联任务（可空）
+    workspace_id: str = Field(default="")  # 来源工作区（可空）
+    pinned: bool = Field(default=False)  # 固定 = 不参与 TTL 清理
+    created_at: datetime = Field(default_factory=utcnow)
+    expires_at: datetime = Field(index=True)  # 清理时间线（pinned 忽略）
