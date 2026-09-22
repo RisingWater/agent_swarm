@@ -26,6 +26,10 @@ HEARTBEAT_TIMEOUT_SECONDS = 90
 current_user: contextvars.ContextVar[models.User | None] = contextvars.ContextVar(
     "current_user", default=None
 )
+# 请求基址（Agent Card / 产物上传 URL 等拼绝对链接用；从 MCP 请求头派生）
+current_base_url: contextvars.ContextVar[str] = contextvars.ContextVar(
+    "current_base_url", default=""
+)
 
 
 class ApiKeyMiddleware:
@@ -41,6 +45,16 @@ class ApiKeyMiddleware:
 
         # 构造 Request 以读取 headers
         request = Request(scope, receive)
+        # 派生请求基址（PUBLIC_URL 优先，否则转发头/host）——工具内拼绝对 URL 用
+        from server.config import get as _cfg_get
+
+        _public = _cfg_get("AGENT_SWARM_PUBLIC_URL")
+        if _public:
+            current_base_url.set(_public.rstrip("/"))
+        else:
+            _proto = request.headers.get("x-forwarded-proto", request.url.scheme)
+            _host = request.headers.get("x-forwarded-host", request.headers.get("host", request.url.netloc))
+            current_base_url.set(f"{_proto}://{_host}")
         auth = request.headers.get("Authorization", "")
         token = auth.removeprefix("Bearer ").strip() if auth.startswith("Bearer ") else ""
 
@@ -545,6 +559,63 @@ def a2a_task(task_id: str) -> dict:
         if task.status == "input-required":
             out["note"] = "task needs input (permission/question); reply via web nexus page"
         return out
+    finally:
+        session.close()
+
+
+@mcp.tool()
+def artifact_upload(name: str, note: str = "", task_id: str = "") -> dict:
+    """把本地文件作为产物上传到 agent_swarm（两步，无需 base64）。
+
+    第 1 步（本工具）：换取一次性上传凭证 upload_url（10 分钟有效，单次）。
+    第 2 步（bash）：用 curl 把文件原始字节 multipart 直传，例如：
+      curl -sS -X POST "$upload_url" -F "file=@/绝对路径/文件名" -F "note=说明"
+
+    成功后文件进入「产物」页（web 可下载），并按简报规则推送到飞书/微信窗口。
+
+    Args:
+        name: 展示文件名（含扩展名，如 report.pdf / build.zip）
+        note: 备注（可选，说明这份产物是什么）
+        task_id: 关联的任务 ID（可选）
+    """
+    import secrets as _secrets
+
+    user = get_user()
+    session = next(get_session())
+    try:
+        if not name or not name.strip():
+            raise ValueError("name is required")
+        # task_id 归属校验（可选字段，填了必须是自己的任务）
+        if task_id:
+            task = session.get(models.A2aTask, task_id)
+            if task is None or task.workspace_id:
+                ws = session.get(models.Workspace, task.workspace_id) if task else None
+                if task is None or (ws and ws.user_id != user.id):
+                    raise ValueError(f"task {task_id!r} not found or not yours")
+        from server import artifacts as _art
+
+        nonce = f"{user.id}.{_secrets.token_hex(8)}"
+        token = _art.sign_upload_token(user.id, nonce)
+        base = current_base_url.get() or _art.public_base_url()
+        from urllib.parse import quote
+
+        upload_url = (
+            f"{base}/api/artifacts/upload?nonce={quote(nonce, safe='')}&token={quote(token, safe='')}"
+            f"&name={quote(name.strip(), safe='')}"
+        )
+        if note:
+            upload_url += f"&note={quote(note, safe='')}"
+        if task_id:
+            upload_url += f"&task_id={quote(task_id, safe='')}"
+        return {
+            "upload_url": upload_url,
+            "max_mb": _art.MAX_MB,
+            "expires_in_seconds": 600,
+            "next_step": (
+                'curl -sS -X POST "$upload_url" -F "file=@<绝对路径>" '
+                '（响应 JSON 含 id/download_url；一次有效，10 分钟内完成）'
+            ),
+        }
     finally:
         session.close()
 

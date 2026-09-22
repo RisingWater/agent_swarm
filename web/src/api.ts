@@ -63,6 +63,21 @@ export interface WorkspaceCall {
   done_at: string | null
 }
 
+export interface Artifact {
+  id: string
+  name: string
+  size: number
+  mime: string
+  note: string
+  task_id: string
+  workspace_id: string
+  pinned: boolean
+  created_at: string
+  expires_at: string
+  remain_days: number
+  download_url: string
+}
+
 export const api = {
   async register(username: string, password: string) {
     const rsp = await fetch(`${BASE}/api/auth/register`, {
@@ -104,6 +119,11 @@ export const api = {
   calls: (workspaceId = "") =>
     request(`/api/calls${workspaceId ? `?workspace_id=${encodeURIComponent(workspaceId)}` : ""}`) as Promise<WorkspaceCall[]>,
   deleteCall: (id: string) => request(`/api/calls/${id}`, { method: "DELETE" }),
+
+  artifacts: () => request("/api/artifacts") as Promise<Artifact[]>,
+  pinArtifact: (id: string, pinned: boolean) =>
+    request(`/api/artifacts/${id}/pin`, { method: "PUT", body: JSON.stringify({ pinned }) }) as Promise<Artifact>,
+  deleteArtifact: (id: string) => request(`/api/artifacts/${id}`, { method: "DELETE" }) as Promise<{ ok: boolean }>,
 
   /** web 中枢：以用户身份向工作区下发 A2A 任务（非流式下发，事件走 /ws/nexus 订阅） */
   sendTask: (workspaceId: string, text: string, taskId: string = "") =>

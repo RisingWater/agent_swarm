@@ -8,6 +8,7 @@ from fastapi.staticfiles import StaticFiles
 
 from server.db import init_db
 from server.api import auth, me, workspaces, calls, chat_binds, admin
+from server.api_artifacts import routes as artifact_routes
 from server.download import routes as download_routes
 from server.mcp_endpoint import build_mcp_asgi_app, mcp_lifespan
 from server.nexus_a2a import router as nexus_a2a_router
@@ -37,6 +38,26 @@ def _start_feishu():
     return gw
 
 
+def _start_artifact_gc():
+    """产物过期清理协程：启动清一次，之后每小时一次（pinned 不清）。"""
+    from server import artifacts as _art
+
+    async def _loop():
+        import logging
+
+        log = logging.getLogger("artifacts")
+        while True:
+            try:
+                n = _art.cleanup_expired()
+                if n:
+                    log.info("cleaned %d expired artifacts", n)
+            except Exception:  # noqa: BLE001
+                log.exception("artifact gc failed")
+            await asyncio.sleep(3600)
+
+    asyncio.create_task(_loop())
+
+
 def create_app() -> FastAPI:
     init_db()
 
@@ -44,6 +65,7 @@ def create_app() -> FastAPI:
     async def lifespan(app: FastAPI):
         async with mcp_lifespan():
             feishu = _start_feishu()
+            _start_artifact_gc()
             # 微信 ClawBot：恢复已登录用户的收消息循环（登录本身由用户在账号页扫码触发）
             try:
                 await weixin_gateway.start_all()
@@ -82,6 +104,10 @@ def create_app() -> FastAPI:
 
     # 插件分发（免鉴权）
     for r in download_routes:
+        app.router.routes.append(r)
+
+    # 产物（JWT REST + 一次性凭证上传 + 签名下载）
+    for r in artifact_routes:
         app.router.routes.append(r)
 
     # MCP 端点（自带 apikey 中间件）；规范路径为 /mcp/
