@@ -82,7 +82,7 @@ curl -fsSL http://<server>:8700/download/install.sh | bash -s -- --api-key <your
 & ([scriptblock]::Create((irm http://<server>:8700/download/install.ps1))) -ApiKey <your-key>
 ```
 
-- **opencode**: writes the service config → registers the MCP endpoint → deploys the heartbeat plugin → copies `/swarm-*` commands. **Takes effect after restarting opencode**
+- **opencode**: detects your opencode version (`opencode --version`) and installs the matching plugin — **V1** (`plugin` array in `opencode.jsonc` + `tui.jsonc`) or **V2** (auto-discovered under `~/.config/opencode/plugins/agent-swarm/`, no config entry / no `node_modules` needed) — writes the service config, registers the MCP endpoint, and copies `/swarm-*` commands. **Takes effect after restarting opencode**
 - **claude code**: registers a remote MCP + local keepalive (heartbeat) → copies `/swarm-*` commands. **Takes effect after restarting claude**; claude supports background sessions only, no foreground injection
 
 ### Connect Feishu (optional)
@@ -213,7 +213,7 @@ Notes on encryption at rest:
 
 ```
 server/            FastAPI service (api/ REST, mcp_endpoint.py MCP tools, feishu/ Feishu gateway, weixin/ WeChat ClawBot gateway, download.py plugin distribution)
-plugins/opencode/  opencode plugin (TS): heartbeat, task execution, monitor reporting, hub connection; commands/ hosts /swarm-* sources
+plugins/opencode/  opencode plugin (TS), V1 + V2: V1 = src/index.ts + src/tui.ts; V2 = index.ts + tui.ts + src/v2/* (task execution, monitor reporting, hub connection; in V2 the presence heartbeat runs in the CLI plugin); commands/ hosts the /swarm-add source
 plugins/claude/    claude code integration: keepalive.mjs (local MCP keep-alive) + background tasks + /swarm-* commands
 web/               React admin frontend (home, docs, hub, workspaces, calls, account, admin console)
 deploy/            start/stop scripts + installer dispatchers (sh + ps1)
@@ -231,7 +231,7 @@ cd web && npm run lint                   # oxlint
 cd plugins/opencode && npm run typecheck # opencode plugin type check
 ```
 
-> After editing `plugins/opencode/src/`, reinstall the plugin and **restart opencode** (running sessions hold the old code).
+> After editing `plugins/opencode/src/`, reinstall the plugin and **restart opencode** (running sessions hold the old code). On **opencode V2** the plugin is loaded by the background service and auto-discovered from `~/.config/opencode/plugins/agent-swarm/`: copy the changed files there and `touch index.ts` to hot-reload (no TUI restart needed).
 > ps1 install scripts containing Chinese must be saved as UTF-8 **with BOM** (local PS 5.1 reads BOM-less files as ANSI, breaking syntax); the dispatcher itself is delivered as text via `irm | iex`, so no BOM is needed there.
 
 ## Security
