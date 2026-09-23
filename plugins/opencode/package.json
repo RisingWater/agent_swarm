@@ -10,11 +10,11 @@
   "dependencies": {
     "@opencode-ai/plugin": "*",
     "@opencode-ai/sdk": "*",
-    "@opencode/plugin": "^2.0.15",
     "typescript": "@opencode-ai/plugin",
     "zod": "4.1.8"
   },
   "devDependencies": {
+    "@opencode/plugin": "^2.0.15",
     "@types/node": "^22.0.0",
     "typescript": "^5.6.0"
   },
