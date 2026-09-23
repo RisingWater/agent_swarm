@@ -33,6 +33,9 @@ export interface A2aOptions {
   /** 本实例当前前台会话 id。同一工作区多开时，服务端据此把应答路由回「发起它的那条连接」；
    *  每次 hello_ok 都会重新上报（重连后自动补发） */
   sessionId?: () => string
+  /** 任务执行模式（foreground/background）。服务端据此判断：心跳过期（没开 TUI）时，
+   *  只有 background 的工作区仍可派任务。hello 与 ping 都会带上（/swarm-mode 切完即生效） */
+  executionMode?: () => string
   /** 收到 message/send：注入会话执行。返回 sessionId（服务端记录 task.session_id）。
    *  serverSessionId = 服务端派发的会话锚点（heartbeat 上报的工作区当前会话），后台执行时作 --session 续聊 */
   onTask: (task: A2aTaskRef, text: string, caller: string, serverSessionId?: string) => Promise<string | null>
@@ -214,7 +217,7 @@ export function startNexusA2AClient(options: A2aOptions): NexusA2AClient {
 
   function startPing() {
     stopPing()
-    pingTimer = setInterval(() => send({ type: "ping" }), PING_INTERVAL_MS)
+    pingTimer = setInterval(() => send({ type: "ping", execution_mode: options.executionMode?.() }), PING_INTERVAL_MS)
   }
 
   function stopPing() {
@@ -379,7 +382,7 @@ export function startNexusA2AClient(options: A2aOptions): NexusA2AClient {
     ws = socket
 
     socket.addEventListener("open", () => {
-      send({ type: "hello", apikey: apiKey, workspace_id: wid })
+      send({ type: "hello", apikey: apiKey, workspace_id: wid, execution_mode: options.executionMode?.() ?? "foreground" })
     })
     socket.addEventListener("message", (e: MessageEvent) => handle(String(e.data)))
     socket.addEventListener("close", () => {

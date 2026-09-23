@@ -593,6 +593,7 @@ const plugin: Plugin = async (input) => {
     apiKey: cfg.apiKey,
     workspaceId: () => readWorkspaceId(directory),
     sessionId: () => currentSessionId,
+    executionMode: () => (loadConfig() ?? config).executionMode,
     onTask: executeTask,
     onReply: async (task, data) => {
       // input-required 续聊应答：路由到 opencode 权限/提问 API

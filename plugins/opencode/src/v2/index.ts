@@ -534,6 +534,7 @@ const plugin: PluginDef = {
       apiKey: config.apiKey,
       workspaceId: () => readWorkspaceId(directory),
       sessionId: () => currentSessionId,
+      executionMode: () => (loadConfig() ?? config).executionMode,
       onTask: executeTask,
       onReply: async (task, data) => {
         if (data.type === "permission") {

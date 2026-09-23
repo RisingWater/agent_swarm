@@ -196,7 +196,7 @@ def artifact_event(t: models.A2aTask, text: str, last_chunk: bool, artifact_id: 
 class PluginConn:
     """插件侧 WS 连接（一个工作区可以有多条）。"""
 
-    __slots__ = ("ws", "user_id", "workspace_id", "pending", "tasks", "session_id", "last_seen")
+    __slots__ = ("ws", "user_id", "workspace_id", "pending", "tasks", "session_id", "last_seen", "execution_mode")
 
     def __init__(self, ws: WebSocket, user_id: str, workspace_id: str):
         self.ws = ws
@@ -207,6 +207,9 @@ class PluginConn:
         # 该连接自己的前台会话 id（插件经 WS 上报，多实例下用它定位/路由；工作区行上的会被心跳互相覆盖）
         self.session_id: str = ""
         self.last_seen: float = time.monotonic()  # 最近一次收到该连接消息（判活/选 primary）
+        # 插件上报的执行模式（foreground/background）：background 的工作区即使没开 TUI
+        # （心跳过期）也允许派任务——由常驻 service 插件代跑。
+        self.execution_mode: str = "foreground"
 
 
 class WebConn:
@@ -278,6 +281,34 @@ def _drop_conn(workspace_id: str, conn: PluginConn) -> None:
 def ws_online(workspace_id: str) -> bool:
     """插件 WS 是否在线（比心跳更实时）。"""
     return bool(plugins.get(workspace_id))
+
+
+# 与 mcp_endpoint.HEARTBEAT_TIMEOUT_SECONDS 保持一致
+HEARTBEAT_ONLINE_SECONDS = 90
+
+
+def _heartbeat_fresh(workspace_id: str) -> bool:
+    """工作区心跳是否新鲜（= 有客户端/TUI 在上报）。"""
+    with Session(engine) as session:
+        ws = session.get(models.Workspace, workspace_id)
+        if ws is None or ws.last_heartbeat is None:
+            return False
+        return (models.utcnow() - ws.last_heartbeat).total_seconds() < HEARTBEAT_ONLINE_SECONDS
+
+
+def dispatchable(workspace_id: str) -> bool:
+    """能否给该工作区派任务（2026-09-23 用户决策 C）：
+      - 必须有插件连接；且
+      - 心跳新鲜（有 TUI/客户端在线）**或** 连接上报的执行模式是 background
+        （后台模式由常驻 service 插件代跑，不需要 TUI）。
+    V2 下插件由 service 常驻加载，WS 一直在线但"没开 TUI"应视为不可派发（前台模式）。
+    """
+    conn = primary_conn(workspace_id)
+    if conn is None:
+        return False
+    if _heartbeat_fresh(workspace_id):
+        return True
+    return (conn.execution_mode or "foreground") == "background"
 
 _user_ctx: contextvars.ContextVar[models.User] = contextvars.ContextVar("nexus_a2a_user")
 
@@ -783,11 +814,13 @@ async def a2a_rpc(workspace_id: str, request: Request):
     params = body.get("params") or {}
 
     # —— 阶段1：工作区鉴权（短会话，块内绝不 await）——
+    # 派发资格先算（同步、自开短会话，避免与下面的会话块嵌套）：心跳新鲜（有 TUI）或后台模式
+    can_dispatch = dispatchable(workspace_id)
     with Session(engine) as session:
         ws = session.get(models.Workspace, workspace_id)
         if ws is None or ws.user_id != user.id:
             return JSONResponse(_err(-32002, "workspace not found or not visible"), status_code=404)
-        if ws.status == "disabled" or not ws_online(workspace_id):
+        if ws.status == "disabled" or not can_dispatch:
             return JSONResponse(_err(-32004, "workspace plugin is not online"), status_code=409)
         ws_id = ws.id
         ws_uid = ws.user_id
@@ -1113,7 +1146,7 @@ async def _send_message_core(ws_row: models.Workspace, text: str, caller: str, t
             session.commit()
             session.refresh(task)
         snap = task_obj(task)
-    if ws_online(ws_row.id):
+    if dispatchable(ws_row.id):
         import asyncio
 
         asyncio.ensure_future(_dispatch_to_plugin(task, text, caller))
@@ -1134,8 +1167,8 @@ async def nexus_send(workspace_id: str, request: Request):
             raise HTTPException(404, "workspace not found")
         if ws.status == "disabled":
             raise HTTPException(409, "workspace is disabled")
-        # 在线判定以插件 WS 为准（WS 在线即证明工作区可用；心跳 90s 超时只影响展示态）
-        if not ws_online(workspace_id):
+        # 派发资格：心跳新鲜（有 TUI 在线）或该工作区是后台模式（常驻插件代跑）
+        if not dispatchable(workspace_id):
             raise HTTPException(409, "workspace plugin is not online")
         session.expunge(ws)  # 脱离会话后只读使用（_send_message_core 只用 id/user_id）
     snap = await _send_message_core(ws, text, "nexus-web", task_id=str(body.get("task_id", "")), context_id=str(body.get("context_id", "")))
@@ -1326,7 +1359,7 @@ async def nexus_history(workspace_id: str, request: Request, limit: int = 800):
                 out.append(json.loads(event_payload_text(r, apikeys)))
             except ValueError:
                 continue
-    return {"events": out, "plugin_online": ws_online(workspace_id)}
+    return {"events": out, "plugin_online": dispatchable(workspace_id)}
 
 
 @router.delete("/api/nexus/{workspace_id}/history")
@@ -1394,6 +1427,7 @@ async def ws_plugin(ws: WebSocket):
                     await _send_json(ws, {"type": "hello_err", "error": "workspace not found"})
                     continue
                 plugin = PluginConn(ws=ws, user_id=user.id, workspace_id=wid)
+                plugin.execution_mode = str(msg.get("execution_mode") or "foreground")
                 lst = plugins.setdefault(wid, [])
                 was_empty = len(lst) == 0
                 lst.append(plugin)
@@ -1401,7 +1435,7 @@ async def ws_plugin(ws: WebSocket):
                 # 仅「工作区从离线变在线」时补推排队任务（多实例重连不重复补推）
                 if was_empty:
                     asyncio.create_task(_flush_queued(wid, plugin))
-                log.info("plugin connected: ws=%s user=%s conns=%d", wid, user.id, len(lst))
+                log.info("plugin connected: ws=%s user=%s conns=%d mode=%s", wid, user.id, len(lst), plugin.execution_mode)
                 continue
 
             if plugin is None:
@@ -1410,6 +1444,8 @@ async def ws_plugin(ws: WebSocket):
             plugin.last_seen = time.monotonic()
 
             if mtype == "ping":
+                # 顺带刷新执行模式：/swarm-mode 切换后，下一次 ping 即生效
+                plugin.execution_mode = str(msg.get("execution_mode") or plugin.execution_mode)
                 await _send_json(ws, {"type": "pong"})
             elif mtype == "session":
                 # 插件上报自己当前的前台会话 id（多实例派发/应答路由用）
@@ -1468,6 +1504,9 @@ async def dispatch_queued_for(workspace_id: str) -> int:
     """把某工作区的 queued 任务推给在线插件（a2a_call / 插件上线共用）。返回派发数。"""
     conn = primary_conn(workspace_id)
     if conn is None:
+        return 0
+    # 没开 TUI 且非后台模式：不补推（否则 service 插件一连上就把排队任务跑了，没人看得见）
+    if not dispatchable(workspace_id):
         return 0
     session_id = conn.session_id or _ws_session_id(workspace_id)
     with Session(engine) as session:
@@ -1631,7 +1670,7 @@ async def ws_nexus(ws: WebSocket):
                 _unsubscribe(conn)
                 subscribers.setdefault(wid, set()).add(conn)
                 conn.workspace_id = wid
-                online = ws_online(wid)
+                online = dispatchable(wid)
                 # 回放最新一轮（A2A 形状 + monitor 事件，web 自行归并渲染）；
                 # 更早的轮由 web 上滚时经 /api/nexus/{wid}/rounds 分页拉取
                 replay = _latest_round_events(wid)
