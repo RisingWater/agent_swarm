@@ -16,6 +16,8 @@ export interface NexusA2AClient {
   send: (obj: Record<string, unknown>) => boolean
   /** 前台会话监控事件上报（{"type":"monitor",...}；断连入缓冲，重连补发） */
   sendMonitor: (payload: Record<string, unknown>) => void
+  /** 上报本实例当前前台会话 id（多实例派发/应答路由用；重连后由 hello_ok 自动补发） */
+  sendSession: (sessionId: string) => void
 }
 
 export interface A2aTaskRef {
@@ -28,6 +30,9 @@ export interface A2aOptions {
   url: string
   apiKey: string
   workspaceId: () => string
+  /** 本实例当前前台会话 id。同一工作区多开时，服务端据此把应答路由回「发起它的那条连接」；
+   *  每次 hello_ok 都会重新上报（重连后自动补发） */
+  sessionId?: () => string
   /** 收到 message/send：注入会话执行。返回 sessionId（服务端记录 task.session_id）。
    *  serverSessionId = 服务端派发的会话锚点（heartbeat 上报的工作区当前会话），后台执行时作 --session 续聊 */
   onTask: (task: A2aTaskRef, text: string, caller: string, serverSessionId?: string) => Promise<string | null>
@@ -172,7 +177,7 @@ export function parseInputRequired(event: A2aEvent): { type: string; requestId: 
 // ---------------------------------------------------------------- 客户端主体
 
 export function startNexusA2AClient(options: A2aOptions): NexusA2AClient {
-  const { url, apiKey, workspaceId, onTask, onReply, onPermissionReply, onQuestionReply, onTaskCancel, log } = options
+  const { url, apiKey, workspaceId, sessionId, onTask, onReply, onPermissionReply, onQuestionReply, onTaskCancel, log } = options
 
   let ws: WebSocket | null = null
   let ready = false
@@ -240,6 +245,7 @@ export function startNexusA2AClient(options: A2aOptions): NexusA2AClient {
         ready = true
         reconnectDelay = 1_000
         startPing()
+        send({ type: "session", session_id: sessionId?.() ?? "" })
         flushPendingMessages()
         log("nexus a2a ready")
         break
@@ -407,5 +413,6 @@ export function startNexusA2AClient(options: A2aOptions): NexusA2AClient {
     isReady: () => ready,
     send,
     sendMonitor: (payload) => sendMessage({ type: "monitor", payload }),
+    sendSession: (sid: string) => send({ type: "session", session_id: sid }),
   }
 }

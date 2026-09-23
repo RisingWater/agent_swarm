@@ -194,9 +194,9 @@ def artifact_event(t: models.A2aTask, text: str, last_chunk: bool, artifact_id: 
 
 
 class PluginConn:
-    """插件侧 WS 连接。"""
+    """插件侧 WS 连接（一个工作区可以有多条）。"""
 
-    __slots__ = ("ws", "user_id", "workspace_id", "pending", "tasks")
+    __slots__ = ("ws", "user_id", "workspace_id", "pending", "tasks", "session_id", "last_seen")
 
     def __init__(self, ws: WebSocket, user_id: str, workspace_id: str):
         self.ws = ws
@@ -204,6 +204,9 @@ class PluginConn:
         self.workspace_id = workspace_id
         self.pending: dict[str, asyncio.Future] = {}  # JSON-RPC id → Future（等插件 rpc 应答）
         self.tasks: set = set()  # 防 dispatch 任务被 GC
+        # 该连接自己的前台会话 id（插件经 WS 上报，多实例下用它定位/路由；工作区行上的会被心跳互相覆盖）
+        self.session_id: str = ""
+        self.last_seen: float = time.monotonic()  # 最近一次收到该连接消息（判活/选 primary）
 
 
 class WebConn:
@@ -223,8 +226,58 @@ class WebConn:
         return id(self)
 
 
-plugins: dict[str, PluginConn] = {}  # workspace_id → 插件连接（新顶旧）
+# 插件连接注册表：一个工作区允许多条连接（同项目多开 opencode，2026-09-23 用户决策）。
+# 曾经的「单槽 + 新顶旧(4001)」会让两个实例每秒互踢一次，把服务打死；现在：
+#   - 所有连接都注册，都照常上报 monitor/event（两个 TUI 的简报/监控都能同步）
+#   - 任务派发 / input-required 应答取「第一个」连接（primary），失败顺次回退
+plugins: dict[str, list[PluginConn]] = {}  # workspace_id → 插件连接（按上线顺序）
 subscribers: dict[str, set[WebConn]] = {}  # workspace_id → 订阅的 web 连接
+
+# 连接超过这么久没收到任何消息就算「不新鲜」：打任务时优先挑新鲜的（插件每 15s ping 一次）
+PLUGIN_FRESH_SECONDS = 60
+
+
+def _conns(workspace_id: str) -> list[PluginConn]:
+    return plugins.get(workspace_id) or []
+
+
+def primary_conn(workspace_id: str) -> PluginConn | None:
+    """派发目标：第一个「新鲜」的连接，兜底列表第一个。"""
+    lst = _conns(workspace_id)
+    if not lst:
+        return None
+    now = time.monotonic()
+    for c in lst:
+        if now - c.last_seen < PLUGIN_FRESH_SECONDS:
+            return c
+    return lst[0]
+
+
+def conn_for_session(workspace_id: str, session_id: str | None) -> PluginConn | None:
+    """按会话归属挑连接：session 与连接上报的一致者优先，否则 primary。
+
+    多实例下工作区行上的 session_id 会被各实例心跳互相覆盖，不能用来定位连接；
+    每条连接自己上报的 session_id 才准（应答必须回到发起它的那个 opencode 实例）。
+    """
+    sid = session_id or ""
+    if sid:
+        for c in _conns(workspace_id):
+            if c.session_id and c.session_id == sid:
+                return c
+    return primary_conn(workspace_id)
+
+
+def _drop_conn(workspace_id: str, conn: PluginConn) -> None:
+    lst = plugins.get(workspace_id)
+    if lst is not None and conn in lst:
+        lst.remove(conn)
+        if not lst:
+            plugins.pop(workspace_id, None)
+
+
+def ws_online(workspace_id: str) -> bool:
+    """插件 WS 是否在线（比心跳更实时）。"""
+    return bool(plugins.get(workspace_id))
 
 _user_ctx: contextvars.ContextVar[models.User] = contextvars.ContextVar("nexus_a2a_user")
 
@@ -235,11 +288,6 @@ async def _send_json(ws: WebSocket, payload: dict) -> bool:
         return True
     except Exception:
         return False
-
-
-def ws_online(workspace_id: str) -> bool:
-    """插件 WS 是否在线（比心跳更实时）。"""
-    return workspace_id in plugins
 
 
 # ---------------------------------------------------------------- 事件总线（进程内，SSE/同步等待用）
@@ -391,7 +439,7 @@ async def handle_plugin_event(workspace_id: str, event: dict) -> None:
         session.add(task)
         session.commit()
         session.refresh(task)
-        snapshot = task_obj(task)
+        snapshot = task_obj(task, owner_key)
         last_row = session.exec(
             select(models.A2aEvent.id).where(models.A2aEvent.task_id == task.id).order_by(models.A2aEvent.id.desc()).limit(1)
         ).first()
@@ -524,10 +572,13 @@ async def handle_monitor_event(workspace_id: str, payload: dict) -> None:
             await listener(workspace_id, payload)
         except Exception:
             pass
+    snap = None
     with Session(engine) as session:
         t = session.get(models.A2aTask, round_key)
         if t is not None:
-            await _push_web(workspace_id, {"type": "task", "task": task_obj(t)})
+            snap = task_obj(t, _owner_key(session, t))
+    if snap is not None:
+        await _push_web(workspace_id, {"type": "task", "task": snap})
 
 
 # ---------------------------------------------------------------- HTTP：Agent Card
@@ -651,38 +702,58 @@ async def _dispatch_to_plugin(task: models.A2aTask, message_text: str, caller: s
 
 
 async def _dispatch_to_plugin_plain(task_snap: dict, message_text: str, caller: str) -> None:
-    """同上，但接受纯字段快照（流式生成器场景，ORM 对象已不可用）。"""
-    conn = plugins.get(task_snap["workspace_id"])
-    if conn is None:
+    """同上，但接受纯字段快照（流式生成器场景，ORM 对象已不可用）。
+
+    多连接（同项目多开 opencode）：派发给「第一个」连接（primary）；发送失败说明该连接已死，
+    剔除后顺次试下一个。session 锚点优先用连接自己上报的 session_id（工作区行上的不可靠）。
+    """
+    wid = task_snap["workspace_id"]
+    conns = list(_conns(wid))
+    if not conns:
         return
-    # 附带工作区当前会话 id（heartbeat 上报）：插件以此为执行/续聊锚点
-    with Session(engine) as session:
-        ws = session.get(models.Workspace, task_snap["workspace_id"])
-        session_id = (ws.session_id if ws else "") or ""
     req = {
         "jsonrpc": "2.0",
         "id": f"srv-{task_snap['id']}",
         "method": "message/send",
         "params": {
             "message": user_message(message_text, task_id=task_snap["id"], context_id=task_snap["context_id"]),
-            "metadata": {"caller": caller, "session_id": session_id},
+            "metadata": {"caller": caller, "session_id": ""},
         },
     }
-    fut: asyncio.Future = asyncio.get_running_loop().create_future()
-    conn.pending[req["id"]] = fut
+    for conn in conns:
+        session_id = conn.session_id or _ws_session_id(wid)
+        req["params"]["metadata"]["session_id"] = session_id
+        fut: asyncio.Future = asyncio.get_running_loop().create_future()
+        conn.pending[req["id"]] = fut
 
-    async def _cleanup():
-        await asyncio.sleep(30)  # 插件同步应答上限（后续事件走 event 通道）
-        if not fut.done():
-            fut.set_exception(TimeoutError("plugin rpc no response"))
+        async def _cleanup(fut: asyncio.Future = fut) -> None:
+            await asyncio.sleep(30)  # 插件同步应答上限（后续事件走 event 通道）
+            if not fut.done():
+                fut.set_exception(TimeoutError("plugin rpc no response"))
 
-    t = asyncio.create_task(_cleanup())
-    ok = await _send_json(conn.ws, {"type": "rpc", "payload": req})
-    if not ok:
+        t = asyncio.create_task(_cleanup())
+        conn.tasks.add(t)
+        t.add_done_callback(conn.tasks.discard)
+        ok = await _send_json(conn.ws, {"type": "rpc", "payload": req})
+        if ok:
+            _remember_task_session(task_snap["id"], session_id)  # 应答时据此路由回该连接
+            return
+        # 发送失败：清 pending、剔除死连接，试下一个
         conn.pending.pop(req["id"], None)
-        fut.set_exception(ConnectionError("plugin connection lost"))
-    conn.tasks.add(t)
-    t.add_done_callback(conn.tasks.discard)
+        fut.cancel()
+        _drop_conn(wid, conn)
+
+
+def _remember_task_session(task_id: str, session_id: str) -> None:
+    """记下任务被派发到哪个 session（多实例应答路由用；已有则不覆盖）。"""
+    if not session_id:
+        return
+    with Session(engine) as session:
+        t = session.get(models.A2aTask, task_id)
+        if t is not None and not t.session_id:
+            t.session_id = session_id
+            session.add(t)
+            session.commit()
 
 
 def _mark_task(session: Session, task_id: str, status: str, error: str | None = None) -> None:
@@ -711,22 +782,31 @@ async def a2a_rpc(workspace_id: str, request: Request):
     method = str(body.get("method", ""))
     params = body.get("params") or {}
 
+    # —— 阶段1：工作区鉴权（短会话，块内绝不 await）——
     with Session(engine) as session:
         ws = session.get(models.Workspace, workspace_id)
         if ws is None or ws.user_id != user.id:
             return JSONResponse(_err(-32002, "workspace not found or not visible"), status_code=404)
         if ws.status == "disabled" or not ws_online(workspace_id):
             return JSONResponse(_err(-32004, "workspace plugin is not online"), status_code=409)
+        ws_id = ws.id
+        ws_uid = ws.user_id
+        ws_key = ws_user_key(session, ws)  # 会话外建新任务时加密用（不可再引用 ORM 对象）
 
-        if method == "message/send" or method == "message/stream":
-            text, task_id, context_id = _text_from_message(params)
-            if not text:
-                return JSONResponse(_err(-32602, "message.text is required"))
-            caller = str((params.get("metadata") or {}).get("caller") or "a2a-client")
+    # —— 阶段2：DB 用短会话，await 一律放会话外 ——
+    # 2026-09-23 事故：message/send 原在 with Session 内 await _wait_final（最长 CALL_TIMEOUT=1h），
+    # 每个并发调用占死一个池连接；叠加多实例重启风暴 → 连接池耗尽、同步取连接阻塞事件循环、
+    # 连不碰 DB 的 /health 都超时，全站冻死约 15 分钟。
+    if method == "message/send" or method == "message/stream":
+        text, task_id, context_id = _text_from_message(params)
+        if not text:
+            return JSONResponse(_err(-32602, "message.text is required"))
+        caller = str((params.get("metadata") or {}).get("caller") or "a2a-client")
+        with Session(engine) as session:
             if task_id:
                 # 续聊（input-required 应答 / 多轮）：复用已有任务
                 task = session.get(models.A2aTask, task_id)
-                if task is None or task.workspace_id != ws.id:
+                if task is None or task.workspace_id != ws_id:
                     return JSONResponse(_err(-32001, "task not found"))
                 if task.status not in ("input-required", "working", "queued"):
                     return JSONResponse(_err(-32005, f"task is {task.status}, cannot continue"))
@@ -737,67 +817,66 @@ async def a2a_rpc(workspace_id: str, request: Request):
                 task = models.A2aTask(
                     id=shortuuid.uuid(),
                     context_id=context_id or shortuuid.uuid(),
-                    workspace_id=ws.id,
-                    user_id=ws.user_id,
+                    workspace_id=ws_id,
+                    user_id=ws_uid,
                     caller=caller,
                     status="queued",
                 )
-                msg_enc = crypto.encrypt(ws_user_key(session, ws), text)
+                msg_enc = crypto.encrypt(ws_key, text)
                 task.message_enc = msg_enc
                 task.message = "" if msg_enc else text
                 session.add(task)
                 session.commit()
+            # 字段快照（会话关闭后不可引用 ORM 对象）
+            task_snap = {"id": task.id, "context_id": task.context_id, "workspace_id": ws_id}
 
-            streaming = method == "message/stream"
-            if streaming:
-                # 提取字段快照（流式生成器在 session 关闭后跑，不能引用 ORM 对象）
-                task_snap = {
-                    "id": task.id,
-                    "context_id": task.context_id,
-                    "workspace_id": task.workspace_id,
-                }
-                return await _stream_response(task_snap, text, caller)
-            # 非流式：推给插件，同步等终态（最多 CALL_TIMEOUT）
-            await _dispatch_to_plugin(task, text, caller)
-            final = await _wait_final(task.id, CALL_TIMEOUT_SECONDS)
-            with Session(engine) as session2:
-                t2 = session2.get(models.A2aTask, task.id)
-                if t2 is None:
-                    return JSONResponse(_err(-32001, "task lost"))
-                return _result(rpc_id, task_obj(t2))
+        # —— await 段：连接已归还，长等待/推送不再占连接池 ——
+        if method == "message/stream":
+            return await _stream_response(task_snap, text, caller)
+        # 非流式：推给插件，同步等终态（最多 CALL_TIMEOUT）
+        await _dispatch_to_plugin_plain(task_snap, text, caller)
+        await _wait_final(task_snap["id"], CALL_TIMEOUT_SECONDS)
+        with Session(engine) as session2:
+            t2 = session2.get(models.A2aTask, task_snap["id"])
+            if t2 is None:
+                return JSONResponse(_err(-32001, "task lost"))
+            return _result(rpc_id, task_obj(t2, _owner_key(session2, t2)))
 
-        elif method == "tasks/get":
-            task_id = str(params.get("id", ""))
-            task, _ = _load_task_for_user(user, task_id)
+    if method == "tasks/get":
+        task_id = str(params.get("id", ""))
+        task, _ = _load_task_for_user(user, task_id)
+        return _result(rpc_id, task_obj(task))
+
+    if method == "tasks/cancel":
+        task_id = str(params.get("id", ""))
+        task, _ = _load_task_for_user(user, task_id)
+        if task.status in ("completed", "failed", "canceled"):
             return _result(rpc_id, task_obj(task))
-
-        elif method == "tasks/cancel":
-            task_id = str(params.get("id", ""))
-            task, _ = _load_task_for_user(user, task_id)
-            if task.status in ("completed", "failed", "canceled"):
-                return _result(rpc_id, task_obj(task))
-            # 通知插件取消（尽力而为）；任务置 canceled
-            conn = plugins.get(task.workspace_id) if task.workspace_id else None
-            if conn is not None:
-                await _send_json(
-                    conn.ws,
-                    {
-                        "type": "rpc",
-                        "payload": {
-                            "jsonrpc": "2.0",
-                            "id": f"srv-cancel-{task.id}",
-                            "method": "tasks/cancel",
-                            "params": {"id": task.id},
-                        },
+        # 通知插件取消（尽力而为）；任务置 canceled（会话外，不占连接池）
+        wid = task.workspace_id
+        conn = conn_for_session(wid, task.session_id) if wid else None
+        if conn is not None:
+            await _send_json(
+                conn.ws,
+                {
+                    "type": "rpc",
+                    "payload": {
+                        "jsonrpc": "2.0",
+                        "id": f"srv-cancel-{task.id}",
+                        "method": "tasks/cancel",
+                        "params": {"id": task.id},
                     },
-                )
-            with Session(engine) as session2:
-                _mark_task(session2, task.id, "canceled")
-            await _push_web(task.workspace_id, status_event(task, True))
-            return _result(rpc_id, task_obj(task))
+                },
+            )
+        with Session(engine) as session2:
+            _mark_task(session2, task.id, "canceled")
+            session2.commit()  # 修复：原先漏 commit，取消状态从未落库
+            t2 = session2.get(models.A2aTask, task.id)
+            snap = task_obj(t2, _owner_key(session2, t2)) if t2 is not None else task_obj(task)
+        await _push_web(wid, status_event_from_snap(snap, True))
+        return _result(rpc_id, snap)
 
-        else:
-            return JSONResponse(_err(-32601, f"method not supported: {method}"))
+    return JSONResponse(_err(-32601, f"method not supported: {method}"))
 
 
 # 任务超时收割（reap）已彻底移除（2026-09-18 用户决定）：
@@ -867,6 +946,7 @@ async def _wait_final(task_id: str, timeout: float) -> None:
         # 超时：置 failed
         with Session(engine) as session:
             _mark_task(session, task_id, "failed", f"timeout after {int(timeout)}s")
+            session.commit()
     finally:
         _task_unsubscribe(task_id, q)
 
@@ -884,9 +964,11 @@ async def _stream_response(task_snap: dict, text: str, caller: str):
             # 先推任务快照（A2A 规范：首个事件为 Task 对象）
             with Session(engine) as s:
                 t = s.get(models.A2aTask, task_id)
-                snap_obj = task_obj(t) if t is not None else {"id": task_id, "kind": "task"}
+                snap_obj = task_obj(t, _owner_key(s, t)) if t is not None else {"id": task_id, "kind": "task"}
             yield f"data: {json.dumps({'jsonrpc': '2.0', 'id': None, 'result': snap_obj}, ensure_ascii=False)}\n\n"
-            # 回放历史事件（断线重连/晚订阅不丢事件）
+            # 回放历史事件（断线重连/晚订阅不丢事件）；先读进内存再 yield——
+            # yield 在 session 内会占着连接直到客户端消费，慢 SSE 客户端可占死连接池
+            replay: list[tuple[int, str]] = []
             with Session(engine) as s:
                 rows = s.exec(
                     select(models.A2aEvent)
@@ -902,7 +984,9 @@ async def _stream_response(task_snap: dict, text: str, caller: str):
                     except ValueError:
                         continue
                     ev = {"jsonrpc": "2.0", "id": None, "result": payload}
-                    yield f"id: {r.id}\ndata: {json.dumps(ev, ensure_ascii=False)}\n\n"
+                    replay.append((r.id, json.dumps(ev, ensure_ascii=False)))
+            for eid, data in replay:
+                yield f"id: {eid}\ndata: {data}\n\n"
             # 派发给插件（在回放之后，避免事件乱序）
             await _dispatch_to_plugin_plain(task_snap, text, caller)
             deadline = time.monotonic() + CALL_TIMEOUT_SECONDS
@@ -922,14 +1006,16 @@ async def _stream_response(task_snap: dict, text: str, caller: str):
                     if state in TERMINAL_STATES:
                         return
             # 超时未终态：置 failed 并推送
+            timeout_ev = None
             with Session(engine) as s:
                 t = s.get(models.A2aTask, task_id)
                 if t is not None and t.status not in TERMINAL_STATES:
                     _mark_task(s, task_id, "failed", f"timeout after {int(CALL_TIMEOUT_SECONDS)}s")
                     s.commit()
                     s.refresh(t)
-                    ev = {"jsonrpc": "2.0", "id": None, "result": status_event(t, True)}
-                    yield f"data: {json.dumps(ev, ensure_ascii=False)}\n\n"
+                    timeout_ev = {"jsonrpc": "2.0", "id": None, "result": status_event(t, True)}
+            if timeout_ev is not None:
+                yield f"data: {json.dumps(timeout_ev, ensure_ascii=False)}\n\n"
         finally:
             _task_unsubscribe(task_id, q)
 
@@ -1051,7 +1137,8 @@ async def nexus_send(workspace_id: str, request: Request):
         # 在线判定以插件 WS 为准（WS 在线即证明工作区可用；心跳 90s 超时只影响展示态）
         if not ws_online(workspace_id):
             raise HTTPException(409, "workspace plugin is not online")
-        snap = await _send_message_core(ws, text, "nexus-web", task_id=str(body.get("task_id", "")), context_id=str(body.get("context_id", "")))
+        session.expunge(ws)  # 脱离会话后只读使用（_send_message_core 只用 id/user_id）
+    snap = await _send_message_core(ws, text, "nexus-web", task_id=str(body.get("task_id", "")), context_id=str(body.get("context_id", "")))
     return snap
 
 
@@ -1085,7 +1172,9 @@ async def nexus_reply(workspace_id: str, request: Request):
                 raise HTTPException(409, f"task is {task.status}, cannot reply")
         elif task.status != "input-required":
             raise HTTPException(409, f"task is {task.status}, not waiting for input")
-    conn = plugins.get(workspace_id)
+        task_sid = task.session_id
+    # 多实例：应答回到发起它的那条连接（按 session 归属），否则 primary
+    conn = conn_for_session(workspace_id, task_sid)
     if conn is None:
         raise HTTPException(409, "workspace plugin is not online")
     data: dict = {"type": req_type, "requestId": request_id, "taskId": task_id}
@@ -1135,9 +1224,10 @@ async def cancel_task_by_id(task_id: str, user_id: str) -> bool:
         if ws is None or ws.user_id != user_id:
             return False
         wid = task.workspace_id
+        sid = task.session_id
         if task.status in TERMINAL_STATES:
             return False
-    conn = plugins.get(wid)
+    conn = conn_for_session(wid, sid)
     if conn is not None:
         await _send_json(
             conn.ws,
@@ -1186,8 +1276,9 @@ async def reply_task_from_feishu(task_id: str, reply: str, request_id: str) -> t
         if task is None:
             return False, "task not found"
         wid = task.workspace_id
+        sid = task.session_id
         itype = _input_type(task)
-    conn = plugins.get(wid)
+    conn = conn_for_session(wid, sid)
     if conn is None:
         return False, "workspace plugin is not online"
     data: dict = {"requestId": request_id or task_id, "taskId": task_id}
@@ -1302,27 +1393,27 @@ async def ws_plugin(ws: WebSocket):
                 if row is None:
                     await _send_json(ws, {"type": "hello_err", "error": "workspace not found"})
                     continue
-                old = plugins.get(wid)
-                if old is not None:
-                    try:
-                        await old.ws.close(code=4001, reason="replaced by new connection")
-                    except Exception:
-                        pass
-                    plugins.pop(wid, None)
                 plugin = PluginConn(ws=ws, user_id=user.id, workspace_id=wid)
-                plugins[wid] = plugin
+                lst = plugins.setdefault(wid, [])
+                was_empty = len(lst) == 0
+                lst.append(plugin)
                 await _send_json(ws, {"type": "hello_ok"})
-                # 补推排队任务（插件离线期间 message/send 落库 queued，上线即领）
-                asyncio.create_task(_flush_queued(wid, plugin))
-                log.info("plugin connected: ws=%s user=%s", wid, user.id)
+                # 仅「工作区从离线变在线」时补推排队任务（多实例重连不重复补推）
+                if was_empty:
+                    asyncio.create_task(_flush_queued(wid, plugin))
+                log.info("plugin connected: ws=%s user=%s conns=%d", wid, user.id, len(lst))
                 continue
 
             if plugin is None:
                 await _send_json(ws, {"type": "hello_err", "error": "hello first"})
                 continue
+            plugin.last_seen = time.monotonic()
 
             if mtype == "ping":
                 await _send_json(ws, {"type": "pong"})
+            elif mtype == "session":
+                # 插件上报自己当前的前台会话 id（多实例派发/应答路由用）
+                plugin.session_id = str(msg.get("session_id", ""))
             elif mtype == "rpc":
                 # 插件对服务端 request 的同步应答（解析 pending future）
                 payload = msg.get("payload") or {}
@@ -1349,14 +1440,15 @@ async def ws_plugin(ws: WebSocket):
     except Exception as e:  # noqa: BLE001
         log.warning("plugin ws error: %s", e)
     finally:
-        if plugin is not None and plugins.get(plugin.workspace_id) is plugin:
-            plugins.pop(plugin.workspace_id, None)
+        if plugin is not None:
+            wid = plugin.workspace_id
+            _drop_conn(wid, plugin)
             # 失联的 pending rpc 全部置错
             for fut in plugin.pending.values():
                 if not fut.done():
                     fut.set_exception(ConnectionError("plugin disconnected"))
             plugin.pending.clear()
-            log.info("plugin disconnected: ws=%s", plugin.workspace_id)
+            log.info("plugin disconnected: ws=%s conns=%d", wid, len(_conns(wid)))
 
 
 async def _flush_queued(workspace_id: str, conn: PluginConn) -> None:
@@ -1374,9 +1466,10 @@ def _ws_session_id(workspace_id: str) -> str:
 
 async def dispatch_queued_for(workspace_id: str) -> int:
     """把某工作区的 queued 任务推给在线插件（a2a_call / 插件上线共用）。返回派发数。"""
-    conn = plugins.get(workspace_id)
+    conn = primary_conn(workspace_id)
     if conn is None:
         return 0
+    session_id = conn.session_id or _ws_session_id(workspace_id)
     with Session(engine) as session:
         rows = session.exec(
             select(models.A2aTask)
@@ -1394,6 +1487,8 @@ async def dispatch_queued_for(workspace_id: str) -> int:
                 continue
             t.status = "working"
             t.accepted_at = models.utcnow()
+            if session_id:
+                t.session_id = session_id  # 记下目标 session，应答路由回该连接
             session.add(t)
             session.commit()
         req = {
@@ -1402,7 +1497,7 @@ async def dispatch_queued_for(workspace_id: str) -> int:
             "method": "message/send",
             "params": {
                 "message": user_message(text, task_id=tid, context_id=""),
-                "metadata": {"caller": caller or "agent", "session_id": _ws_session_id(workspace_id)},
+                "metadata": {"caller": caller or "agent", "session_id": session_id},
             },
         }
         fut: asyncio.Future = asyncio.get_running_loop().create_future()

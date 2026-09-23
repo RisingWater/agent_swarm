@@ -141,18 +141,23 @@ async def handle_inbound(sess: gateway.UserSession, text: str) -> None:
         return
     from server.nexus_a2a import _send_message_core
 
+    ws = None
     with Session(engine) as s:
         ws = s.get(models.Workspace, row.workspace_id)
-        if ws is None or ws.user_id != uid:
-            state.update_ws_settings(uid, workspace_id="")
-            await _start_select_ws(sess, prefix="选中的工作区已失效，重新选择：\n\n")
-            return
-        try:
-            await _send_message_core(ws, stripped, "nexus-weixin-clawbot")
-        except Exception as exc:  # noqa: BLE001
-            log.warning("weixin dispatch failed: %s", exc)
-            await reply_text(sess, f"⚠️ 派发失败：{exc}")
-            return
+        if ws is not None and ws.user_id == uid:
+            s.expunge(ws)  # 脱离会话后只读使用（_send_message_core 只用 id/user_id）
+        else:
+            ws = None
+    if ws is None:
+        state.update_ws_settings(uid, workspace_id="")
+        await _start_select_ws(sess, prefix="选中的工作区已失效，重新选择：\n\n")
+        return
+    try:
+        await _send_message_core(ws, stripped, "nexus-weixin-clawbot")
+    except Exception as exc:  # noqa: BLE001
+        log.warning("weixin dispatch failed: %s", exc)
+        await reply_text(sess, f"⚠️ 派发失败：{exc}")
+        return
     await reply_text(sess, render.task_accepted_text(""))
 
 
@@ -358,27 +363,33 @@ async def _send_last(sess: gateway.UserSession) -> None:
     uid = sess.user_id
     from server import crypto
 
+    need_select = False
+    text = ""
     with Session(engine) as s:
         row = s.get(models.WeixinLogin, uid)
         if row is None or not row.workspace_id:
-            await _start_select_ws(sess, prefix="先选择工作区：\n\n")
-            return
-        ws = s.get(models.Workspace, row.workspace_id)
-        t = s.exec(
-            select(models.A2aTask)
-            .where(models.A2aTask.workspace_id == row.workspace_id)
-            .order_by(models.A2aTask.created_at.desc())  # type: ignore[attr-defined]
-            .limit(1)
-        ).first()
-        if t is None:
-            await reply_text(sess, f"工作区 **{ws.name if ws else ''}** 还没有任务记录。")
-            return
-        u = s.get(models.User, uid)
-        key = (u.api_key or "") if u else ""
-        instr = crypto.decrypt(key, t.message_enc, t.message)
-        answer = crypto.decrypt(key, t.artifact_enc, t.artifact)
-        error = crypto.decrypt(key, t.error_enc, t.error)
-    text = render.brief_text(instr, answer, error, t.status == "failed", ws.name if ws else "工作区")
+            need_select = True
+        else:
+            ws = s.get(models.Workspace, row.workspace_id)
+            t = s.exec(
+                select(models.A2aTask)
+                .where(models.A2aTask.workspace_id == row.workspace_id)
+                .order_by(models.A2aTask.created_at.desc())  # type: ignore[attr-defined]
+                .limit(1)
+            ).first()
+            if t is None:
+                text = f"工作区 **{ws.name if ws else ''}** 还没有任务记录。"
+            else:
+                u = s.get(models.User, uid)
+                key = (u.api_key or "") if u else ""
+                instr = crypto.decrypt(key, t.message_enc, t.message)
+                answer = crypto.decrypt(key, t.artifact_enc, t.artifact)
+                error = crypto.decrypt(key, t.error_enc, t.error)
+                text = render.brief_text(instr, answer, error, t.status == "failed", ws.name if ws else "工作区")
+    # await 放会话外（与 2026-09-23 连接池事故同一约定）
+    if need_select:
+        await _start_select_ws(sess, prefix="先选择工作区：\n\n")
+        return
     await reply_text(sess, text)
 
 

@@ -354,12 +354,13 @@ async def start_all() -> None:
 
     with Session(engine) as s:
         rows = s.exec(select(models.WeixinLogin)).all()
-        for row in rows:
-            if row.status in ("online", "connecting"):
-                sess = get_session_mgr(row.user_id)
-                if sess.load():
-                    await sess.start()
-                    log.info("weixin session resumed for user %s", row.user_id)
+        user_ids = [row.user_id for row in rows if row.status in ("online", "connecting")]
+    # await 放会话外（与 2026-09-23 连接池事故同一约定）
+    for uid in user_ids:
+        sess = get_session_mgr(uid)
+        if sess.load():
+            await sess.start()
+            log.info("weixin session resumed for user %s", uid)
 
 
 async def stop_all() -> None:

@@ -1,6 +1,7 @@
 import os
 from pathlib import Path
 
+from sqlalchemy import event
 from sqlmodel import SQLModel, create_engine
 
 DB_PATH = os.environ.get(
@@ -8,7 +9,33 @@ DB_PATH = os.environ.get(
     str(Path(__file__).resolve().parent.parent / "data" / "agent_swarm.db"),
 )
 
-engine = create_engine(f"sqlite:///{DB_PATH}", connect_args={"check_same_thread": False})
+# 池参数放宽（2026-09-23 冻死事故修复）：默认 QueuePool 只有 5+10=15 个连接，
+# 多个 opencode 同时重启（MCP 风暴 + 插件 WS 重连 + monitor 事件）时 72s 内即耗尽；
+# 连接耗尽后同步 SQLite 取连接会阻塞事件循环（连 /health 都超时）。
+engine = create_engine(
+    f"sqlite:///{DB_PATH}",
+    connect_args={"check_same_thread": False, "timeout": 30},
+    pool_size=10,
+    max_overflow=20,
+    pool_timeout=30,
+)
+
+
+@event.listens_for(engine, "connect")
+def _sqlite_pragmas(dbapi_conn, _record) -> None:
+    """每个新连接都挂 WAL + busy_timeout（2026-09-23 事故修复）。
+
+    - WAL：读写不互锁，monitor 事件高频写不再堵住读请求
+    - busy_timeout=30s：写锁冲突时等锁而不是立刻 "database is locked"
+    - synchronous=NORMAL：WAL 下安全且比 FULL 快
+    """
+    cur = dbapi_conn.cursor()
+    try:
+        cur.execute("PRAGMA journal_mode=WAL")
+        cur.execute("PRAGMA busy_timeout=30000")
+        cur.execute("PRAGMA synchronous=NORMAL")
+    finally:
+        cur.close()
 
 
 def init_db() -> None:

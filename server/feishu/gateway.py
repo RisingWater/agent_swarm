@@ -376,9 +376,10 @@ class FeishuGateway:
             if task is None:
                 return False
             ws = session.get(models.Workspace, task.workspace_id) if task.workspace_id else None
-            if ws is None or ws.user_id != user_id:
-                await self.send_text(chat_id, "❌ 无权应答该任务。")
-                return False
+            allowed = ws is not None and ws.user_id == user_id
+        if not allowed:
+            await self.send_text(chat_id, "❌ 无权应答该任务。")
+            return False
         try:
             from server.nexus_a2a import reply_task_from_feishu
 
