@@ -33,6 +33,7 @@
 - **2026-09-23 opencode V2 支持（用户拍板：同时支持 V1+V2，安装脚本按版本分流；先打通心跳上线）**：V2 插件 API 全新——入口 `Plugin.define({id, setup})`、插件由**后台 service 按 location 常驻加载**（`opencode run` 只是客户端，`--pure` 已删）、**强类型命名事件**（非 V1 的 message.part.updated）、**无 `session.list`/`session.form`**。仓库双实现：V1 的 `src/index.ts`/`src/tui.ts` 原样不动 + 新增 `plugins/opencode/index.ts`（V2 包入口）/`tui.ts`（V2 CLI 入口）/`src/v2/*`；V2 插件**刻意零运行时裸依赖**（`@opencode/plugin` 只 `import type`）——否则配置目录下的插件在 opencode 加载器里解析不到该包；安装脚本 `opencode --version` 判 major 分流、单向覆盖
 - **2026-09-23 V2 在线语义 = 开着 TUI（用户拍板）**：V2 插件常驻 service，若由 server 插件心跳，则 service 加载过的每个项目（没开 TUI 也算）都会 online（用户实测反馈）。改为**在线只能由 TUI 自己上报**：server 插件不心跳，CLI 插件（TUI 进程）每 30s 心跳 + 上报当前查看的会话；关掉 TUI → 90s 超时离线（不主动 offline，防同项目多开互踢）
 - **2026-09-23 离线派发策略 C（用户拍板）**：新增 `dispatchable(wid)` = 有插件连接 且（心跳新鲜=有 TUI **或** 连接上报 `execution_mode=="background"`）。即**没开 TUI 的前台工作区不可派发（409）**，后台模式照常可派（常驻 service 插件代跑）；插件在 WS hello/ping 上报执行模式，`/swarm-mode` 切完下一次 ping 生效
+- **2026-09-23 A2A 轮权限应答 409 修复（用户实测 V1/V2 同样复现 → 锁定服务端）**：`handle_plugin_event`（A2A 轮事件入口）从 18de0c9 起**只做终态收尾，从不把 working/input-required 写回任务行**，而 web 下发的 `_send_message_core` 也不标 working → A2A 轮任务行**永远停在 queued**（accepted_at=None）→ `/reply` 对非 monitor 任务严格校验 `input-required` → 409 "task is queued, not waiting for input"（用户看到的 queueing not working）。权限 E2E 此前全过的都是监控轮（`handle_monitor_event` 有完整写回）+ feishu/weixin reply（`reply_task_from_feishu` 不校验状态），A2A 轮 web 应答属**首次真验**暴露的既有缺口（与插件版本无关）。修复：① `handle_plugin_event` 补非终态写回——working：queued→working（补记 accepted_at）/ input-required 且事件带 `metadata.replied`→working（input-required 期间的 text/tool 流式帧是 working 状态，**不得顶回**，对齐监控轮 566-569 的坑）；input-required：非终态→input-required。② `nexus_reply` / `reply_task_from_feishu` 转发成功后服务端自持 input-required→working（V1 插件不回发 replied 事件，不依赖插件回执）
 - ~~**headless spawn opencode 生成 purpose**~~（2026-09-14 已废弃）：挂 `--session 当前会话` 把对话上下文带进总结上传过屁话；专属 summarySessionId 复用会话方案复杂度又高，写了又删。purpose 回归前台 agent 自己分析（md 命令流程）
 - ~~teams 团队功能~~（API/前端已删，**表保留**，用户"想好后再加"）
 - ~~request_help 求助体系~~（被 workspace_call 替代后整体删除，help_requests 表已 DROP）
@@ -219,7 +220,7 @@
 
 - [ ] **重建镜像并部署**（把本轮所有服务端改动带上线）：多连接/去 4001 踢人、`with Session` 内不 await、SQLite WAL+池 30、`tasks/cancel` 与超时置 failed 漏 commit、`dispatchable` 离线派发策略 C，外加 V2 插件与按版本分流的安装脚本（tarball 由 start.sh 打包）。推送 `10.17.17.19:8082/agent-swarm:latest` 后从 dpanel 更新
 - [ ] **其它机器重装插件**：V1 机器走 V1 分支（逻辑未变）；V2 机器（如 4.193）重装后会自动发现 V2 插件。注意旧镜像 tarball 里没有 V2 插件，必须先重建镜像
-- [ ] **V2 权限应答 E2E**（本轮最大未验证项）：在 V2 TUI 里真弹一次权限框 → 确认 `permission.asked` 上报为 input-required（web/飞书/微信收卡）→ 从渠道应答 → 任务放行。取消（`session.interrupt`）可顺带验
+- [x] **V2 权限应答 E2E**：2026-09-23 已通（web 下发 A2A 轮 → TUI 弹权限 → web 点 allow always → 任务放行写入成功，任务行 accepted_at/completed 正常）。顺带暴露并修复服务端 A2A 轮状态写回 bug（见架构演进史 09-23 条）。取消（`session.interrupt`）仍未验
 - [ ] **V2 后台续聊 E2E**：同 caller 连发两单，确认第二单复用 `.agent_swarm/sessions.json` 的会话（plugin.log 见 resume）
 - [ ] **V2 5 条命令交互验证**：`/swarm-mode`、`/swarm-monitor`、`/swarm-remove|enable|disable` 在 TUI 里真按一遍（目前只验证了加载与注册）
 - [ ] **ps1 安装脚本 Windows 实测**：只做了 BOM/括号静态检查，未在 Windows 跑过 V2 分支
@@ -228,7 +229,7 @@
 - [ ] **nexus-feishu**（下一个功能，用户已排期）：飞书渠道接入中枢，复用 A2A 下发/事件流/应答链路（caller=nexus-feishu）
 - [ ] **后台会话续聊 E2E（opencode 侧）**：同 caller（如 nexus-web）连发两个任务，验证第二个任务复用 `.agent_swarm/sessions.json` 里记录的会话（plugin.log 应见 `resume ses_`），且对话上下文延续
 - [ ] **后台任务独立会话在中枢页无区分展示**：后台任务（A2A-xxx 会话）与前台监控轮在时间线上无视觉区分；task 的 session_id 上报后工作区表"当前会话"列刷新未验证
-- [ ] 真实 opencode 前台注入权限应答 E2E：web 下发 → TUI 前台注入 → 权限应答 → artifact 回传（前台注入路径已验证；A2A 轮的权限/提问/input-required 未验——监控轮的已全链路验证）
+- [ ] 真实 opencode 前台注入权限应答 E2E：web 下发 → TUI 前台注入 → 权限应答 → artifact 回传（**A2A 轮权限应答 2026-09-23 已验证通过**；剩余未验：提问 question/form 应答——V2 server 插件无 session.form 只上报，见上面 form 待办）
 
 ### 备忘
 

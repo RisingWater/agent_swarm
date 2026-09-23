@@ -462,6 +462,25 @@ async def handle_plugin_event(workspace_id: str, event: dict) -> None:
             models.A2aEvent(task_id=task.id, workspace_id=workspace_id, user_id=task.user_id, kind="status" if event.get("kind") == "status-update" else "artifact", round_key=task.id, payload="{}" if payload_enc else payload_json, payload_enc=payload_enc)
         )
         _finalize_task(session, task, event, owner_key)
+        # 非终态状态写回（2026-09-23 修复）：A2A 轮任务行此前从不更新 working/input-required，
+        # 永远停在 queued → web 应答权限时 409 "task is queued, not waiting for input"
+        # （V1/V2 插件均触发；监控轮走 handle_monitor_event 有完整写回所以从未暴露）。
+        # 规则（对齐监控轮 566-569 注释的坑）：
+        #   working：queued → working（插件注入开始，补记 accepted_at）；input-required 且
+        #     事件带 metadata.replied（插件确认应答已受理，V2 547 行）→ working。
+        #     input-required 期间的 text/tool 流式帧（也是 working 状态）**不能**顶回 working。
+        #   input-required：非终态 → input-required。
+        if event.get("kind") == "status-update" and task.status not in TERMINAL_STATES:
+            if state == "input-required":
+                task.status = "input-required"
+            elif state == "working":
+                md = event.get("metadata") or {}
+                if task.status == "queued":
+                    task.status = "working"
+                    if not task.accepted_at:
+                        task.accepted_at = models.utcnow()
+                elif task.status == "input-required" and md.get("replied"):
+                    task.status = "working"
         # artifact：全量文本落 task.artifact（插件每轮发全量，lastChunk=true）
         if event.get("kind") == "artifact-update" and event.get("lastChunk"):
             artifact = _artifact_text(event)[:60000]
@@ -1238,6 +1257,19 @@ async def nexus_reply(workspace_id: str, request: Request):
     ok = await _send_json(conn.ws, {"type": "rpc", "payload": req})
     if not ok:
         raise HTTPException(502, "plugin connection lost")
+    # 应答已转发给插件：任务行 input-required → working（服务端自持语义，不依赖插件回执；
+    # V1 插件不回发 replied 事件，V2 会再发 working+replied，幂等无害）
+    snap = None
+    with Session(engine) as session:
+        t = session.get(models.A2aTask, task_id)
+        if t is not None and t.status == "input-required":
+            t.status = "working"
+            session.add(t)
+            session.commit()
+            session.refresh(t)
+            snap = task_obj(t, _owner_key(session, t))
+    if snap is not None:
+        await _push_web(workspace_id, {"type": "task", "task": snap})
     return {"ok": True, "status": "working"}
 
 
@@ -1335,6 +1367,14 @@ async def reply_task_from_feishu(task_id: str, reply: str, request_id: str) -> t
         "params": {"message": msg, "metadata": {"caller": "nexus-feishu-reply"}},
     }
     ok = await _send_json(conn.ws, {"type": "rpc", "payload": req})
+    if ok:
+        # 应答已转发：任务行 input-required → working（与 web nexus_reply 一致，幂等）
+        with Session(engine) as session:
+            t = session.get(models.A2aTask, task_id)
+            if t is not None and t.status == "input-required":
+                t.status = "working"
+                session.add(t)
+                session.commit()
     return (True, "") if ok else (False, "plugin connection lost")
 
 
