@@ -14,7 +14,7 @@
  * workspace ID 读写 <项目根>/.agent_swarm/workspace.md。
  */
 
-import { Plugin } from "@opencode/plugin/tui"
+import type { Context, Definition } from "@opencode/plugin/tui/plugin"
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { homedir } from "node:os"
 import { join } from "node:path"
@@ -136,9 +136,10 @@ const MODE_LABEL: Record<string, string> = {
   background: "后台（独立 headless 进程执行）",
 }
 
-export default Plugin.define({
+// 同 server 插件：只做类型导入，运行时直接导出对象，避免解析 @opencode/plugin/tui。
+const plugin: Definition = {
   id: "agent-swarm-cli",
-  setup(context) {
+  setup(context: Context) {
     const worktree = context.location?.directory ?? process.cwd()
     const file = swarmFile(worktree)
     tuiLog(`loaded: worktree=${worktree} version=${context.app.version}`)
@@ -275,4 +276,6 @@ export default Plugin.define({
     })
     tuiLog("commands registered via app slot (/swarm-mode, /swarm-monitor, /swarm-remove, /swarm-enable, /swarm-disable)")
   },
-})
+}
+
+export default plugin

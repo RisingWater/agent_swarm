@@ -17,7 +17,7 @@
  *   - ctx.session 没有 list：会话靠事件里的 sessionID 跟踪（心跳上报），不再挑最近会话
  */
 
-import { Plugin } from "@opencode/plugin"
+import type { Context, Plugin as PluginDef } from "@opencode/plugin/promise/plugin"
 import { appendFileSync, existsSync, readFileSync, statSync, truncateSync } from "node:fs"
 import { homedir } from "node:os"
 import { join } from "node:path"
@@ -104,9 +104,11 @@ function assistantTextAfter(messages: any[], afterId: string): string {
   return lastAssistantText(messages.slice(start + 1))
 }
 
-const plugin = Plugin.define({
+// opencode 的 Plugin.define 只是恒等函数；这里直接导出对象，避免运行时裸导入
+// @opencode/plugin（配置目录下的插件在 opencode 加载器里解析不到它，实测）。
+const plugin: PluginDef = {
   id: "agent-swarm",
-  async setup(ctx) {
+  async setup(ctx: Context) {
     const directory = ctx.location?.directory ?? process.cwd()
     const cfg = loadConfig()
     if (!cfg) {
@@ -608,6 +610,6 @@ const plugin = Plugin.define({
       log("v2 disposed")
     }
   },
-})
+}
 
 export default plugin
