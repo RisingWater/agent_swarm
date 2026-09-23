@@ -1,4 +1,4 @@
-"""iLink Bot 协议 HTTP 客户端（对齐 OpenClaw Weixin 2.4.6）+ 每用户会话管理器。
+r"""iLink Bot 协议 HTTP 客户端（对齐 OpenClaw Weixin 2.4.6）+ 每用户会话管理器。
 
 协议参考 D:\wangxu\work\weixin-ClawBot-API（bot.py / weixin-openclaw-api-py-docs.md）：
 - POST 头：AuthorizationType ilink_bot_token + 随机 X-WECHAT-UIN + iLink-App-* + Bearer token
