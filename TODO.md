@@ -28,6 +28,7 @@
 - **2026-09-19 微信 ClawBot 渠道（nexus-weixin-clawbot）**：与飞书同构但传输完全不同——官方 Tencent iLink Bot API 2.4.6（HTTP/JSON 长轮询，无 SDK，协议参考 D:\wangxu\work\weixin-ClawBot-API）；**每用户扫自己的微信做成 bot**（一人一行表，token 加密落库，无服务端 env 配置）；扫码二维码是 liteapp URL → qrcode[pil] 渲染 PNG；仅私聊、回复必须带最近入站 context_token、getupdates 游标持久化、token ~24h 过期重扫；**无卡片无按钮**——权限/提问渲染为编号文本选项（1/2/3 → once/always/reject），**纯数字应答**
 - **2026-09-19 分发模型统一（用户拍板，docs/channel-dispatch-design.md）**：微信自己派的 A2A 任务 → **详细流**（💭思考/🔧工具行/最终回答全量，终态免简报）；监控轮 → monitor_on 推详细流 + idle 有最终回答才简报（tool-only 空轮静默）；其它来源（web/飞书/agent 互调/A2A 外部）→ 终态简报 + input-required 单卡；飞书侧对齐（简报入口跳过 artifact 为空的监控轮）
 - **2026-09-20 跨渠道权限/提问四方先答先算（用户拍板）**：TUI 监控轮或 A2A 任务拉起 permission/question 且简报开着 → **web/飞书/微信同时收卡**，谁先应答谁生效、任务翻出 input-required、其余渠道后续应答干净失败；插件权限/提问改按 **request id** 去重（`inputSeen`/`a2aInputSeen` 集合，非单值状态——同轮第二个权限曾全渠道被吞）；opencode 权限事件**无 title**、路径/命令在 `patterns[]` → 渠道卡显示 `访问/执行：<patterns>`；微信渠道真机 E2E 全过（任务详细流/权限应答/简报/菜单/监控同步）
+- **2026-09-22 产物功能（MCP 第 12 个工具 artifact_upload）**：agent 输出的文件不再只存在于远端——**上传走两步（无 base64）**：MCP `artifact_upload` 签发一次性 signed `upload_url`（10min/单次/防重放），agent `curl -F file=@<path>` 直传原始字节；服务端落盘 `data/artifacts/<id>_<name>`（TTL 7 天 `AGENT_SWARM_ARTIFACT_TTL_DAYS`、上限 20MB `AGENT_SWARM_ARTIFACT_MAX_MB`，pinned 永久保留不自动清，main.py lifespan 每小时 GC）；REST：`GET /api/artifacts` / `PUT {id}/pin` / `DELETE {id}`（JWT）+ `POST /api/artifacts/upload`（一次性凭证免 JWT）+ `GET {id}/download?token=`（HMAC 签名 30 天，IM/浏览器点击场景——发不了 header 只能用 query）。上传后按简报规则推属主 brief_on 窗口：飞书 `im.v1.file.create` → 文件消息（失败降级文本链接）；微信 iLink 文件 item（type-2，未验证）失败降级文本链接。**请求基址**：ApiKeyMiddleware 记录 `current_base_url` contextvar（PUBLIC_URL → x-forwarded-* → host），MCP 工具据此拼绝对链接后方可用。web 新增「产物」页（文件名/下载/大小/时间/保留倒计时/固定 toggle/删除二次确认/30s 自动刷新）；opencode+claude 两处 skill 写明 artifact_upload 两步用法
 - **2026-09-23 多实例重连风暴冻死修复（用户报障，仅 dev）**：同项目多开 opencode 抢同一 `plugins[wid]` 单槽，服务端"新顶旧(4001)"+客户端 1s 无条件重连 → 每秒互踢磨光 15 个连接池、同步取连接阻塞事件循环、全站冻死（全天 15222 次连接仅 9 次自然断开）。改为一**个工作区保留多条连接**（`plugins[wid]` 单槽→列表），删除踢人；派发取 `primary_conn`（第一个新鲜连接，发送失败剔除并顺次回退）；应答按**连接自己上报的 session** 路由（工作区行的 session_id 会被多实例心跳互相覆盖，不可用）；SQLite WAL + busy_timeout + 池 30；**`with Session` 内一律不 await/yield**（顺带修掉 tasks/cancel 与超时置 failed 漏 commit 的真 bug）
 - **2026-09-23 opencode V2 支持（用户拍板：同时支持 V1+V2，安装脚本按版本分流；先打通心跳上线）**：V2 插件 API 全新——入口 `Plugin.define({id, setup})`、插件由**后台 service 按 location 常驻加载**（`opencode run` 只是客户端，`--pure` 已删）、**强类型命名事件**（非 V1 的 message.part.updated）、**无 `session.list`/`session.form`**。仓库双实现：V1 的 `src/index.ts`/`src/tui.ts` 原样不动 + 新增 `plugins/opencode/index.ts`（V2 包入口）/`tui.ts`（V2 CLI 入口）/`src/v2/*`；V2 插件**刻意零运行时裸依赖**（`@opencode/plugin` 只 `import type`）——否则配置目录下的插件在 opencode 加载器里解析不到该包；安装脚本 `opencode --version` 判 major 分流、单向覆盖
 - **2026-09-23 V2 在线语义 = 开着 TUI（用户拍板）**：V2 插件常驻 service，若由 server 插件心跳，则 service 加载过的每个项目（没开 TUI 也算）都会 online（用户实测反馈）。改为**在线只能由 TUI 自己上报**：server 插件不心跳，CLI 插件（TUI 进程）每 30s 心跳 + 上报当前查看的会话；关掉 TUI → 90s 超时离线（不主动 offline，防同项目多开互踢）
@@ -58,6 +59,20 @@
 - ✅ **实测通过**：心跳上线（online/offline 语义正确）、前台注入任务 `completed` + artifact 回传、后台任务 `completed`（bg-ok）、监控轮落库且 `completed`（text/reasoning/tool 齐全）；`tsc --noEmit` 与 server `py_compile`、`dispatchable` 组合逻辑单测均过
 - ⚠️ **待验证**：权限 input-required **应答**全链路（从没真弹过权限框）、取消（`session.interrupt`）、后台续聊 resume、`session.error`→failed、5 条命令的交互行为、ps1 在 Windows 实机（只做了 BOM/括号静态检查）
 - ⚠️ **未部署**：服务端改动（多连接/不阻塞/连接池加固/dispatchable）需**重建镜像**才生效；线上目前仍是旧镜像（且旧镜像里没有 V2 插件——其它机器今天跑安装命令拿到的还是 V1 插件，不受影响）
+
+### 产物功能（2026-09-22，已提交推送；IM 推送真机已验）
+
+> Agent 产出文件回传：MCP `artifact_upload` 签一次性上传 URL → agent `curl -F` 直传 → 服务端落盘 + IM 推送（飞书文件消息/微信文件 item，降级文本链接）+ web「产物」页管理。**无 base64**（二进制不出现在 JSON 请求体里）。
+
+- ✅ **服务端 `server/artifacts.py`**：`artifact_upload` 签发一次性 signed `upload_url`（10min 有效/单次使用/防重放），`GET {id}/download?token=` HMAC 签名 30 天（IM/浏览器点击场景——发不了 header 只能用 query token）；token 签名逻辑全在这模块
+- ✅ **落盘与清理**：`data/artifacts/<id>_<name>`，TTL 7 天（`AGENT_SWARM_ARTIFACT_TTL_DAYS`）+ 大小上限 20MB（`AGENT_SWARM_ARTIFACT_MAX_MB`），**pinned 行永不自动删**；main.py lifespan 每小时 GC（启动先清一次）
+- ✅ **上传两步走**：MCP 工具只管签发（不出二进制），agent `curl -F file=@<path>` 直传原始字节到 `POST /api/artifacts/upload?nonce=&token=`（一次性凭证免 JWT）
+- ✅ **REST**（JWT）：`GET /api/artifacts`（列表 + 签名下载链接）、`PUT {id}/pin`、`DELETE {id}`（仅属主）
+- ✅ **IM 推送**（按简报规则推属主 brief_on 窗口）：飞书 `im.v1.file.create` → 文件消息，失败降级文本链接；微信 iLink 文件 item（type-2，尚未在真机验证渲染）失败降级文本链接
+- ✅ **请求基址**：ApiKeyMiddleware 记录 `current_base_url` contextvar（PUBLIC_URL → x-forwarded-* → host），MCP 工具据此拼绝对下载链接
+- ✅ **web「产物」页**（顶部导航）：文件名（点击下载）/大小/上传时间/保留倒计时/固定 toggle/删除（二次确认 Modal，30s 自动刷新）；首页与文档页补产物管理说明（e2f4986）
+- ✅ **skill**：opencode + claude 两处 `artifact_upload` 两步用法章节
+- ⚠️ **修复轮（579e57f）**：① 飞书 SDK 响应字段名错误——`CreateFileResponseBody` 是 `file_key` 不是 `file_id`（线上 AttributeError，上传成功但推送崩，走异常分支没发文件）→ 已改；② 产物页删除确认从行内气泡改居**中 Modal**（grid td `overflow:hidden` 气泡被单元格裁剪且相邻行遮挡）
 
 ### 微信 ClawBot 渠道 nexus-weixin-clawbot（2026-09-19 实现 + 2026-09-20 真机 E2E 全过）
 
@@ -220,6 +235,7 @@
 - [ ] a2a-inspector 互操作验证（规范符合性快检，可选）
 - [ ] nas_brain 工作区 ID：CZBLEoPszNwLWpA2J4auGA（Windows 机 nas_brain 目录）；XYaR4TdtGqdqoAEW9vNn8g（Linux 机旧记录可能已失效，以 web 工作区页为准）
 - [ ] npm install 慢（~40s）：可把 @opencode-ai/* 设为 peerDependencies
+- [ ] 微信产物文件 item（iLink type-2）真机渲染未验证：`server/weixin/file_push.py` 目前走官方文件 item，失败降级文本链接——真机发一个产物确认普通微信客户端能收文件
 - [ ] teams 表清理（确认永不恢复后删）
 - [ ] 前端 lint 有两个既存 warning（set-state-in-effect），非阻塞
 - [ ] 前端 lint 有一个既存 warning（WorkspacesPage set-state-in-effect），非阻塞
