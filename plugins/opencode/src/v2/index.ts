@@ -23,7 +23,6 @@ import { homedir } from "node:os"
 import { join } from "node:path"
 import { readWorkspaceId } from "../wsfile"
 import { readSessionMap, writeSessionEntry } from "../sessions"
-import { SwarmClient } from "../client"
 import { loadConfig } from "../config"
 import { runBackgroundTask } from "./background"
 import {
@@ -116,12 +115,11 @@ const plugin: PluginDef = {
       return
     }
     const config = cfg // 闭包内使用（TS 收窄在嵌套函数里失效，固定非空引用）
-    const heartbeatMs = config.heartbeatIntervalMs ?? 30_000
-    const swarm = new SwarmClient(config)
-    const AGENT_TYPE = "opencode"
+    // 注意：**心跳/在线判定不在这里** —— 本插件由 service 按 location 常驻加载，
+    // 若在此心跳，凡是 service 加载过的项目（哪怕没开 TUI）都会 online（用户实测问题）。
+    // 在线改由 CLI 插件（TUI 进程，src/v2/tui.ts）心跳：开着 TUI 才在线。
 
     let currentSessionId = ""
-    let currentSessionTitle = ""
     let stopped = false
     let nexus: NexusA2AClient | null = null
     /** 本 location 见过的会话（只信自己事件流里的；服务端下发的 session_id 可能是脏的） */
@@ -500,39 +498,8 @@ const plugin: PluginDef = {
       }
     }
 
-    // ---------------- 心跳 ----------------
-
-    async function fetchSessionTitle(sessionId: string): Promise<string> {
-      if (!sessionId) return ""
-      try {
-        const s: any = await ctx.session.get({ sessionID: sessionId })
-        return String(s?.title ?? "").slice(0, 200)
-      } catch {
-        return ""
-      }
-    }
-
-    async function heartbeatLoop() {
-      let lastTitleSession = ""
-      log(`v2 start: directory=${directory} workspaceId=${readWorkspaceId(directory) || "(none)"} interval=${heartbeatMs}ms`)
-      while (!stopped) {
-        const workspaceId = readWorkspaceId(directory)
-        if (workspaceId) {
-          try {
-            if (currentSessionId && currentSessionId !== lastTitleSession) {
-              currentSessionTitle = await fetchSessionTitle(currentSessionId)
-              lastTitleSession = currentSessionId
-            }
-            const rsp = await swarm.heartbeat(workspaceId, currentSessionId, AGENT_TYPE, currentSessionTitle)
-            log(`v2 heartbeat ok: ws=${workspaceId} session=${currentSessionId || "(none)"} status=${rsp?.status ?? "?"}`)
-          } catch (e) {
-            log(`v2 heartbeat failed: ${e}`)
-          }
-        }
-        await new Promise((r) => setTimeout(r, heartbeatMs))
-      }
-    }
-    void heartbeatLoop()
+    // ---------------- 启动日志（心跳不在这里，见文件头注释） ----------------
+    log(`v2 start: directory=${directory} workspaceId=${readWorkspaceId(directory) || "(none)"}`)
 
     // ---------------- 事件订阅 ----------------
     const controller = new AbortController()
@@ -560,7 +527,9 @@ const plugin: PluginDef = {
       await ctx.permission.reply({ sessionID: sid, requestID: requestId, decision: reply })
     }
 
-    nexus = startNexusA2AClient({
+    function connectNexus() {
+      if (nexus || stopped) return
+      nexus = startNexusA2AClient({
       url: config.serverUrl.replace(/^http/, "ws").replace(/\/+$/, "") + "/ws/plugin",
       apiKey: config.apiKey,
       workspaceId: () => readWorkspaceId(directory),
@@ -595,18 +564,15 @@ const plugin: PluginDef = {
       },
       log,
     })
+    }
+    connectNexus()
 
     return () => {
       stopped = true
       controller.abort()
       nexus?.close()
-      const wid = readWorkspaceId(directory)
-      if (wid) {
-        void swarm
-          .callTool("workspace_offline", { workspace_id: wid })
-          .then(() => log(`offline notification sent for ${wid}`))
-          .catch((e) => log(`offline notify failed (timeout fallback): ${e}`))
-      }
+      // 不主动 workspace_offline：在线由 CLI 插件的心跳维持，同项目可能多开 TUI，
+      // 主动下线会把还开着的那台一起打下去（让它 90s 心跳超时自然过期更稳）
       log("v2 disposed")
     }
   },

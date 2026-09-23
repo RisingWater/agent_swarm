@@ -15,6 +15,7 @@
  */
 
 import type { Context, Definition } from "@opencode/plugin/tui/plugin"
+import { SwarmClient } from "../client"
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { homedir } from "node:os"
 import { join } from "node:path"
@@ -275,6 +276,48 @@ const plugin: Definition = {
       },
     })
     tuiLog("commands registered via app slot (/swarm-mode, /swarm-monitor, /swarm-remove, /swarm-enable, /swarm-disable)")
+
+    // ---------------- 在线心跳 ----------------
+    // V2 的插件由 service 按 location 常驻加载，server 插件里的心跳会让"没开 TUI 的项目"
+    // 也一直 online。在线只能由 TUI 自己上报：CLI 插件（跑在 TUI 进程里）心跳，
+    // 关掉 TUI 就停止心跳 → 90s 后自然离线。同项目多开 TUI 时，只要有一台在心跳就仍在线；
+    // 因此**不主动 workspace_offline**（否则会把还开着的那台一起打下去）。
+    const HEARTBEAT_MS = 30_000
+    let stopped = false
+    const hbCfg = readCfg()
+    const hbClient = hbCfg.serverUrl && hbCfg.apiKey ? new SwarmClient({ serverUrl: hbCfg.serverUrl, apiKey: hbCfg.apiKey }) : null
+
+    function currentSession(): { id: string; title: string } {
+      try {
+        const r = context.ui.router.current()
+        if (!r || r.type !== "session") return { id: "", title: "" }
+        const s = context.data.session.get(r.sessionID)
+        return { id: r.sessionID, title: String(s?.title ?? "") }
+      } catch {
+        return { id: "", title: "" }
+      }
+    }
+
+    async function beat() {
+      if (stopped || !hbClient) return
+      const wid = file.getLine("WORKSPACE_ID")
+      if (!wid) return
+      const sess = currentSession()
+      try {
+        await hbClient.heartbeat(wid, sess.id, "opencode", sess.title)
+        tuiLog(`heartbeat ok: ws=${wid} session=${sess.id || "(none)"}`)
+      } catch (e) {
+        tuiLog(`heartbeat failed: ${e}`)
+      }
+    }
+    void beat()
+    const hbTimer = setInterval(() => void beat(), HEARTBEAT_MS)
+
+    return () => {
+      stopped = true
+      clearInterval(hbTimer)
+      tuiLog("unloaded（停止心跳，工作区靠 90s 超时离线）")
+    }
   },
 }
 
