@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
 
 from server import crypto, models
-from server.auth import get_current_user
+from server.auth import get_user_either
 from server.api.workspaces import visible_workspace_ids
 from server.db import get_session
 
@@ -55,7 +55,7 @@ def call_out(call: models.A2aTask, session: Session) -> dict:
 @router.get("")
 def list_calls(
     workspace_id: str = "",
-    user: models.User = Depends(get_current_user),
+    user: models.User = Depends(get_user_either),
     session: Session = Depends(get_session),
 ):
     """调用记录（调用方向 = a2a_tasks 表，含 A2A 任务与前台监控轮）。
@@ -77,7 +77,7 @@ def list_calls(
 @router.delete("/{call_id}")
 def delete_call(
     call_id: str,
-    user: models.User = Depends(get_current_user),
+    user: models.User = Depends(get_user_either),
     session: Session = Depends(get_session),
 ):
     call = session.get(models.A2aTask, call_id)

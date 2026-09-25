@@ -53,7 +53,7 @@ def visible_workspace_ids(user: models.User, session: Session) -> set[str]:
 
 @router.get("")
 def list_workspaces(
-    user: models.User = Depends(get_current_user),
+    user: models.User = Depends(get_user_either),
     session: Session = Depends(get_session),
 ):
     ids = visible_workspace_ids(user, session)
