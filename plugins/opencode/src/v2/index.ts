@@ -321,7 +321,13 @@ const plugin: PluginDef = {
       ].join("\n")
     }
 
-    async function executeTask(task: A2aTaskRef, text: string, caller: string, serverSessionId = ""): Promise<string | null> {
+    async function executeTask(
+      task: A2aTaskRef,
+      text: string,
+      caller: string,
+      serverSessionId = "",
+      onAccepted?: (sessionId: string) => void,
+    ): Promise<string | null> {
       // 每个任务重读配置：/swarm-mode 切换执行模式无需重启
       const live = loadConfig() ?? config
       if (live.executionMode === "background") {
@@ -329,6 +335,7 @@ const plugin: PluginDef = {
         // run 只是客户端）。会话按来源映射表续聊；不碰前台会话。
         const resume = readSessionMap(directory)[caller] ?? ""
         log(`a2a ${task.taskId.slice(0, 8)}: background mode${resume ? ` (resume ${resume.slice(0, 12)})` : " (new session)"} caller=${caller}`)
+        onAccepted?.("background") // spawn 已接受（秒级决策），不等进程退出
         const result = await runBackgroundTask(
           task,
           text,
@@ -368,6 +375,7 @@ const plugin: PluginDef = {
       }
       a2aRuns.set(task.taskId, { sessionId, injected: false, lastAssistantIdBefore, inputSeen: new Set() })
       log(`a2a ${task.taskId.slice(0, 8)}: session ${sessionId}`)
+      onAccepted?.(sessionId) // 接单即回 ack：服务端只等 30s，不能等整轮结束
 
       a2aEmit(
         statusUpdate(task, "working", {
