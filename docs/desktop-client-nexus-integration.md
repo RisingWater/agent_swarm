@@ -1,6 +1,6 @@
 # 外部客户端（桌宠类 Python 程序）对接 nexus 接口设计
 
-> 版本: v1 · 日期: 2026-09-23 · 状态: **接口全部为现有实现（零服务端改动可用）**；文末 §9 列出两个可选小扩展（未实现）
+> 版本: v2 · 日期: 2026-09-25 · 状态: **v1 的可选扩展已全部落地（§9 → 已实现清单见 §9.1）**；新增 WS hello apikey 双鉴权、reply/history/rounds 双鉴权、subscribe 通配 `"*"`、终态帧 brief 摘要、a2a_call 禁止自我派单
 > 背景：希望有一个常驻 Python 程序（例如桌宠）登录 nexus，按**简报模式**收 permission/question 提醒并代为应答。本文档给出推荐的接口组合、消息形状与注意事项，作为桌宠侧开发依据。
 
 ## 1. 结论
@@ -10,10 +10,10 @@
 | 用途 | 接口 | 鉴权 | 位置 |
 |---|---|---|---|
 | 登录拿凭证 | `POST /api/auth/login` | 用户名/密码 | `server/api/auth.py:53` |
-| 订阅事件流（推） | **WS** `/ws/nexus` | JWT（hello 帧） | `server/nexus_a2a.py:1677` |
-| 应答权限/提问 | `POST /api/nexus/{wid}/reply` | JWT（Bearer） | `server/nexus_a2a.py:1197` |
-| 断线补读 | `GET /api/nexus/{wid}/history`、`GET /api/nexus/{wid}/rounds` | JWT | `nexus_a2a.py:1381 / 1628` |
-| 下发任务（可选） | `POST /api/nexus/{wid}/message:send` | JWT | `nexus_a2a.py:1175` |
+| 订阅事件流（推） | **WS** `/ws/nexus` | JWT **或 apikey**（hello 帧二选一，2026-09-25 起） | `server/nexus_a2a.py:1758` |
+| 应答权限/提问 | `POST /api/nexus/{wid}/reply` | JWT **或 apikey**（Bearer，`_require_user_http`） | `server/nexus_a2a.py:~1204` |
+| 断线补读 | `GET /api/nexus/{wid}/history`、`GET /api/nexus/{wid}/rounds` | JWT **或 apikey** | `nexus_a2a.py:~1384 / ~1676` |
+| 下发任务（可选） | `POST /api/nexus/{wid}/message:send` | JWT（保持 JWT-only） | `nexus_a2a.py:~1175` |
 
 为什么是 WS 而不是别的形态：权限/提问是**服务端主动推**的交互事件（推不回来桌宠就不知道该弹窗），且桌宠常驻在线——这正是 `/ws/nexus` 的模型。备选形态的否决理由见 §8。
 
@@ -26,17 +26,20 @@ POST /api/auth/login
 ```
 
 - JWT 有效期 **24h**（`server/auth.py:13 JWT_EXPIRE_HOURS=24`），桌宠需在过期前重新登录（过期表现：WS `hello_err`、REST 401）。
-- **局限**：`/ws/nexus` 的 hello 目前**只认 JWT**（`nexus_a2a.py:1691 → _auth_jwt`），apikey 长效凭证在 WS 上用不了——对长驻进程不友好，见 §9 扩展一。
-- 所有 REST 端点带 `Authorization: Bearer <token>`。
+- **apikey 双鉴权（2026-09-25 落地，v1 的 §9 扩展一）**：WS hello 与 reply/history/rounds 三组 REST 均**接受 apikey 长效凭证**（账号页「API Key」），与 JWT 二选一：
+  - WS：`→ {"type": "hello", "apikey": "as_..."}`（有 apikey 走 apikey，否则回退 token/JWT）
+  - REST：`Authorization: Bearer <JWT 或 as_ 开头的 apikey>`（`get_user_either`/`_require_user_http`）
+  - **推荐桌宠直接用 apikey**：长驻进程免 24h 重登录；apikey 在账号页可重置（重置后旧 key 立即失效）。
+- `POST /api/nexus/{wid}/message:send` 与清空历史 `DELETE /api/nexus/{wid}/history` **保持 JWT-only**（最小改动决策，2026-09-25）。
 
 ## 3. WS 订阅协议（`/ws/nexus`）
 
 ### 3.1 握手时序
 
 ```jsonc
-→ {"type": "hello", "token": "<JWT>"}
-← {"type": "hello_ok"}                    // 或 {"type":"hello_err","error":...}
-→ {"type": "subscribe", "workspace_id": "<wid>"}
+→ {"type": "hello", "apikey": "as_..."}     // 或 {"type":"hello","token":"<JWT>"}（二选一）
+← {"type": "hello_ok"}                      // 或 {"type":"hello_err","error":...}
+→ {"type": "subscribe", "workspace_id": "<wid>"}   // 或 "*" 通配（见下）
 ← {"type": "subscribed", "workspace_id": "<wid>",
    "plugin_online": true,                  // dispatchable(wid)：能否下发任务
    "history": [...],                       // 最新一轮事件回放（含 A2A + monitor 混合）
@@ -47,9 +50,14 @@ POST /api/auth/login
 → {"type": "ping"}  ← {"type": "pong"}     // 保活
 ```
 
-- **一条连接只订阅一个工作区**（`nexus_a2a.py:1710` subscribe 前先退订）；桌宠要盯多个 wid 就开多条 WS。`subscribers` 是 `dict[wid, set[conn]]`，**web、飞书与桌宠可同时在线**，互不挤占（2026-09-23 多连接修复后的语义）。
-- 工作区必须属于 JWT 用户（`_owns` 校验），否则 `subscribed` 带 `error: "no permission"`。
-- 重连后重新 hello + subscribe 即可，**subscribe 自带最新一轮回放**，离线期间的 input-required 不会丢。
+- **一条连接只订阅一个目标**：精确 wid，或（2026-09-25 起）通配 `"*"`（subscribe 前先退订旧的）。桌宠想盯多个工作区，一条通配连接即可，不必开 N 条。
+- **通配订阅 `{"workspace_id": "*"}`**（2026-09-25 落地）：
+  - 语义 = 订阅**本用户名下全部工作区**，与飞书/微信「属主全局」简报一致；服务端逐事件按 `_owns(user_id, wid)` 属主过滤，**别人的工作区事件推不到你**。
+  - 回执：`{"type":"subscribed","workspace_id":"*","plugin_online":<名下任一可派发>,"history":[],"first_id":0,"note":"replay skipped for wildcard"}`
+  - **不做 history 回放**（N 个工作区大 payload）：桌宠上线从当下开始听，历史需要时走 REST `/history` / `/rounds` 自行补。
+  - 推送内容与精确订阅**完全一致**（event/monitor/task 三种帧 + 终态 brief 摘要，monitor 也在内）。
+- 工作区必须属于当前用户（`_owns` 校验），否则 `subscribed` 带 `error: "no permission"`。
+- 重连后重新 hello + subscribe 即可；精确订阅**自带最新一轮回放**，离线期间的 input-required 不会丢（通配无回放，见上）。
 
 ### 3.2 事件形状（桌宠要解析的两类）
 
@@ -90,6 +98,8 @@ POST /api/auth/login
 ```
 
 **③ 任务快照**（`type: "task"`）：`{"task": {"id", "status", ...}}`——桌宠用它刷新状态、判断某权限是否已被他人应答。
+
+**④ 终态简报摘要 `payload.brief`（2026-09-25 新增，桌宠简报卡数据源）**：A2A 任务到终态时，completed 帧带 `brief.artifact`（最终回答明文，截 1600）、failed 帧带 `brief.error`（失败原因，截 700）；监控轮 `idle` 帧带 `brief.artifact`。只拼在 WS 推送的内存副本上（落库/回放无此字段，历史需自行解密）。**桌宠简报正文直接取它，不必自己解析 artifact parts**——与飞书简报卡（回答截 1500 / 失败截 600）同源。
 
 > 去重键 = `requestId`（与 web 权限卡 `perm-${requestId}` 同规则）。**同一轮内第二个权限是新的 requestId**，不可按"轮"去重。
 
@@ -163,10 +173,20 @@ POST /api/nexus/{workspace_id}/message:send
 | 轮询 `tasks/get`/`a2a_task` | ❌ | 有延迟、要先有 task_id、权限交互场景浪费请求 |
 | 外部 A2A（`/a2a/{wid}` + `message/stream` SSE + apikey） | ⚠️ 备胎 | 鉴权天然长效，但作用域是**自己下发的那个任务**；桌宠要"谁的任务弹权限我都弹"是 workspace 级订阅，那是 `/ws/nexus` 的地盘 |
 
-## 9. 可选服务端小扩展（桌宠落地时再做）
+## 9. 可选服务端小扩展（v1 时提出）——**已全部落地（2026-09-25 批次）**
 
-1. **WS `hello` 支持 apikey**（推荐，几行）：`_auth_apikey`（`nexus_a2a.py:1764`）已存在（插件链路在用），让 hello 接受 `{"type":"hello","apikey":"..."}` 与 token 二选一——桌宠用账号页 API Key，免 24h 重登录。
-2. **subscribe 带 `{"brief": true}` 过滤**（可选）：`_push_web` 出口只放行 input-required + 终态 + task 快照，省掉 text/tool 流量；桌宠侧不做过滤也能用（§3.3），仅是优化。
+### 9.1 已实现清单
+
+1. **WS `hello` 支持 apikey** ✅（§2）：`{"type":"hello","apikey":"..."}` 与 token 二选一；reply/history/rounds 三组 REST 同步支持 `Bearer <apikey>`。
+2. **subscribe 通配 `"*"`** ✅（§3.1）：本用户全部工作区订阅，属主过滤保留；v1 未预想的补充——**不做 history 回放**（回执 `note:"replay skipped for wildcard"`，历史走 REST）。
+3. **终态帧 brief 摘要** ✅（§3.2 ④）：completed/failed/idle 帧带 `payload.brief`（artifact 截 1600 / error 截 700），桌宠简报卡免解析。v1 §9 未列出，实际按桌宠需求追加（派单 5pbzfAjo）。
+4. **a2a_call 禁止自我派单** ✅（2026-09-25）：`target == from_workspace` 直接拒绝（"self-call loop"），防 agent 互调死循环；工具 docstring 同步声明。
+5. **MCP 工具 annotation hints** ✅：12 个工具全部声明四 hint（readOnly/destructive/idempotent/openWorld），OpenAI 等目录校验要求。
+
+### 9.2 未实现（按需再提）
+
+1. **subscribe 带 `{"brief": true}` 过滤**：`_push_web` 出口只放行 input-required + 终态 + task 快照，省掉 text/tool 流量；桌宠侧不做过滤也能用（§3.3），仅是优化，暂无需求压力。
+2. ~~WS hello apikey~~（已做，见上）。
 
 ## 10. 桌宠侧参考骨架（Python）
 
@@ -174,16 +194,22 @@ POST /api/nexus/{workspace_id}/message:send
 import asyncio, json, httpx, websockets
 
 SERVER = "http://10.17.17.19:8700"
-WID = "<workspace_id>"
+WID = "<workspace_id>"   # 或用通配：SUBSCRIBE = "*"（订阅名下全部工作区，无回放）
+APIKEY = "as_..."        # 推荐：长效凭证免 24h 重登录（v2 起 WS/REST 通用）
 
 async def main():
     async with httpx.AsyncClient() as http:
         tok = (await http.post(f"{SERVER}/api/auth/login",
               json={"username": "u", "password": "p"})).json()["token"]
+        # 用 apikey 时无需登录：headers={"Authorization": f"Bearer {APIKEY}"} 直接调 REST
 
     async with websockets.connect(f"{SERVER.replace('http','ws')}/ws/nexus") as ws:
-        await ws.send(json.dumps({"type": "hello", "token": tok}))
+        # hello：apikey 或 token 二选一
+        await ws.send(json.dumps({"type": "hello", "apikey": APIKEY}))
+        print(ws.recv())  # hello_ok
         await ws.send(json.dumps({"type": "subscribe", "workspace_id": WID}))
+        # 通配订阅则: {"workspace_id": "*"} → 回执 history=[] + note（无回放）
+        print(ws.recv())  # subscribed（含最新轮回放）
         pending = {}  # requestId -> 气泡
         async for raw in ws:
             msg = json.loads(raw)
@@ -199,7 +225,9 @@ async def main():
                             pending[data["requestId"]] = data
                             pet_bubble(data)          # 弹气泡
                     elif st in ("completed", "failed", "canceled"):
-                        pet_brief(p, st)              # 简报
+                        # v2：终态帧带 brief.artifact / brief.error（明文摘要），
+                        # 简报直接用；旧逻辑（解析 artifact parts）仅作回退
+                        pet_brief(p, st, brief=p.get("brief"))
             elif msg["type"] == "monitor":
                 p = msg["payload"]
                 if p.get("type") in ("permission", "question") \
@@ -223,9 +251,10 @@ async def answer(http, task_id, req, kind="permission", reply="always"):
 
 ## 11. 验收清单（桌宠首版）
 
-- [ ] hello → subscribe → 收 `subscribed`（含最新轮回放）与实时 `event`/`monitor`/`task`
+- [ ] hello（**apikey**）→ subscribe → 收 `subscribed`（含最新轮回放）与实时 `event`/`monitor`/`task`
+- [ ] **通配订阅 `*`**：另一工作区任务到终态 → 通配连接收到帧（含 `brief`）；第二个用户的事件收不到（属主隔离）
 - [ ] A2A 轮弹权限 → 桌宠应答 → 200 → 收到 task 快照 → 任务继续
 - [ ] 监控轮弹权限（task_id=roundKey）→ 桌宠应答 → 同上
 - [ ] 五方先答先算：web 先答，桌宠后答得 409 并收气泡
-- [ ] 断线重连：离线期间被应答的 input-required 不重复弹
-- [ ] 简报：终态出摘要；text/tool 流不打扰
+- [ ] 断线重连：精确订阅离线期间被应答的 input-required 不重复弹（通配无回放，靠 REST 补）
+- [ ] 简报：终态出摘要（直接取 `payload.brief`）；text/tool 流不打扰
