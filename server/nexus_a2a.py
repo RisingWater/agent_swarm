@@ -215,12 +215,16 @@ class PluginConn:
 class WebConn:
     """web 中枢侧 WS 连接。"""
 
-    __slots__ = ("ws", "user_id", "workspace_id")
+    __slots__ = ("ws", "user_id", "workspace_id", "all_workspaces")
 
     def __init__(self, ws: WebSocket, user_id: str):
         self.ws = ws
         self.user_id = user_id
         self.workspace_id: str | None = None
+        # 通配订阅（workspace_id="*"）：订阅本用户名下全部工作区（桌宠简报模式，
+        # 2026-09-25 派单）。推送时逐事件按 _owns(user_id, wid) 过滤——属主校验
+        # 必须保留（2026-09-18 IM 渠道跨用户泄漏教训，state.py brief_chats_all）。
+        self.all_workspaces: bool = False
 
     def __eq__(self, other):
         return self is other
@@ -235,6 +239,7 @@ class WebConn:
 #   - 任务派发 / input-required 应答取「第一个」连接（primary），失败顺次回退
 plugins: dict[str, list[PluginConn]] = {}  # workspace_id → 插件连接（按上线顺序）
 subscribers: dict[str, set[WebConn]] = {}  # workspace_id → 订阅的 web 连接
+all_subscribers: set[WebConn] = set()  # 通配订阅（本用户全部工作区）的 web 连接
 
 # 连接超过这么久没收到任何消息就算「不新鲜」：打任务时优先挑新鲜的（插件每 15s ping 一次）
 PLUGIN_FRESH_SECONDS = 60
@@ -362,16 +367,24 @@ async def _push_web(workspace_id: str, payload: dict, type_: str = "event") -> N
     type_="event"：A2A 事件（payload 为 A2A 形状）；
     type_="monitor"：前台监控事件（payload 为 {roundKey, type, ...}，已含 monitor 语义，
     不再包一层——曾因统一包 event 导致前端 case "monitor" 永远匹配不上，实时流全灭）。
+    通配订阅（all_workspaces）连接额外收到任意 wid 的事件，但必须通过 _owns 属主校验
+    （2026-09-18 跨用户泄漏教训）。
     """
     conns = subscribers.get(workspace_id)
-    if not conns:
-        return
     msg = json.dumps({"type": type_, "payload": payload}, ensure_ascii=False)
-    for conn in list(conns):
+    wildcard = [c for c in all_subscribers if _owns(c.user_id, workspace_id)]
+    if not conns and not wildcard:
+        return
+    for conn in list(conns or ()):
         try:
             await conn.ws.send_text(msg)
         except Exception:
             conns.discard(conn)
+    for conn in wildcard:
+        try:
+            await conn.ws.send_text(msg)
+        except Exception:
+            all_subscribers.discard(conn)
 
 
 def _artifact_text(event: dict) -> str:
@@ -1749,6 +1762,25 @@ async def ws_nexus(ws: WebSocket):
                 await _send_json(ws, {"type": "pong"})
             elif mtype == "subscribe":
                 wid = str(msg.get("workspace_id", ""))
+                if wid == "*":
+                    # 通配订阅：本用户名下全部工作区（桌宠简报模式，2026-09-25）。
+                    # 不做 history 回放（N 个工作区回放大 payload；历史走 REST /history）。
+                    _unsubscribe(conn)
+                    conn.all_workspaces = True
+                    conn.workspace_id = None
+                    all_subscribers.add(conn)
+                    await _send_json(
+                        ws,
+                        {
+                            "type": "subscribed",
+                            "workspace_id": "*",
+                            "plugin_online": any(dispatchable(w) for w in _owned_ws_ids(conn.user_id)),
+                            "history": [],
+                            "first_id": 0,
+                            "note": "replay skipped for wildcard",
+                        },
+                    )
+                    continue
                 if not _owns(conn.user_id, wid):
                     await _send_json(ws, {"type": "subscribed", "error": "no permission"})
                     continue
@@ -1789,6 +1821,20 @@ def _unsubscribe(conn: WebConn) -> None:
             if not conns:
                 subscribers.pop(conn.workspace_id, None)
         conn.workspace_id = None
+    # 通配订阅退订（断线清理 / 切换普通订阅前都要走）
+    conn.all_workspaces = False
+    all_subscribers.discard(conn)
+
+
+def _owned_ws_ids(user_id: str) -> list[str]:
+    """用户名下全部工作区 id（通配订阅回执的 plugin_online 判定用）。"""
+    with Session(engine) as session:
+        return [
+            w.id
+            for w in session.exec(
+                select(models.Workspace).where(models.Workspace.user_id == user_id)
+            ).all()
+        ]
 
 
 # ---------------------------------------------------------------- 工具函数
