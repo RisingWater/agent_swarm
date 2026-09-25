@@ -1196,12 +1196,12 @@ async def nexus_send(workspace_id: str, request: Request):
 
 @router.post("/api/nexus/{workspace_id}/reply")
 async def nexus_reply(workspace_id: str, request: Request):
-    """web 中枢应答 input-required 任务（JWT 鉴权）。
+    """web 中枢应答 input-required 任务（JWT 或 apikey 鉴权）。
 
     body: {task_id, type: "permission"|"question", request_id, reply?: "once"|"always"|"reject", answers?: [[..]]}
     服务端转成 A2A 续聊 message/send（DataPart 携带应答），插件据此调 opencode API。
     """
-    user = await _require_jwt_http(request)
+    user = await _require_user_http(request)
     body = await _json_body(request)
     task_id = str(body.get("task_id", ""))
     req_type = str(body.get("type", ""))
@@ -1380,8 +1380,8 @@ async def reply_task_from_feishu(task_id: str, reply: str, request_id: str) -> t
 
 @router.get("/api/nexus/{workspace_id}/history")
 async def nexus_history(workspace_id: str, request: Request, limit: int = 800):
-    """工作区任务事件历史（JWT 鉴权，web 回放渲染）。"""
-    user = await _require_jwt_http(request)
+    """工作区任务事件历史（JWT 或 apikey 鉴权，web 回放渲染）。"""
+    user = await _require_user_http(request)
     with Session(engine) as session:
         ws = session.get(models.Workspace, workspace_id)
         if ws is None or ws.user_id != user.id:
@@ -1428,6 +1428,22 @@ async def _require_jwt_http(request: Request) -> models.User:
     user = _auth_jwt(token)
     if user is None:
         raise HTTPException(401, "invalid token")
+    return user
+
+
+async def _require_user_http(request: Request) -> models.User:
+    """JWT 或 apikey 任一通过（2026-09-25：桌宠等外部客户端用长效 apikey）。
+
+    与 server/auth.get_user_either 同语义；nexus 端点用本地 helper 保持
+    异步签名与错误文案一致。
+    """
+    auth = request.headers.get("authorization", "")
+    token = auth[7:].strip() if auth.lower().startswith("bearer ") else ""
+    if not token:
+        raise HTTPException(401, "missing bearer token")
+    user = _auth_jwt(token) or _auth_apikey(token)
+    if user is None:
+        raise HTTPException(401, "invalid or expired token")
     return user
 
 
@@ -1566,17 +1582,6 @@ async def dispatch_queued_for(workspace_id: str) -> int:
             items.append((t.id, crypto.decrypt(key, t.message_enc, t.message), t.caller))
     n = 0
     for tid, text, caller in items:
-        # 派发前置 working（accepted_at 记录开始时间）
-        with Session(engine) as session:
-            t = session.get(models.A2aTask, tid)
-            if t is None or t.status != "queued":
-                continue
-            t.status = "working"
-            t.accepted_at = models.utcnow()
-            if session_id:
-                t.session_id = session_id  # 记下目标 session，应答路由回该连接
-            session.add(t)
-            session.commit()
         req = {
             "jsonrpc": "2.0",
             "id": f"srv-{tid}",
@@ -1586,13 +1591,42 @@ async def dispatch_queued_for(workspace_id: str) -> int:
                 "metadata": {"caller": caller or "agent", "session_id": session_id},
             },
         }
+        # 先发送，ack 成功后才置 working（2026-09-25 修复）：旧顺序「先置 working 再发送」
+        # 在发送失败（_send_json False / 连接已死）时不回滚，任务永远卡 working——
+        # nmj9ZdVL 卡死事故的一半根因。发送失败/无 ack 时不动状态，等下次派发重试。
         fut: asyncio.Future = asyncio.get_running_loop().create_future()
         conn.pending[req["id"]] = fut
         ok = await _send_json(conn.ws, {"type": "rpc", "payload": req})
-        if ok:
-            n += 1
-        else:
+        if not ok:
             conn.pending.pop(req["id"], None)
+            fut.cancel()
+            _drop_conn(workspace_id, conn)
+            log.warning("dispatch %s: send failed via dead conn, task stays queued", tid[:8])
+            return n
+        # 等 ack（插件同步应答，超时兜底；对齐 _dispatch_to_plugin_plain 的 30s）
+        try:
+            await asyncio.wait_for(asyncio.shield(fut), timeout=30)
+        except asyncio.TimeoutError:
+            conn.pending.pop(req["id"], None)
+            log.warning("dispatch %s: no ack in 30s, task stays queued", tid[:8])
+            return n
+        except Exception as e:  # noqa: BLE001  插件回 error（如 text required）
+            conn.pending.pop(req["id"], None)
+            log.warning("dispatch %s: plugin rejected: %s, task stays queued", tid[:8], e)
+            return n
+        # ack 成功：此刻才置 working + accepted_at + 记 session（await 段结束，短会话写库）
+        with Session(engine) as session:
+            t = session.get(models.A2aTask, tid)
+            if t is None or t.status != "queued":
+                continue  # 已被别处收尾/取消，不覆盖
+            t.status = "working"
+            t.accepted_at = models.utcnow()
+            if session_id:
+                t.session_id = session_id  # 记下目标 session，应答路由回该连接
+            session.add(t)
+            session.commit()
+        n += 1
+        log.info("dispatch %s: task accepted by plugin (session=%s)", tid[:8], session_id)
     return n
 
 
@@ -1639,7 +1673,7 @@ async def nexus_rounds(workspace_id: str, request: Request, before_id: int = 0):
     返回 {events: [...], first_id: <本轮最小事件id>, has_more: bool}；
     events 按事件 id 升序（web prepend 渲染）。has_more=false 表示没有更早的轮。
     """
-    user = await _require_jwt_http(request)
+    user = await _require_user_http(request)
     with Session(engine) as session:
         ws = session.get(models.Workspace, workspace_id)
         if ws is None or ws.user_id != user.id:
@@ -1695,9 +1729,13 @@ async def ws_nexus(ws: WebSocket):
             mtype = msg.get("type")
 
             if mtype == "hello":
-                user = _auth_jwt(str(msg.get("token", "")))
+                # token（JWT）或 apikey 二选一（2026-09-25 桌宠等外部客户端）：
+                # apikey 长效免 24h 重登录；只带 token 走原 JWT 路径不变。
+                apikey = str(msg.get("apikey", ""))
+                user = _auth_apikey(apikey) if apikey else _auth_jwt(str(msg.get("token", "")))
                 if user is None:
-                    await _send_json(ws, {"type": "hello_err", "error": "invalid token"})
+                    err = "invalid api key" if apikey else "invalid token"
+                    await _send_json(ws, {"type": "hello_err", "error": err})
                     continue
                 conn = WebConn(ws=ws, user_id=user.id)
                 await _send_json(ws, {"type": "hello_ok"})
