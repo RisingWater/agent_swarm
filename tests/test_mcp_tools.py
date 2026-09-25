@@ -8,7 +8,7 @@ a2a_call 的外部/内部派发路径涉及真实网络与插件 WS，不在单�
 只测参数校验与任务落库（wait_seconds=0、无插件连接时 dispatch 安全返回 0）。
 """
 import asyncio
-import time
+import json
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -18,61 +18,7 @@ from server.db import engine, init_db
 from server.api.workspaces import HEARTBEAT_TIMEOUT_SECONDS
 from sqlmodel import Session, select
 
-
-# ---------------------------------------------------------------- 夹具
-
-@pytest.fixture(scope="module", autouse=True)
-def _db():
-    init_db()
-    with Session(engine) as s:
-        user = models.User(
-            id="u-test",
-            username="tester",
-            password_hash=models.hash_password("password123"),
-            api_key_hash=models.hash_api_key("ak-test"),
-            api_key="ak-test",
-        )
-        s.add(user)
-        s.commit()
-    yield
-
-
-@pytest.fixture()
-def user() -> models.User:
-    with Session(engine) as s:
-        return s.get(models.User, "u-test")
-
-
-@pytest.fixture()
-def as_user(user):
-    """把 contextvar 指到测试用户；测试结束还原。"""
-    token = mcp_endpoint.current_user.set(user)
-    yield user
-    mcp_endpoint.current_user.reset(token)
-
-
-@pytest.fixture()
-def ws(as_user) -> models.Workspace:
-    """一个属于测试用户的工作区（fresh heartbeat = online）。get-or-create：DB 模块级持久。"""
-    with Session(engine) as s:
-        w = s.get(models.Workspace, "w-test")
-        if w is None:
-            w = models.Workspace(
-                id="w-test",
-                user_id=as_user.id,
-                name="testws",
-                path="/tmp/testws",
-                status="online",
-                last_heartbeat=datetime.now(timezone.utc).replace(tzinfo=None),
-            )
-            s.add(w)
-        else:
-            w.status = "online"
-            w.last_heartbeat = datetime.now(timezone.utc).replace(tzinfo=None)
-        s.add(w)
-        s.commit()
-        s.refresh(w)
-        return w
+from tests.conftest import as_user, ws, user  # noqa: F401  共享夹具（conftest 定义；_db 为 autouse 不导入）
 
 
 # ---------------------------------------------------------------- annotations（OpenAI 目录校验项）

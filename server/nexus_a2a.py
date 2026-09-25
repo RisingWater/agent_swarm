@@ -1556,7 +1556,14 @@ async def dispatch_queued_for(workspace_id: str) -> int:
             .where(models.A2aTask.status == "queued")
             .order_by(models.A2aTask.created_at)
         ).all()
-        items = [(t.id, t.message, t.caller) for t in rows]
+        # 文本快照必须解密（2026-09-25 修复）：ENC_KEY 开启时建行把明文列清空、
+        # 密文进 message_enc；直接读 t.message 会把**空指令**派给插件——插件回
+        # "text required" 拒单，而任务行已被前置 working 且无回滚 → 永远卡死。
+        # （web/feishu 路径走内存文本不经此处，未暴露。）
+        items = []
+        for t in rows:
+            key = _owner_key(session, t)
+            items.append((t.id, crypto.decrypt(key, t.message_enc, t.message), t.caller))
     n = 0
     for tid, text, caller in items:
         # 派发前置 working（accepted_at 记录开始时间）
