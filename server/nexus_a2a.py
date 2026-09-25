@@ -509,7 +509,25 @@ async def handle_plugin_event(workspace_id: str, event: dict) -> None:
         event_id = int(last_row or 0)
     # 广播：事件（SSE 流 / 同步等待队列）
     _task_broadcast(task_id, event_id, event)
-    await _push_web(workspace_id, event)
+    # 终态帧附带简报摘要（2026-09-25 桌宠派单）：只拼在 web 推送出口的内存副本上，
+    # 不改事件持久化形状（a2a_events 落库的仍是原 event）——飞书简报从任务行解密，
+    # 桌宠等 WS 订阅者拿不到任务行明文，靠这个字段做同级简报卡。
+    if event.get("kind") == "status-update" and state in ("completed", "failed"):
+        brief: dict = {}
+        with Session(engine) as session:
+            t = session.get(models.A2aTask, task_id)
+            if t is not None:
+                k = _owner_key(session, t)
+                if state == "completed":
+                    art = crypto.decrypt(k, t.artifact_enc, t.artifact or "").strip()
+                    brief["artifact"] = art[:1600]
+                else:
+                    err = crypto.decrypt(k, t.error_enc, t.error or "").strip()
+                    brief["error"] = err[:700]
+        brief_event = {**event, "brief": brief}
+    else:
+        brief_event = event
+    await _push_web(workspace_id, brief_event)
     # 内部监听者（feishu 等）
     for listener in internal_listeners:
         try:
@@ -617,7 +635,16 @@ async def handle_monitor_event(workspace_id: str, payload: dict) -> None:
             task.artifact = None if task.artifact_enc else art
         session.add(task)
         session.commit()
-    await _push_web(workspace_id, payload, "monitor")
+    # 监控轮 idle（= completed）帧也附带简报摘要（与 A2A 终态帧同语义，桌宠简报用）
+    push_payload = payload
+    if payload.get("type") == "idle":
+        with Session(engine) as session:
+            t = session.get(models.A2aTask, round_key)
+            if t is not None:
+                k = _owner_key(session, t)
+                art = crypto.decrypt(k, t.artifact_enc, t.artifact or "").strip()
+                push_payload = {**payload, "brief": {"artifact": art[:1600]}}
+    await _push_web(workspace_id, push_payload, "monitor")
     # 被新轮顶替的旧前台轮：web 条目收尾 + 通知内部监听者（feishu 时间线卡 finalize）
     for old in superseded:
         ev = {"kind": "status-update", "taskId": old.id,
