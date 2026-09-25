@@ -430,7 +430,9 @@ async def a2a_call(target: str, message: str, context_id: str = "", from_workspa
     A2A 端点 URL（如 https://host/a2a/agent-id）。返回 task_id，用 a2a_task 轮询结果。
 
     Args:
-        target: 内部工作区 ID，或外部 A2A agent 端点 URL
+        target: 内部工作区 ID，或外部 A2A agent 端点 URL。**禁止指向你自己的
+            工作区**（即 from_workspace 填的那个 ID）——自我派单会无限循环，
+            服务端会直接拒绝
         message: 任务指令，尽量具体（涉及文件写绝对路径）
         context_id: 可选，延续之前的会话上下文（多轮任务）
         from_workspace: 你（发起方）所在的工作区 ID（list_workspaces 可查）。
@@ -449,6 +451,9 @@ async def a2a_call(target: str, message: str, context_id: str = "", from_workspa
         if from_workspace:
             from_ws = session.get(models.Workspace, from_workspace)
             from_ws_valid = from_ws is not None and from_ws.user_id == user.id
+        # 禁止自我派单（2026-09-25）：target = 自己的工作区会无限循环调用自己
+        if target == from_workspace and from_workspace:
+            raise ValueError("refusing to dispatch a task to your own workspace (self-call loop); pick another target via list_workspaces")
         wait_seconds = max(0, min(int(wait_seconds or 0), 3600))
         if target.startswith("http://") or target.startswith("https://"):
             # 外部 A2A agent：message/send 非流式，等终态返回
@@ -480,6 +485,9 @@ async def a2a_call(target: str, message: str, context_id: str = "", from_workspa
         tgt = session.get(models.Workspace, target)
         if tgt is None or tgt.user_id != user.id:
             raise ValueError(f"target workspace {target!r} not found or not visible to you")
+        # 二次防线：发起方注明时已拦（上面）；这里兜底 target 恰为发起工作区本身
+        if tgt.id == from_workspace:
+            raise ValueError("refusing to dispatch a task to your own workspace (self-call loop)")
         if tgt.status == "disabled":
             raise ValueError("target workspace is disabled")
         from server.nexus_a2a import ws_online as _ws_plugin_online

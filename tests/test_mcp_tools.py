@@ -186,8 +186,14 @@ def test_cross_user_isolation(user, ws):
 
 def test_a2a_call_internal_target_lands_queued(as_user, ws):
     """内部工作区且无插件连接：任务落 queued，dispatch 无连接安全返回 0。"""
+    with Session(engine) as s:
+        s.add(models.Workspace(
+            id="w-dest", user_id=as_user.id, name="d", path="/d",
+            status="online", last_heartbeat=datetime.now(timezone.utc).replace(tzinfo=None),
+        ))
+        s.commit()
     r = asyncio.run(
-        mcp_endpoint.a2a_call(target=ws.id, message="帮我查下 TODO", from_workspace=ws.id)
+        mcp_endpoint.a2a_call(target="w-dest", message="帮我查下 TODO", from_workspace=ws.id)
     )
     assert r["status"] == "queued" and r["task_id"]
     assert r["note"] == "poll with a2a_task"
@@ -195,6 +201,32 @@ def test_a2a_call_internal_target_lands_queued(as_user, ws):
         t = s.get(models.A2aTask, r["task_id"])
         assert t is not None and t.caller == "agent" and t.from_workspace_id == ws.id
         assert crypto_decrypt_ok(t, "帮我查下 TODO")
+
+
+def test_a2a_call_rejects_self_dispatch(as_user, ws):
+    """禁止自我派单（2026-09-25）：target = from_workspace 直接拒绝，任务不落库。
+
+    无 from_workspace 时服务端无从判定"自己"，不拦（文档约束调用方注明来源）。
+    """
+    with Session(engine) as s:
+        before = {
+            t.id
+            for t in s.exec(
+                select(models.A2aTask).where(models.A2aTask.workspace_id == ws.id)
+            ).all()
+        }
+    with pytest.raises(ValueError, match="self-call loop"):
+        asyncio.run(
+            mcp_endpoint.a2a_call(target=ws.id, message="x", from_workspace=ws.id)
+        )
+    with Session(engine) as s:
+        after = {
+            t.id
+            for t in s.exec(
+                select(models.A2aTask).where(models.A2aTask.workspace_id == ws.id)
+            ).all()
+        }
+    assert after == before  # 拒绝时没有新任务落库
 
 
 def crypto_decrypt_ok(t: models.A2aTask, plain: str) -> bool:
