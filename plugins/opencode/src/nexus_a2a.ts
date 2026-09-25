@@ -16,6 +16,8 @@ export interface NexusA2AClient {
   send: (obj: Record<string, unknown>) => boolean
   /** 前台会话监控事件上报（{"type":"monitor",...}；断连入缓冲，重连补发） */
   sendMonitor: (payload: Record<string, unknown>) => void
+  /** 上报本实例当前前台会话 id（多实例派发/应答路由用；重连后由 hello_ok 自动补发） */
+  sendSession: (sessionId: string) => void
 }
 
 export interface A2aTaskRef {
@@ -28,9 +30,24 @@ export interface A2aOptions {
   url: string
   apiKey: string
   workspaceId: () => string
+  /** 本实例当前前台会话 id。同一工作区多开时，服务端据此把应答路由回「发起它的那条连接」；
+   *  每次 hello_ok 都会重新上报（重连后自动补发） */
+  sessionId?: () => string
+  /** 任务执行模式（foreground/background）。服务端据此判断：心跳过期（没开 TUI）时，
+   *  只有 background 的工作区仍可派任务。hello 与 ping 都会带上（/swarm-mode 切完即生效） */
+  executionMode?: () => string
   /** 收到 message/send：注入会话执行。返回 sessionId（服务端记录 task.session_id）。
-   *  serverSessionId = 服务端派发的会话锚点（heartbeat 上报的工作区当前会话），后台执行时作 --session 续聊 */
-  onTask: (task: A2aTaskRef, text: string, caller: string, serverSessionId?: string) => Promise<string | null>
+   *  serverSessionId = 服务端派发的会话锚点（heartbeat 上报的工作区当前会话），后台执行时作 --session 续聊。
+   *  onAccepted：任务已接单（会话已锚定，即将开始执行）时回调——nexus_a2a 收到后立即回 rpc ack，
+   *  不等整轮结束（前台任务可能跑很久，服务端 dispatch 只等 30s ack；迟到的 ack 会被丢弃）。
+   *  V1 旧签名（不传 onAccepted）保持兼容：仍按整轮结束回 ack。 */
+  onTask: (
+    task: A2aTaskRef,
+    text: string,
+    caller: string,
+    serverSessionId: string | undefined,
+    onAccepted?: (sessionId: string) => void,
+  ) => Promise<string | null>
   /** 收到 input-required 续聊应答（权限/提问），由服务端转成 message/send DataPart */
   onReply: (task: A2aTaskRef, data: { type: string; requestId: string; reply?: string; answers?: string[][] }) => Promise<void>
   /** 权限请求答复（A2A input-required 续聊，data.type=permission）。
@@ -172,7 +189,7 @@ export function parseInputRequired(event: A2aEvent): { type: string; requestId: 
 // ---------------------------------------------------------------- 客户端主体
 
 export function startNexusA2AClient(options: A2aOptions): NexusA2AClient {
-  const { url, apiKey, workspaceId, onTask, onReply, onPermissionReply, onQuestionReply, onTaskCancel, log } = options
+  const { url, apiKey, workspaceId, sessionId, onTask, onReply, onPermissionReply, onQuestionReply, onTaskCancel, log } = options
 
   let ws: WebSocket | null = null
   let ready = false
@@ -209,7 +226,7 @@ export function startNexusA2AClient(options: A2aOptions): NexusA2AClient {
 
   function startPing() {
     stopPing()
-    pingTimer = setInterval(() => send({ type: "ping" }), PING_INTERVAL_MS)
+    pingTimer = setInterval(() => send({ type: "ping", execution_mode: options.executionMode?.() }), PING_INTERVAL_MS)
   }
 
   function stopPing() {
@@ -240,6 +257,7 @@ export function startNexusA2AClient(options: A2aOptions): NexusA2AClient {
         ready = true
         reconnectDelay = 1_000
         startPing()
+        send({ type: "session", session_id: sessionId?.() ?? "" })
         flushPendingMessages()
         log("nexus a2a ready")
         break
@@ -313,25 +331,36 @@ export function startNexusA2AClient(options: A2aOptions): NexusA2AClient {
           }
           log(`a2a task ${task.taskId.slice(0, 8)} (caller=${caller})`)
           const serverSessionId = String(metadata.session_id ?? "")
-          onTask(task, text, caller, serverSessionId)
+          let acked = false
+          const ackNow = (sid: string) => {
+            if (acked) return
+            acked = true
+            // 接单即回 ack（服务端 dispatch 等 30s）：后续进展走 event 通道
+            send({ type: "rpc", id, payload: { jsonrpc: "2.0", id, result: { sessionId: sid } } })
+          }
+          onTask(task, text, caller, serverSessionId, ackNow)
             .then((sid) => {
               if (sid === null) {
-                send({
-                  type: "rpc",
-                  id,
-                  payload: { jsonrpc: "2.0", id, error: { code: -32000, message: "no session available" } },
-                })
+                if (!acked) {
+                  send({
+                    type: "rpc",
+                    id,
+                    payload: { jsonrpc: "2.0", id, error: { code: -32000, message: "no session available" } },
+                  })
+                }
               } else {
-                // 同步应答只确认接单；后续进展走 event 通道
-                send({ type: "rpc", id, payload: { jsonrpc: "2.0", id, result: { sessionId: sid } } })
+                ackNow(sid) // 已在 onAccepted 回过则幂等跳过；兜底（旧 onTask 不回调时）在此回
               }
             })
             .catch((e) => {
-              send({
-                type: "rpc",
-                id,
-                payload: { jsonrpc: "2.0", id, error: { code: -32000, message: String(e) } },
-              })
+              if (!acked) {
+                send({
+                  type: "rpc",
+                  id,
+                  payload: { jsonrpc: "2.0", id, error: { code: -32000, message: String(e) } },
+                })
+              }
+              // 已 ack 过才失败的：终态走 event 通道（executeTask 已发 failed status-update）
             })
         } else if (method === "tasks/cancel") {
           const taskId = String((params as Record<string, unknown>).id ?? "")
@@ -373,7 +402,7 @@ export function startNexusA2AClient(options: A2aOptions): NexusA2AClient {
     ws = socket
 
     socket.addEventListener("open", () => {
-      send({ type: "hello", apikey: apiKey, workspace_id: wid })
+      send({ type: "hello", apikey: apiKey, workspace_id: wid, execution_mode: options.executionMode?.() ?? "foreground" })
     })
     socket.addEventListener("message", (e: MessageEvent) => handle(String(e.data)))
     socket.addEventListener("close", () => {
@@ -407,5 +436,6 @@ export function startNexusA2AClient(options: A2aOptions): NexusA2AClient {
     isReady: () => ready,
     send,
     sendMonitor: (payload) => sendMessage({ type: "monitor", payload }),
+    sendSession: (sid: string) => send({ type: "session", session_id: sid }),
   }
 }

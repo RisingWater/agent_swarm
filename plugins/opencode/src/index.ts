@@ -71,6 +71,13 @@ const plugin: Plugin = async (input) => {
   let currentSessionAt = 0 // event hook 最后一次见到该会话的时间
   let disposed = false
 
+  /** 更新前台会话并同步给服务端：同一工作区多开时，服务端按它把应答路由回本连接。
+   *  WS 未就绪时发送会被丢弃，但每次 hello_ok 都会重新上报（见 nexus_a2a.ts）。 */
+  function trackSession(sid: string): void {
+    currentSessionId = sid
+    nexus?.sendSession(sid)
+  }
+
   /** 拉会话标题（失败返回空串，不阻塞心跳） */
   async function fetchSessionTitle(sessionId: string): Promise<string> {
     if (!sessionId) return ""
@@ -235,7 +242,13 @@ const plugin: Plugin = async (input) => {
    * 完成时发 completed + Artifact。
    * 按配置分流：foreground=注入当前 TUI 前台会话；background=spawn headless 进程。
    */
-  async function executeTask(task: A2aTaskRef, text: string, caller: string, serverSessionId = ""): Promise<string | null> {
+  async function executeTask(
+    task: A2aTaskRef,
+    text: string,
+    caller: string,
+    serverSessionId = "",
+    onAccepted?: (sessionId: string) => void,
+  ): Promise<string | null> {
     // 每次收任务重读配置：/swarm-mode 切换执行模式无需重启 opencode
     const liveCfg = loadConfig() ?? config
     if (liveCfg.executionMode === "background") {
@@ -259,7 +272,7 @@ const plugin: Plugin = async (input) => {
       if (result.sessionId) writeSessionEntry(directory, caller, result.sessionId)
       return result.ok ? (result.sessionId ?? "background") : null
     }
-    return executeTaskForeground(task, text, caller, serverSessionId)
+    return executeTaskForeground(task, text, caller, serverSessionId, onAccepted)
   }
 
   /**
@@ -269,7 +282,13 @@ const plugin: Plugin = async (input) => {
    * （heartbeat 可能还没把新会话报上去）。冷启动兜底 pickRecentSession 最后用，
    * 避免 TUI 刚起、服务端锚点还空时落到后台任务会话上。
    */
-  async function executeTaskForeground(task: A2aTaskRef, text: string, caller: string, serverSessionId = ""): Promise<string | null> {
+  async function executeTaskForeground(
+    task: A2aTaskRef,
+    text: string,
+    caller: string,
+    serverSessionId = "",
+    onAccepted?: (sessionId: string) => void,
+  ): Promise<string | null> {
     let sessionId = serverSessionId || currentSessionId || (await pickRecentSession())
     if (!sessionId) {
       const created: any = await client.session.create({
@@ -288,6 +307,7 @@ const plugin: Plugin = async (input) => {
     const run: A2aRun = { sessionId, injected: false, lastAssistantIdBefore }
     a2aRuns.set(task.taskId, run)
     log(`a2a ${task.taskId.slice(0, 8)}: session ${sessionId}`)
+    onAccepted?.(sessionId) // 接单即回 ack：服务端 dispatch 只等 30s，不能等整轮结束
 
     // working 状态 + 用户消息回显（时间线上的提问条目）
     a2aEmit(
@@ -554,7 +574,7 @@ const plugin: Plugin = async (input) => {
           if (!currentSessionId) {
             const recent = await pickRecentSession()
             if (recent) {
-              currentSessionId = recent
+              trackSession(recent)
               log(`heartbeat: no tracked session, picked recent ${recent}`)
             }
           }
@@ -585,6 +605,8 @@ const plugin: Plugin = async (input) => {
     url: cfg.serverUrl.replace(/^http/, "ws").replace(/\/+$/, "") + "/ws/plugin",
     apiKey: cfg.apiKey,
     workspaceId: () => readWorkspaceId(directory),
+    sessionId: () => currentSessionId,
+    executionMode: () => (loadConfig() ?? config).executionMode,
     onTask: executeTask,
     onReply: async (task, data) => {
       // input-required 续聊应答：路由到 opencode 权限/提问 API
@@ -646,7 +668,7 @@ const plugin: Plugin = async (input) => {
       const anyEvt = event as any
       const sid = anyEvt?.properties?.sessionID ?? anyEvt?.info?.sessionID
       if (typeof sid === "string" && sid) {
-        currentSessionId = sid
+        trackSession(sid)
         currentSessionAt = Date.now()
       }
       const type = anyEvt?.type as string

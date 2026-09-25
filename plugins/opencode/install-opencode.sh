@@ -41,17 +41,27 @@ if [ ! -f "$SRC/package.json" ]; then
     exit 1
 fi
 
+# 探测 opencode 版本：major >= 2 用 V2 插件（全新插件 API），否则 V1（老 API）
+OC_VER="$(opencode --version 2>/dev/null | head -1 || true)"
+OC_MAJOR="$(printf '%s' "$OC_VER" | grep -oE '[0-9]+' | head -1 || true)"
+if [ -n "$OC_MAJOR" ] && [ "$OC_MAJOR" -ge 2 ] 2>/dev/null; then
+    OC_MODE="v2"
+else
+    OC_MODE="v1"
+fi
+echo "==> [opencode] 版本: ${OC_VER:-未知} → 安装 $OC_MODE 插件"
+
 echo "==> [opencode] 安装插件"
 echo "    服务器: $SERVER"
 echo "    目录:   $INSTALL_DIR"
-
-command -v node >/dev/null || { echo "错误: 需要 node（opencode 依赖），请先安装 Node.js" >&2; exit 1; }
 
 # 1. 复制插件文件到安装目录（源目录来自分发包，保持其只读）
 mkdir -p "$INSTALL_DIR"
 cp -R "$SRC/." "$INSTALL_DIR/"
 
-# 2. 安装依赖（复用 opencode 全局已有的 @opencode-ai/*，避免重复下载）
+# 2. 依赖：只有 V1 插件需要 @opencode-ai/*（V2 插件自包含，无运行时裸依赖）
+if [ "$OC_MODE" = "v1" ]; then
+command -v node >/dev/null || { echo "错误: 需要 node（opencode 依赖），请先安装 Node.js" >&2; exit 1; }
 echo "==> 安装依赖..."
 NPM=""
 for c in npm; do command -v $c >/dev/null && NPM=$c && break; done
@@ -72,6 +82,10 @@ fi
 
 if [ ! -d "$INSTALL_DIR/node_modules/@opencode-ai" ]; then
     (cd "$INSTALL_DIR" && "$NPM" install --no-audit --no-fund --loglevel=error)
+fi
+else
+    echo "==> V2 插件自包含（无运行时裸依赖），跳过依赖安装"
+    rm -rf "$INSTALL_DIR/node_modules" 2>/dev/null || true
 fi
 
 # 3. 写入本机插件配置（server + apikey + 执行模式）
@@ -108,9 +122,9 @@ if [ -f "$PWD/opencode.json" ] || [ -f "$PWD/opencode.jsonc" ]; then
     OC_CONFIG="$PWD/opencode.jsonc"
     [ -f "$PWD/opencode.json" ] && OC_CONFIG="$PWD/opencode.json"
 fi
-node - "$OC_CONFIG" "$SERVER/mcp/" "$API_KEY" <<'NODE'
+node - "$OC_CONFIG" "$SERVER/mcp/" "$API_KEY" "$OC_MODE" <<'NODE'
 const fs = require("fs")
-const [cfgPath, mcpUrl, apiKey] = process.argv.slice(2)
+const [cfgPath, mcpUrl, apiKey, mode] = process.argv.slice(2)
 let text = fs.existsSync(cfgPath) ? fs.readFileSync(cfgPath, "utf-8") : "{\n}\n"
 // 剥 JSONC 注释（感知字符串字面量：file:// 等字符串内的 // 不能当注释）
 function stripJsoncComments(s) {
@@ -135,12 +149,6 @@ function stripJsoncComments(s) {
 }
 // 读改写走 JSON 往返（parse → 对象操作 → stringify），杜绝文本手术写出坏 JSON
 // （曾用正则插入，第二次运行替换分支把嵌套 headers 的 } 误当对象结尾，配置文件被写坏）
-const mcpEntry = {
-    type: "remote",
-    url: mcpUrl,
-    enabled: true,
-    headers: { Authorization: `Bearer ${apiKey}` },
-}
 const stripped = stripJsoncComments(text)
 let cfg
 try {
@@ -149,10 +157,29 @@ try {
     console.error(`错误: ${cfgPath} 不是合法 JSON(C)（${e.message}），不覆盖，请手工修正后重跑`)
     process.exit(1)
 }
-cfg.mcp = cfg.mcp || {}
-cfg.mcp["agent-swarm"] = mcpEntry
+if (mode === "v2") {
+    // V2：MCP 服务器在 mcp.servers[] 下，且用 disabled 反向；顺手清掉 V1 的扁平条目
+    if (cfg.mcp) delete cfg.mcp["agent-swarm"]
+    cfg.mcp = cfg.mcp || {}
+    cfg.mcp.servers = cfg.mcp.servers || {}
+    cfg.mcp.servers["agent-swarm"] = {
+        type: "remote",
+        url: mcpUrl,
+        headers: { Authorization: `Bearer ${apiKey}` },
+    }
+    console.log(`==> 已写入 mcp.servers.agent-swarm 到 ${cfgPath}（V2）`)
+} else {
+    cfg.mcp = cfg.mcp || {}
+    if (cfg.mcp.servers) delete cfg.mcp.servers["agent-swarm"]
+    cfg.mcp["agent-swarm"] = {
+        type: "remote",
+        url: mcpUrl,
+        enabled: true,
+        headers: { Authorization: `Bearer ${apiKey}` },
+    }
+    console.log(`==> 已写入 mcp.agent-swarm 到 ${cfgPath}（V1）`)
+}
 fs.writeFileSync(cfgPath, JSON.stringify(cfg, null, 2) + "\n")
-console.log(`==> 已写入 mcp.agent-swarm 到 ${cfgPath}`)
 NODE
 
 # 插件注册（file:// 指向入口）：src/index.ts = server 插件（心跳/任务执行）
@@ -200,14 +227,74 @@ fs.writeFileSync(cfgPath, JSON.stringify(cfg, null, 2) + "\n")
 console.log(`==> 已注册插件 ${pluginRef}`)
 NODE
 }
-register_plugin "$OC_CONFIG" "file://$INSTALL_DIR/src/index.ts"
+# V2：清理配置里指向本插件目录的旧条目（V1 式 file:// 文件路径在 V2 会报
+# "configured plugin path must be a directory" 并被忽略；V2 靠自动发现加载）
+cleanup_v2() {
+node - "$1" "$INSTALL_DIR" <<'NODE'
+const fs = require("fs")
+const [cfgPath, installDir] = process.argv.slice(2)
+if (!fs.existsSync(cfgPath)) process.exit(0)
+const text = fs.readFileSync(cfgPath, "utf-8")
+// 剥 JSONC 注释（字符串感知）
+function stripJsoncComments(s) {
+    let out = ""
+    let inStr = false, inLine = false, inBlock = false
+    for (let i = 0; i < s.length; i++) {
+        const c = s[i], n = s[i + 1]
+        if (inLine) { if (c === "\n") { inLine = false; out += c } continue }
+        if (inBlock) { if (c === "*" && n === "/") { inBlock = false; out += " "; i++ } continue }
+        if (inStr) {
+            out += c
+            if (c === "\\") { out += n ?? ""; i++ }
+            else if (c === '"') inStr = false
+            continue
+        }
+        if (c === '"') { inStr = true; out += c; continue }
+        if (c === "/" && n === "/") { inLine = true; i++; continue }
+        if (c === "/" && n === "*") { inBlock = true; i++; continue }
+        out += c
+    }
+    return out
+}
+let cfg
+try {
+    cfg = JSON.parse(stripJsoncComments(text) || "{}")
+} catch (e) {
+    console.error(`警告: ${cfgPath} 不是合法 JSON(C)，跳过清理`)
+    process.exit(0)
+}
+const norm = (s) => s.replace(/\\/g, "/")
+const isOurs = (v) => {
+    const s = typeof v === "string" ? v : v && typeof v === "object" && typeof v.package === "string" ? v.package : ""
+    return s !== "" && norm(s).includes(norm(installDir))
+}
+let changed = false
+for (const key of ["plugin", "plugins"]) {
+    if (Array.isArray(cfg[key])) {
+        const kept = cfg[key].filter((v) => !isOurs(v))
+        if (kept.length !== cfg[key].length) changed = true
+        if (kept.length === 0) delete cfg[key]
+        else cfg[key] = kept
+    }
+}
+if (changed) {
+    fs.writeFileSync(cfgPath, JSON.stringify(cfg, null, 2) + "\n")
+    console.log(`==> 已从 ${cfgPath} 清理指向本插件的旧条目`)
+} else {
+    console.log(`==> ${cfgPath} 无需清理`)
+}
+NODE
+}
 
-# TUI 插件注册到 ~/.config/opencode/tui.jsonc（v1 TUI 插件与 server 插件分开注册）
-TUI_CFG="$HOME/.config/opencode/tui.jsonc"
-TUI_REF="file://$INSTALL_DIR/src/tui.ts"
-if [ ! -f "$TUI_CFG" ]; then
-    mkdir -p "$(dirname "$TUI_CFG")"
-    cat > "$TUI_CFG" <<EOF
+if [ "$OC_MODE" = "v1" ]; then
+    register_plugin "$OC_CONFIG" "file://$INSTALL_DIR/src/index.ts"
+
+    # TUI 插件注册到 ~/.config/opencode/tui.jsonc（v1 TUI 插件与 server 插件分开注册）
+    TUI_CFG="$HOME/.config/opencode/tui.jsonc"
+    TUI_REF="file://$INSTALL_DIR/src/tui.ts"
+    if [ ! -f "$TUI_CFG" ]; then
+        mkdir -p "$(dirname "$TUI_CFG")"
+        cat > "$TUI_CFG" <<EOF
 {
   "\$schema": "https://opencode.ai/tui.json",
   "plugin": [
@@ -215,9 +302,15 @@ if [ ! -f "$TUI_CFG" ]; then
   ]
 }
 EOF
-    echo "==> 已创建并注册 TUI 插件到 ${TUI_CFG}"
+        echo "==> 已创建并注册 TUI 插件到 ${TUI_CFG}"
+    else
+        register_plugin "$TUI_CFG" "$TUI_REF"
+    fi
 else
-    register_plugin "$TUI_CFG" "$TUI_REF"
+    # V2：插件由 opencode 自动发现（<config>/plugins/<name>/{index.ts,tui.ts}），无需写配置
+    cleanup_v2 "$OC_CONFIG"
+    [ -f "$HOME/.config/opencode/tui.jsonc" ] && cleanup_v2 "$HOME/.config/opencode/tui.jsonc"
+    echo "==> V2 插件随 opencode 启动自动加载（无需配置条目）"
 fi
 
 # 5. 安装 md 命令（/swarm-add：前台会话由 agent 生成 purpose 后调 MCP 工具）
@@ -235,4 +328,4 @@ for old in swarm-note swarm-desc swarm-resummarize swarm_register swarm-remove \
     fi
 done
 
-echo "✅ [opencode] 安装完成！重启 opencode 后：MCP 工具可用，插件自动心跳保活，/swarm-* 命令就绪。"
+echo "✅ [opencode] 安装完成（$OC_MODE 插件）！重启 opencode 后：MCP 工具可用，插件自动心跳保活，/swarm-* 命令就绪。"

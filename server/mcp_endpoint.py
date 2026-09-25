@@ -11,6 +11,7 @@ import shortuuid
 
 from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
+from mcp.types import ToolAnnotations
 from sqlmodel import select
 from starlette.requests import Request
 from starlette.responses import JSONResponse
@@ -106,7 +107,19 @@ mcp = FastMCP(
 # ---------------------------------------------------------------- workspace
 
 
-@mcp.tool()
+# OpenAI MCP 目录要求每个工具声明四个 annotation hint（缺省或非布尔即拒收）。
+# 赋值对照各工具真实行为：只读查询 → readOnly；写库/删数据 → destructive（按严重度）；
+# 重复调用产生同一结果 → idempotent；依赖服务端之外的世界（网络调用外部 agent）→ openWorld。
+def _ann(readonly: bool = False, destructive: bool = False, idempotent: bool = False, open_world: bool = False) -> ToolAnnotations:
+    return ToolAnnotations(
+        readOnlyHint=readonly,
+        destructiveHint=destructive,
+        idempotentHint=idempotent,
+        openWorldHint=open_world,
+    )
+
+
+@mcp.tool(annotations=_ann(idempotent=True))
 def workspace_add(
     path: str,
     purpose: str = "",
@@ -178,7 +191,7 @@ def workspace_add(
         session.close()
 
 
-@mcp.tool()
+@mcp.tool(annotations=_ann(destructive=True))
 def workspace_remove(workspace_id: str) -> dict:
     """从 agent_swarm 移除自己的工作区（级联删除相关求助记录）。
 
@@ -200,7 +213,7 @@ def workspace_remove(workspace_id: str) -> dict:
         session.close()
 
 
-@mcp.tool()
+@mcp.tool(annotations=_ann(idempotent=True))
 def workspace_enable(workspace_id: str) -> dict:
     """启用自己的工作区（状态回到 offline，等心跳恢复 online）。
 
@@ -220,7 +233,7 @@ def workspace_enable(workspace_id: str) -> dict:
         session.close()
 
 
-@mcp.tool()
+@mcp.tool(annotations=_ann(idempotent=True))
 def workspace_disable(workspace_id: str) -> dict:
     """禁用自己的工作区：不再可见、不参与求助派发。
 
@@ -240,7 +253,7 @@ def workspace_disable(workspace_id: str) -> dict:
         session.close()
 
 
-@mcp.tool()
+@mcp.tool(annotations=_ann(idempotent=True))
 def heartbeat(
     workspace_id: str,
     session_id: str = "",
@@ -282,7 +295,7 @@ def heartbeat(
         session.close()
 
 
-@mcp.tool()
+@mcp.tool(annotations=_ann(idempotent=True))
 def workspace_offline(workspace_id: str) -> dict:
     """主动下线：插件/保活进程退出前调用，立即把工作区置为离线（不等 90s 心跳超时）。
 
@@ -302,7 +315,7 @@ def workspace_offline(workspace_id: str) -> dict:
         session.close()
 
 
-@mcp.tool()
+@mcp.tool(annotations=_ann())
 def update_notes(workspace_id: str, notes: str, append: bool = True) -> dict:
     """更新工作区备注（/swarm-note 命令）。
 
@@ -328,7 +341,7 @@ def update_notes(workspace_id: str, notes: str, append: bool = True) -> dict:
         session.close()
 
 
-@mcp.tool()
+@mcp.tool(annotations=_ann(idempotent=True))
 def update_info(
     workspace_id: str,
     purpose: str = "",
@@ -359,7 +372,7 @@ def update_info(
         session.close()
 
 
-@mcp.tool()
+@mcp.tool(annotations=_ann(readonly=True))
 def list_workspaces(include_offline: bool = False) -> dict:
     """列出当前用户可见的 agent 工作区（自己创建的）。
 
@@ -409,7 +422,7 @@ def list_workspaces(include_offline: bool = False) -> dict:
 CALL_TIMEOUT_SECONDS = int(os.environ.get("AGENT_SWARM_CALL_TIMEOUT", "3600"))
 
 
-@mcp.tool()
+@mcp.tool(annotations=_ann(open_world=True))
 async def a2a_call(target: str, message: str, context_id: str = "", from_workspace: str = "", wait_seconds: int = 0) -> dict:
     """通过 A2A 协议给另一个 agent 发任务（支持内部工作区与外部 A2A agent）。
 
@@ -417,7 +430,9 @@ async def a2a_call(target: str, message: str, context_id: str = "", from_workspa
     A2A 端点 URL（如 https://host/a2a/agent-id）。返回 task_id，用 a2a_task 轮询结果。
 
     Args:
-        target: 内部工作区 ID，或外部 A2A agent 端点 URL
+        target: 内部工作区 ID，或外部 A2A agent 端点 URL。**禁止指向你自己的
+            工作区**（即 from_workspace 填的那个 ID）——自我派单会无限循环，
+            服务端会直接拒绝
         message: 任务指令，尽量具体（涉及文件写绝对路径）
         context_id: 可选，延续之前的会话上下文（多轮任务）
         from_workspace: 你（发起方）所在的工作区 ID（list_workspaces 可查）。
@@ -436,6 +451,9 @@ async def a2a_call(target: str, message: str, context_id: str = "", from_workspa
         if from_workspace:
             from_ws = session.get(models.Workspace, from_workspace)
             from_ws_valid = from_ws is not None and from_ws.user_id == user.id
+        # 禁止自我派单（2026-09-25）：target = 自己的工作区会无限循环调用自己
+        if target == from_workspace and from_workspace:
+            raise ValueError("refusing to dispatch a task to your own workspace (self-call loop); pick another target via list_workspaces")
         wait_seconds = max(0, min(int(wait_seconds or 0), 3600))
         if target.startswith("http://") or target.startswith("https://"):
             # 外部 A2A agent：message/send 非流式，等终态返回
@@ -467,6 +485,9 @@ async def a2a_call(target: str, message: str, context_id: str = "", from_workspa
         tgt = session.get(models.Workspace, target)
         if tgt is None or tgt.user_id != user.id:
             raise ValueError(f"target workspace {target!r} not found or not visible to you")
+        # 二次防线：发起方注明时已拦（上面）；这里兜底 target 恰为发起工作区本身
+        if tgt.id == from_workspace:
+            raise ValueError("refusing to dispatch a task to your own workspace (self-call loop)")
         if tgt.status == "disabled":
             raise ValueError("target workspace is disabled")
         from server.nexus_a2a import ws_online as _ws_plugin_online
@@ -520,7 +541,7 @@ async def a2a_call(target: str, message: str, context_id: str = "", from_workspa
         session.close()
 
 
-@mcp.tool()
+@mcp.tool(annotations=_ann(readonly=True))
 def a2a_task(task_id: str) -> dict:
     """查询 A2A 任务的状态与结果（a2a_call 后轮询用）。
 
@@ -563,7 +584,7 @@ def a2a_task(task_id: str) -> dict:
         session.close()
 
 
-@mcp.tool()
+@mcp.tool(annotations=_ann(readonly=True))
 def artifact_upload(name: str, note: str = "", task_id: str = "") -> dict:
     """把本地文件作为产物上传到 agent_swarm（两步，无需 base64）。
 

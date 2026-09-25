@@ -1,289 +1,147 @@
-# agent_swarm 需求文档
+# agent_swarm 需求与行为规格（现行）
 
-> 版本: v0.1 (第一版) · 日期: 2026-09-11
-
-## 1. 项目概述
-
-agent_swarm 是一个多 agent 协作通信平台，让多个 opencode agent（AI 编程助手）能够：
-
-1. **注册**：将自身工作区（工作目录 + 用途 + 能力）注册到中央服务
-2. **可见**：用户通过 Web 管理页面查看自己/团队所有 agent 工作区的状态
-3. **互助**：agent 之间可以互相求助（询问实现细节、帮忙改代码等）
-4. **管理**：用户可以删除离线工作区、禁用/启用工作区
-
-### 核心组件
-
-| 组件 | 技术栈 | 说明 |
-|------|--------|------|
-| MCP Server + 管理后端 | Python (FastAPI)，单服务 | `/mcp` 端点服务 agent，`/api` 端点服务管理页面 |
-| 管理前端 | React + Antd + Vite + TS | 用户/团队/工作区管理 |
-| opencode 插件 | TypeScript (tsx) | 注册工作区、注入工具、执行求助任务 |
-
-### 基础设施
-
-- 数据库：SQLite（第一版）
-- 服务端口：8700（可配置）
+> 更新: 2026-09-25 · 本文档定义系统**当前**的具体行为，是需求与验收的基准。
+> 历史决策脉络（为什么变成这样）见 `TODO.md` 架构演进史；架构边界与坑见 `AGENTS.md`；用户视角功能介绍见 `README.md` / `README_CN.md`；外部客户端协议细则见 `docs/desktop-client-nexus-integration.md`。
 
 ---
 
-## 2. 架构设计（已确认决策）
+## 1. 系统概述
 
-### 2.1 单服务架构
+agent_swarm 是一个多 agent 协作平台（虫群）：
+
+- **服务端**：FastAPI 单进程（`:8700`），同时承载管理 REST API、MCP 端点、A2A 网关、插件分发、飞书/微信渠道网关。数据库 SQLite（WAL）。
+- **插件**（`plugins/`）：注册工作区到中枢、心跳保活、接收执行 A2A 任务、上报前台会话监控流。支持 opencode（V1/V2 双版本）与 claude code。
+- **Web 前端**：React SPA——网页中枢（Nexus）、工作区、调用记录、产物页、账号页、后台管理。
+- **渠道**：飞书（自建应用）与微信 ClawBot（用户扫自己的微信）作为聊天侧入口，能力对齐（下发/监控/简报/权限应答）。
+
+核心模型：**工作区（workspace）** = 一个注册到中枢的 agent 工作目录。任何授权用户可通过 web / MCP / A2A / 聊天渠道向工作区派发任务，并订阅其事件流。
+
+## 2. 鉴权
+
+| 凭证 | 形态 | 有效期 | 适用面 |
+|---|---|---|---|
+| apikey | `as_` 开头，账号页可查/重置 | 长效（重置即失效） | `/mcp/*` 全部；WS `/ws/nexus` hello；reply/history/rounds/workspaces/calls 等 REST（`get_user_either`） |
+| JWT | 登录签发 | 24h | 全部 `/api/*`（除 auth）；与 apikey 在上述重叠端点二选一 |
+
+行为规则：
+
+- `/mcp` 每个请求（含 initialize）都校验 `Authorization: Bearer <apikey>`；apikey → user 的身份存 contextvar，MCP 工具经 `get_user()` 读取。
+- `POST /api/nexus/{wid}/message:send` 与 `DELETE /api/nexus/{wid}/history` **保持 JWT-only**（最小改动决策）。
+- apikey 重置：旧 key 立即失效，并用新 key 重加密该用户全部密文行（历史保持可读）。
+- 静态加密：设置 `AGENT_SWARM_ENC_KEY` 后，任务指令/结果/错误、事件流原文、工作区描述/备注/会话标题一律密文落库（`enc1:<fernet>`，明文列清空）。**子密钥 = sha256(server_key + ':' + user_apikey)**——读侧必须用属主 apikey 解密，key 不匹配时静默回退明文列（表现为读到空串/`{}`）。外部 A2A 任务无属主，保留明文。丢失密钥 = 加密历史永久不可读。
+
+## 3. MCP 工具（共 12 个，agent 的唯一操作面）
+
+面向 agent 的所有操作都在服务端 MCP 工具里，插件不注入任何工具。任何 MCP 客户端（opencode / claude / 其它）连 `/mcp/` 即用。
+
+| 工具 | 行为要点 |
+|---|---|
+| `workspace_add` | 注册当前目录为工作区；返回 ID，agent 写入项目根 `.agent_swarm/workspace.md` |
+| `workspace_remove` / `enable` / `disable` / `offline` | 工作区管理；仅离线可删；disable 后心跳不复活，需 enable |
+| `heartbeat` | 保活 + 上报当前会话（插件每 30s 调；90s 无心跳判离线） |
+| `update_info` / `update_notes` | 更新用途/能力描述、备注 |
+| `list_workspaces` | 列出当前用户可见工作区 |
+| `a2a_call` | 派发任务：内部工作区 ID 或外部 A2A 端点 URL。可选 `wait_seconds`（≤3600）同步等终态。**禁止 target=自己**（`from_workspace` 注明且相同时服务端拒绝 "self-call loop"）；外部任务落同一张任务表（`external_url` 标记）经 `a2a_task` 轮询 |
+| `a2a_task` | 查任务状态与结果 |
+| `artifact_upload` | 两步上传（无 base64）：工具签发一次性 `upload_url`（10min/单次）→ `curl -F file=@路径` 直传原始字节 |
+
+工程约定：每个工具必须用 `_ann()` 声明全部四个 annotation hint（readOnly/destructive/idempotent/openWorld），按真实行为赋值；新增/修改工具同步更新 `tests/test_mcp_tools.py`。
+
+## 4. 任务模型与生命周期
+
+任务统一落 `a2a_tasks` 表，`caller` 标注来源：`nexus-web`（网页中枢）/ `agent`（agent 互调）/ `a2a-client`（外部 A2A）/ `monitor`（前台监控轮）/ `nexus-feishu` / weixin 渠道。
+
+状态机：
 
 ```
-FastAPI (uvicorn 单进程, :8700)
-├── /mcp        MCP Streamable HTTP 端点 —— agent/plugin 调用（apikey 鉴权）
-├── /api/...    管理后端 REST API —— Web 页面调用（JWT 鉴权）
-└── SQLite (data/agent_swarm.db)
-    ├── users
-    ├── workspaces
-    └── help_requests
-    （teams / team_members 表结构保留在 models.py 中备用，功能暂未启用）
+queued ──(发送+ack 成功)──> working ──> completed | failed
+   │                          │
+   │(发送失败/拒单/无ack→回退)  ├──> input-required ──(应答)──> working
+   └──> canceled              └────(取消)──> canceled
 ```
 
-### 2.2 鉴权体系（所有 /mcp 请求强制 apikey 校验）
+- **排队**：任务创建即 `queued`；`dispatch_queued_for` 取第一个新鲜插件连接派发，**发送 + 插件 ack（30s 内）成功才置 working**；发送失败/插件拒单/超时无 ack 一律保持 queued 等下次派发，死连接剔除。密文任务派发前必须解密（ENC_KEY 下读明文列会派出空指令——历史事故）。
+- **可派发判定** `dispatchable(wid)`：有插件连接 且（心跳新鲜 = 开着 TUI，或连接上报 `execution_mode=="background"`）。没开 TUI 的前台工作区不可派发（web 下发返回 409），任务排队。
+- **执行位置**：前台注入优先（目标当前会话，实时可见）；后台模式 spawn 独立会话（同 caller 任务复用同一后台会话，映射存 `.agent_swarm/sessions.json`）。claude 一律后台 headless。
+- **终态收尾**：`completed` 时插件发 artifact（最终回答全文）；`failed` 时错误文本入 `error` 列；`canceled`（用户主动中断）同样入档。超时为懒超时（`AGENT_SWARM_CALL_TIMEOUT` 默认 1h，读侧判定）。
+- **input-required**：权限/提问等待态。应答走统一 reply 端点（§6）；**先答先算**——第一个应答生效，任务翻出等待态，其余渠道后续应答干净地 409。
+- **前台唯一轮**：一个工作区同时只有一个前台监控轮，新一轮自动收尾上一轮（superseded）。
 
-**MCP 端点 `/mcp`**：
-- 每个请求（含初始化握手、tools/list、tools/call）都经过 FastAPI 依赖注入统一拦截
-- Header: `Authorization: Bearer <apikey>`
-- 无效 apikey → 401
-- apikey → user 身份绑定，工具调用自动携带身份上下文：
-  - `register_workspace` → 工作区归属当前 user
-  - `list_workspaces` → 只返回自己 + 所在 team 的工作区
-  - `poll_help_requests` → 只领到指向自己 workspace 的求助
-  - `submit_help_result` → 只能提交指向自己 workspace 的任务结果
-- apikey 服务端存 sha256 哈希，校验用 `hmac.compare_digest` 常量时间比较
+## 5. 事件流与订阅（`/ws/nexus`）
 
-**管理 API `/api`**：
-- `/api/auth/register`、`/api/auth/login` 开放
-- 其余接口 Header: `Authorization: Bearer <JWT>`（登录签发，24h 过期）
-- apikey 查看/重置走 JWT 保护的管理接口
+所有推送收口在 `_push_web` 单一出口，三种帧：
 
-### 2.3 帮助请求异步模式
+| 帧 | 载荷 | 说明 |
+|---|---|---|
+| `event` | A2A 事件（kind=status-update / artifact-update） | 状态流转、流式 thinking/text/tool（`metadata.nexus` 标注）、input-required 的 DataPart（permission/question） |
+| `monitor` | 前台监控轮事件（扁平形状：roundKey/type/…） | user/reasoning/text/tool/permission/question/replied/idle 实时轮 |
+| `task` | 任务行快照 | 状态变化/终态/应答自持后刷新 |
 
-- 请求方调用 `request_help` 后立即返回 `request_id`
-- 目标端 plugin 轮询领任务 → 执行 → 回写结果
-- 请求方轮询 `get_help_result` 获取结果
+订阅语义：
 
-### 2.4 任务执行双模式
+- hello（apikey 或 JWT 二选一）→ subscribe：
+  - **精确订阅** `{"workspace_id": "<wid>"}`：需属主（`_owns`），回执带最新一轮回放 + `first_id` 游标（更早的轮走 `GET /api/nexus/{wid}/rounds?before_id=`，全量走 `/history`）。
+  - **通配订阅** `{"workspace_id": "*"}`：订阅本用户名下**全部**工作区；逐事件属主过滤（别人的收不到）；**不做历史回放**（回执 `note:"replay skipped for wildcard"`，历史走 REST）。一条通配连接等价 N 条精确订阅。
+- 一条连接同一时刻只有一个订阅目标（重新 subscribe 先退订旧的）；多客户端（web/桌宠/飞书进程）可同时在线互不挤占。
+- **终态简报摘要 `brief`**：completed 帧带 `brief.artifact`（最终回答截 1600）、failed 帧带 `brief.error`（截 700）；监控轮 idle 帧带 `brief.artifact`。只拼在 WS 推送的内存副本上，落库无此字段。订阅者（桌宠/第三方简报 UI）直接取用，无需自己解 artifact。
 
-`request_help(target_workspace_id, question, mode?, session_id?)`
+## 6. 权限 / 提问应答（跨渠道先答先算）
 
-| mode | 行为 | 实现方式 |
-|------|------|---------|
-| `foreground`（前台） | 注入目标 agent **当前 TUI 会话**，用户实时看到执行过程 | `tui.showToast()` 通知 → `tui.appendPrompt()` 注入任务 → `tui.submitPrompt()` **自动执行** |
-| `background`（后台，**默认**） | 新会话后台执行，不打扰对方 | `session.create()` + `promptAsync()`；指定 `session_id` 时复用已有会话 |
+- 任务（A2A 轮）或监控轮进入 permission/question 时，若简报开启，**web + 飞书 + 微信（+桌宠）同时收到卡片**；TUI 本身也可答。
+- 应答端点：`POST /api/nexus/{wid}/reply`，body 带 `task_id`（监控轮 = roundKey）、`type`（permission/question）、`request_id`、`reply`（once/always/reject）或 `answers`。
+- 第一个应答生效并使任务离开 input-required；其余渠道应答返回 409（非错误，客户端应收起气泡刷新状态）。
+- 插件权限/提问事件按 **requestId** 去重——同轮第二个权限是新 requestId，不得按轮去重。opencode 权限事件无 title，具体路径/命令在 `patterns[]`。
 
-**结果回传双保险**：
-1. 首选：注入的 prompt 指示目标 agent 完成后主动调用 `submit_help_result` MCP 工具
-2. 兜底：plugin 监听 session idle 事件，若结果未提交，自动抓取最后一条 assistant 消息提交
+## 7. 渠道分发（飞书 / 微信）
 
----
+两渠道能力对齐，传输不同（飞书卡片、微信纯文本编号选项）：
 
-## 3. 数据模型
+- **下发**：聊天窗口纯文本 = 向选中工作区派任务（caller=渠道名）。飞书走时间线多卡模式；微信整条消息详细流（💭/🔧/答案，无打字机）。
+- **监控同步**：`monitor on` 的窗口实时收自己 TUI 对话轮（飞书逐卡、微信 💭/🔧 行）。
+- **简报**：`brief on`（默认开）时，其它来源（web/agent/外部 A2A）的任务到 **completed/failed** 终态推摘要卡（指令首行 + 回答截 1500 / 失败原因截 600）；**canceled 不发**；监控轮 tool-only 空轮静默。收件范围 = **属主名下全部 brief_on 窗口**（属主过滤，防跨用户泄漏）。
+- **权限/提问卡**：不受简报开关限制，任何来源任务等待输入即推（飞书按钮卡：允许/始终允许/拒绝；微信编号文本：1/2/3，纯数字应答）。
+- 飞书绑定 `/swarm bind as_xxx`；微信扫码绑定（一账号一 bot，token ~24h 过期重扫）。
+- 自发任务（caller=渠道自己）走时间线详情，不再发简报（避免重复）。
 
-### users
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| id | str PK | shortuuid |
-| username | str unique | 登录名 |
-| password_hash | str | bcrypt |
-| api_key_hash | str unique | sha256(apikey) |
-| created_at | datetime | |
+## 8. 产物（Artifacts）
 
-> apikey 明文仅在注册/重置时返回一次给用户。
+- 上传两步（二进制不经 JSON）：MCP `artifact_upload` 签发一次性签名 `upload_url`（10min/单次/防重放）→ `curl -F file=@` 直传。
+- 落盘 `data/artifacts/<id>_<name>`；TTL 7 天（`AGENT_SWARM_ARTIFACT_TTL_DAYS`），单文件上限 20MB（`AGENT_SWARM_ARTIFACT_MAX_MB`），每小时 GC；**pin 的产物永不过期**。
+- REST：列表/固定/删除（JWT 或 apikey）、一次性凭证上传（免 JWT）、HMAC 签名下载链接（30 天有效，供 IM/浏览器免 header 点击）。
+- 上传后按简报规则推属主绑定渠道（飞书文件消息 / 微信文件 item，失败降级文本链接）。
 
-### teams
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| id | str PK | shortuuid |
-| name | str unique | |
-| owner_id | str FK→users | 创建者 |
-| created_at | datetime | |
+## 9. 监控模式（前台会话实时上报）
 
-### team_members
-| 字段 | 类型 |
-|------|------|
-| team_id | FK→teams |
-| user_id | FK→users |
+- opencode 插件把 TUI 日常对话按轮次实时上报（默认开，`/swarm-monitor` 切换，热生效）：用户提问 → 💭 thinking → 工具调用 → 回答，全量进事件流与调用记录（`[monitor]` 标注）。
+- 只监控前台会话；中枢下发的任务轮不重复上报。V1/V2 插件均支持；V2 由 TUI 进程心跳（**在线 = 开着 TUI**），server 插件不心跳。
+- 轮次生命周期：`message.updated`（user）开轮 → 流式部件 → idle 收轮；权限/提问置 input-required，`replied` 回 working。
 
-### workspaces
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| id | str PK | shortuuid |
-| user_id | FK→users | 归属用户（apikey 所有者） |
-| team_id | FK→teams, nullable | 注册时可声明归属团队 |
-| name | str | 工作区名称（默认取目录名） |
-| path | str | 工作目录绝对路径 |
-| purpose | str | 目录用途（AI 总结生成） |
-| capabilities | str nullable | 能干什么的描述 |
-| notes | str nullable | `/swarm-note` 累积的用户备注 |
-| status | str | online / offline / disabled |
-| last_heartbeat | datetime nullable | 心跳时间 |
-| session_id | str nullable | opencode 当前会话（前台任务注入用） |
-| created_at / updated_at | datetime | |
+## 10. 插件与安装
 
-> 唯一约束: (user_id, path) — 同一用户同一目录只有一个工作区记录，重复注册即更新。
+- **opencode**：V1（file:// 入口）与 V2（目录自动发现，`opencode --version` 分流）同时支持，安装脚本单向覆盖。V2 插件零运行时裸依赖；改 `src/` 后需同步安装目录 + `touch index.ts` 热重载。
+- **claude**：keepalive.mjs 本地 stdio MCP 保活 + 后台 headless 执行（无前台注入）。
+- **安装器**：`deploy/install.{sh,ps1}` 分发器 + `plugins/<name>/install-<name>.{sh,ps1}` 各自实现；tarball 含整个 plugins 树。含中文的 ps1 必须存 UTF-8 **带 BOM**。
+- `/swarm-*` 命令 = markdown 源文件复制到 `~/.config/opencode/commands/`（claude 同理），改命令行为要改源 md 后重装。
 
-### help_requests
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| id | str PK | shortuuid |
-| requester_ws_id | FK→workspaces | 求助方 |
-| target_ws_id | FK→workspaces | 被求助方 |
-| question | text | 问题描述（可含上下文） |
-| mode | str | foreground / background，默认 background |
-| session_id | str nullable | 后台模式指定目标会话 |
-| status | str | pending → accepted → done / failed |
-| result | text nullable | 目标 agent 的回复 |
-| error | text nullable | 失败原因 |
-| created_at / accepted_at / done_at | datetime | |
+## 11. 质量基线
 
----
+- **测试**：`tests/`（pytest）——MCP 12 工具全覆盖 + annotation hints、派发链路回归（加密读回/ack 门控/回退 queued）、双鉴权四态、通配订阅属主隔离、终态 brief 帧。夹具 session 级（`AGENT_SWARM_DB` 指临时库，绝不触碰生产 DB）。改动服务端行为必须跑：`$env:PYTHONPATH="."; .\.venv\Scripts\python.exe -m pytest tests/ -q`。
+- **稳定性红线**（历史事故换来，违反必炸）：
+  1. `with Session(engine)` 块内**一律不 await/yield**（SQLite 连接池同步检出会冻死整个事件循环）；
+  2. 任何任务行变更必须显式 `session.commit()`；
+  3. monitor 推送必须走 `_push_web(..., "monitor")`（双包一层前端就丢整条实时流）；
+  4. input-required 期间的流式帧不得把任务行顶回 working；
+  5. 属主校验（`_owns`）在任何跨用户推送/读取路径上不可省略。
+- **时间戳全部 UTC**（DB/日志）；用户在 UTC+8，禁止肉眼看时间差判断心跳新鲜度。
+- git：只在 `dev` 上开发提交；**master 合并由用户触发**，禁止顺手合并。push 用 `git -c http.version=HTTP/1.1 push`。
+- 部署：docker 多阶段构建（node 建 web → python 运行时）；`deploy/start.*` 本机启动（Windows 必须用 `.venv\Scripts\python.exe`，系统 Python 无依赖）。
 
-## 4. MCP 工具集（`/mcp`，全部需 apikey）
+## 12. 明确不做 / 已废弃
 
-| 工具 | 参数 | 返回 | 说明 |
-|------|------|------|------|
-| `register_workspace` | path, purpose?, capabilities? | workspace_id, created, **need_summary**, purpose | 注册/更新工作区；purpose 留空不覆盖已有值；need_summary=true 表示尚无总结，客户端应调 LLM 生成后 update_info 回写 |
-| `heartbeat` | workspace_id | ok | 刷新在线状态 + last_heartbeat；同时可上报当前 session_id |
-| `update_notes` | workspace_id, notes | ok | `/swarm-note` 命令落库（追加） |
-| `update_info` | workspace_id, purpose?, capabilities? | ok | `/swarm-desc` 更新用途/能力 |
-| `list_workspaces` | include_offline?=false | 工作区列表 | 只返回自己 + 所在 team 的；默认只在线且启用 |
-| `request_help` | target_workspace_id, question, mode?=background, session_id? | request_id, status | 目标必须在线且启用 |
-| `get_help_result` | request_id | status, result? | 轮询结果；只能查自己发起的 |
-| `poll_help_requests` | — | 待处理任务列表 | 领取自己 workspace 的 pending 任务（标记 accepted） |
-| `submit_help_result` | request_id, ok, result? | ok | 目标端提交结果（只能提交指向自己 workspace 的） |
-
-### 在线判定
-- `status == 'online'` 且 `last_heartbeat` 距今 < 心跳间隔 × 3（默认心跳 30s → 判定阈值 90s）
-- `list_workspaces` 返回时动态计算：超时 → offline
-- 用户 Web 端手动 disable → status='disabled'，agent 所有工具均不可见/不可达
-
----
-
-## 5. 管理 REST API（`/api`，JWT 鉴权，auth 除外）
-
-### auth
-- `POST /api/auth/register` {username, password} → 201 {user, **api_key 明文一次性**}
-- `POST /api/auth/login` {username, password} → {token, user}
-
-### me
-- `GET /api/me` → 当前用户信息
-- `GET /api/me/apikey` → apikey 掩码显示
-- `POST /api/me/apikey/reset` → 重置，返回新 apikey 明文（旧 key 立即失效）
-
-### teams
-- `POST /api/teams` {name} → 创建团队（owner=自己）
-- `GET /api/teams` → 我的团队列表
-- `POST /api/teams/{id}/members` {username} → owner 添加成员
-- `GET /api/teams/{id}/members` → 成员列表
-- `DELETE /api/teams/{id}/members/{user_id}` → owner 移除成员
-
-### workspaces（管理视角）
-- `GET /api/workspaces` → 我创建的 + 我所在 team 的全部工作区（含离线，含状态）
-- `POST /api/workspaces/{id}/disable` → 禁用（不在线也可禁）
-- `POST /api/workspaces/{id}/enable` → 启用
-- `DELETE /api/workspaces/{id}` → **仅离线可删**（在线返回 409）
-
-### help_requests（查看历史）
-- `GET /api/help-requests?workspace_id=` → 求助记录列表
-
----
-
-## 6. opencode 插件需求（TypeScript / tsx）
-
-### 6.1 配置
-
-`~/.config/opencode/agent-swarm.json`（或插件 options）：
-
-```jsonc
-{
-  "serverUrl": "http://127.0.0.1:8700",
-  "apiKey": "as_xxx",              // 必填
-  "teamName": "my-team",           // 可选，注册时声明归属
-  "enabled": true
-}
-```
-
-### 6.2 启动注册
-
-1. 读配置 → 校验 apikey（调 register 前先 heartbeat 或专用 verify）
-2. 计算 `path = process.cwd()`（opencode 工作目录）
-3. **AI 总结目录用途（按需）**：仅当 register 返回 `need_summary=true`（首次注册或尚无总结）才调 LLM（opencode 已配置模型，通过 /session 接口）分析目录结构生成 purpose 与 capabilities，再用 update_info 回写；LLM 失败时回退启发式摘要。已有总结则直接复用，不重复消耗 LLM
-4. `register_workspace` 注册，拿到 workspace_id
-5. 启动心跳定时器（30s），携带当前 session_id
-
-### 6.3 自定义命令
-
-| 命令 | 行为 |
-|------|------|
-| `/swarm-note <内容>` | 向工作区 notes 追加备注（调 `update_notes`） |
-| `/swarm-desc <用途描述>` | 更新 purpose/capabilities（调 `update_info`） |
-| `/swarm-resummarize` | 手动触发 LLM 重新总结目录用途并回写 |
-
-### 6.4 工具注入（给当前 agent 用）
-
-注册 MCP 工具让 agent 可自主调用：
-- `swarm_list_workspaces` — 看有哪些同伴（在线的）
-- `swarm_request_help` — 向指定工作区求助（含 mode/session_id 参数）
-- `swarm_get_help_result` — 轮询结果
-
-### 6.5 领任务与执行（plugin 后台轮询，如 10s 一次）
-
-收到 pending 任务后按 mode 执行：
-
-**foreground**：
-1. `tui.showToast`："收到来自 {requester} 的求助"
-2. `tui.appendPrompt` 注入格式化任务 prompt（含 question、要求完成后调用 submit 工具/命令）
-3. `tui.submitPrompt` 自动提交执行
-
-**background**：
-1. 有 `session_id` → 直接对该会话 `promptAsync`
-2. 无 → `session.create` 新会话 + `promptAsync`
-
-### 6.6 结果回传双保险
-1. 注入 prompt 中指示 agent 用 swarm 工具提交结果
-2. plugin 订阅 session idle 事件，发现任务会话空闲且结果未提交 → 抓取最后 assistant 消息提交
-
----
-
-## 7. Web 管理前端需求（React + Antd + Vite + TS）
-
-### 页面
-1. **登录/注册页**：注册成功弹窗展示一次性 apikey（强制复制提示）
-2. **API Key 页**：掩码查看、一键复制（需先在服务端临时取回？——第一版：重置时展示一次）、重置（二次确认）
-3. **团队页**：我的团队列表、创建团队、添加成员（按 username）、成员管理
-4. **工作区看板**（核心）：
-   - Tab 切换：我的 / 团队
-   - 卡片或表格：名称、目录、用途（purpose）、能力、备注摘要、状态徽标（在线绿/离线灰/禁用红）、最后心跳时间
-   - 操作：启用/禁用开关、删除（仅离线可用，Tooltip 说明）
-   - 自动刷新（轮询 10s）
-5. **求助记录页**：列表（时间、求助方→目标、问题摘要、状态、结果查看）
-
-### 布局
-Antd ProLayout 风格侧边栏 + 顶部用户区（username、退出）。
-
----
-
-## 8. 非功能需求
-
-- **安全**：所有 /mcp 强制 apikey；/api 强制 JWT（auth 除外）；apikey 哈希存储
-- **可移植**：Python ≥3.11（3.11/3.12/3.13+ 均可），不固定小版本；依赖宽松约束；venv 各机器自建
-- **部署**：单进程 uvicorn；SQLite 文件即数据库；第一版不做容器化
-- **日志**：关键操作打日志（注册、求助、提交）
-- **测试**：pytest 覆盖 API 与 MCP 工具核心链路
-
----
-
-## 9. 里程碑
-
-| # | 内容 | 状态 |
-|---|------|------|
-| M1 | 环境搭建 + 需求文档 | ✅ |
-| M2 | 数据模型 + 管理 API | |
-| M3 | MCP 端点 + 工具（apikey 校验） | |
-| M4 | 帮助请求异步闭环 | |
-| M5 | opencode 插件 | |
-| M6 | Web 管理前端 | |
-| M7 | 端到端联调 | |
+- 不做团队（teams 表保留但功能已移除，勿接回）。
+- 不做 `register_workspace`/`workspace_whoami`（workspace_add 覆盖）。
+- 不把 MCP 工具挪进插件（MCP-first 决策）。
+- 微信不做群聊、不做卡片/按钮、不做打字机流式。
+- V2 server 插件不做提问（form）应答（ctx 无能力，等官方补）。
+- 飞书/微信自发任务不发简报（时间线已有）。
+- 通配订阅不做历史回放。

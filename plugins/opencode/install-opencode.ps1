@@ -66,6 +66,14 @@ if (-not (Test-Path (Join-Path $Src "package.json"))) {
     exit 1
 }
 
+# 探测 opencode 版本：major >= 2 用 V2 插件（全新插件 API），否则 V1（老 API）
+$ocVer = ""
+try { $ocVer = (& opencode --version 2>$null | Select-Object -First 1) } catch {}
+$ocMajor = 0
+if ("$ocVer" -match '(\d+)') { $ocMajor = [int]$Matches[1] }
+if ($ocMajor -ge 2) { $OcMode = "v2" } else { $OcMode = "v1" }
+Write-Host "==> [opencode] 版本: $(if ($ocVer) { $ocVer } else { '未知' }) → 安装 $OcMode 插件"
+
 Write-Host "==> [opencode] 安装插件"
 Write-Host "    服务器: $Server"
 Write-Host "    目录:   $InstallDir"
@@ -74,7 +82,8 @@ Write-Host "    目录:   $InstallDir"
 New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
 Copy-Item -Path (Join-Path $Src "*") -Destination $InstallDir -Recurse -Force
 
-# 2. 安装依赖（复用 opencode 全局已有的 @opencode-ai/*，避免重复下载）
+# 2. 依赖：只有 V1 插件需要 @opencode-ai/*（V2 插件自包含，无运行时裸依赖）
+if ($OcMode -eq "v1") {
 Write-Host "==> 安装依赖..."
 $candidates = @()
 $ocCmd = Get-Command opencode -ErrorAction SilentlyContinue
@@ -107,6 +116,11 @@ if (-not (Test-Path (Join-Path $InstallDir "node_modules\@opencode-ai"))) {
     }
     Push-Location $InstallDir
     try { & npm install --no-audit --no-fund --loglevel=error } finally { Pop-Location }
+}
+} else {
+    Write-Host "==> V2 插件自包含（无运行时裸依赖），跳过依赖安装"
+    $nm = Join-Path $InstallDir "node_modules"
+    if (Test-Path $nm) { Remove-Item $nm -Recurse -Force -ErrorAction SilentlyContinue }
 }
 
 # 3. 写入本机插件配置（server + apikey + 执行模式）
@@ -153,88 +167,132 @@ if (Test-Path $ocConfig) { $text = [IO.File]::ReadAllText($ocConfig) }
 # opencode 配置读改写：JSONC 剥注释 → JSON.parse → 对象操作 → stringify 整体重写。
 # （曾用正则/索引手术改写，第二次运行时尾部锚点误配 headers 内层 }，写出缺 } 的坏 JSON
 #  导致 opencode 拒绝启动——JSON 往返重写从根上杜绝，重写后注释会丢，但配置文件注释本就非契约。）
-$mcpEntry = @{ type = "remote"; url = "$Server/mcp/"; enabled = $true; headers = @{ Authorization = "Bearer $ApiKey" } }
-function Update-OpencodeConfig {
-    param([string]$Path, [string]$Json)
-    if (-not (Test-Path $Path)) { return $false }
-    try {
-        $stripped = Remove-JsoncComment -Text ([IO.File]::ReadAllText($Path))
-        $cfg = $stripped | ConvertFrom-Json
-        $mcp = $cfg.mcp
-        if ($null -eq $mcp) { return $false }
-        $mcp | Add-Member -NotePropertyName "agent-swarm" -NotePropertyValue $mcpEntry -Force
-        [IO.File]::WriteAllText($Path, ($cfg | ConvertTo-Json -Depth 20), $utf8NoBom)
-        return $true
-    } catch {
-        Write-Host "警告: $Path 解析失败（$($_.Exception.Message)），跳过 MCP 刷新" -ForegroundColor Yellow
-        return $false
-    }
-}
-
-$updated = Update-OpencodeConfig -Path $ocConfig -Json $text
-if ($updated) {
-    Write-Host "==> 已更新 mcp.agent-swarm（URL/apikey 刷新）"
+$mcpEntry = if ($OcMode -eq "v2") {
+    # V2：MCP 服务器在 mcp.servers[] 下（用 disabled 反向；省略 = 启用）
+    @{ type = "remote"; url = "$Server/mcp/"; headers = @{ Authorization = "Bearer $ApiKey" } }
 } else {
-    # 无 mcp 字段或解析失败且文件不存在/为空：安全插入最小 mcp 块（对象式构造，不会产出坏 JSON）
-    $cfg = @{ mcp = @{ "agent-swarm" = $mcpEntry } }
-    if ($text.Trim()) {
-        try {
-            $existing = (Remove-JsoncComment -Text $text) | ConvertFrom-Json
-            $existing | Add-Member -NotePropertyName "mcp" -NotePropertyValue $cfg.mcp -Force
-            [IO.File]::WriteAllText($ocConfig, ($existing | ConvertTo-Json -Depth 20), $utf8NoBom)
-            Write-Host "==> 已写入 mcp.agent-swarm 到 $ocConfig"
-        } catch {
-            Write-Host "错误: $ocConfig 不是合法 JSON(C)，请手工修正后重跑安装（不会覆盖你的文件）" -ForegroundColor Red
-            exit 1
+    @{ type = "remote"; url = "$Server/mcp/"; enabled = $true; headers = @{ Authorization = "Bearer $ApiKey" } }
+}
+
+# 把 agent-swarm 写入配置：V1 写 mcp["agent-swarm"]，V2 写 mcp.servers["agent-swarm"] 并清掉扁平条目
+function Set-SwarmMcp {
+    param($Cfg)
+    if ($null -eq $Cfg.mcp) {
+        $Cfg | Add-Member -NotePropertyName "mcp" -NotePropertyValue ([pscustomobject]@{}) -Force
+    }
+    if ($OcMode -eq "v2") {
+        if ($Cfg.mcp.PSObject.Properties.Name -contains "agent-swarm") {
+            $Cfg.mcp.PSObject.Properties.Remove("agent-swarm")
         }
+        if ($null -eq $Cfg.mcp.servers) {
+            $Cfg.mcp | Add-Member -NotePropertyName "servers" -NotePropertyValue ([pscustomobject]@{}) -Force
+        }
+        if ($Cfg.mcp.servers.PSObject.Properties.Name -contains "agent-swarm") {
+            $Cfg.mcp.servers.PSObject.Properties.Remove("agent-swarm")
+        }
+        $Cfg.mcp.servers | Add-Member -NotePropertyName "agent-swarm" -NotePropertyValue $mcpEntry -Force
     } else {
+        if ($Cfg.mcp.PSObject.Properties.Name -contains "servers" -and $Cfg.mcp.servers.PSObject.Properties.Name -contains "agent-swarm") {
+            $Cfg.mcp.servers.PSObject.Properties.Remove("agent-swarm")
+        }
+        $Cfg.mcp | Add-Member -NotePropertyName "agent-swarm" -NotePropertyValue $mcpEntry -Force
+    }
+    return $Cfg
+}
+
+if (Test-Path $ocConfig) {
+    try {
+        $cfg = (Remove-JsoncComment -Text $text) | ConvertFrom-Json
+        $cfg = Set-SwarmMcp -Cfg $cfg
         [IO.File]::WriteAllText($ocConfig, ($cfg | ConvertTo-Json -Depth 20), $utf8NoBom)
-        Write-Host "==> 已创建 $ocConfig 并写入 mcp.agent-swarm"
+        if ($OcMode -eq "v2") { Write-Host "==> 已写入 mcp.servers.agent-swarm 到 $ocConfig（V2）" }
+        else { Write-Host "==> 已更新 mcp.agent-swarm 到 $ocConfig（V1）" }
+    } catch {
+        Write-Host "错误: $ocConfig 不是合法 JSON(C)（$($_.Exception.Message)），不覆盖，请手工修正后重跑安装" -ForegroundColor Red
+        exit 1
+    }
+} else {
+    $cfg = [pscustomobject]@{}
+    $cfg = Set-SwarmMcp -Cfg $cfg
+    [IO.File]::WriteAllText($ocConfig, ($cfg | ConvertTo-Json -Depth 20), $utf8NoBom)
+    Write-Host "==> 已创建 $ocConfig 并写入 mcp（$OcMode）"
+}
+
+# V2：清理配置里指向本插件目录的旧条目（V1 式 file:// 文件路径在 V2 会被忽略并告警；
+# V2 靠自动发现加载 <config>\plugins\<name>\index.ts + tui.ts，无需写配置条目）
+function Remove-SwarmPluginRefs {
+    param([string]$Path)
+    if (-not (Test-Path $Path)) { return }
+    $read = [IO.File]::ReadAllText($Path)
+    if (-not $read.Trim()) { return }
+    try { $cfg = (Remove-JsoncComment -Text $read) | ConvertFrom-Json } catch { return }
+    $norm = ($InstallDir -replace "\\", "/")
+    $changed = $false
+    foreach ($key in @("plugin", "plugins")) {
+        $val = $cfg.$key
+        if ($null -eq $val) { continue }
+        $kept = @()
+        foreach ($item in @($val)) {
+            $s = if ($item -is [string]) { $item } elseif ($item -and $item.package) { "$($item.package)" } else { "" }
+            if ($s -and (($s -replace "\\", "/") -like "*$norm*")) { $changed = $true } else { $kept += $item }
+        }
+        if ($kept.Count -eq 0) { $cfg.PSObject.Properties.Remove($key) }
+        else { $cfg | Add-Member -NotePropertyName $key -NotePropertyValue @($kept) -Force }
+    }
+    if ($changed) {
+        [IO.File]::WriteAllText($Path, ($cfg | ConvertTo-Json -Depth 20), $utf8NoBom)
+        Write-Host "==> 已从 $Path 清理指向本插件的旧条目"
     }
 }
 
-# 插件（file:// 指向入口）负责心跳保活
-$pluginRef = "file:///" + ($InstallDir -replace "\\", "/") + "/src/index.ts"
+if ($OcMode -eq "v1") {
+    # 插件（file:// 指向入口）负责心跳保活
+    $pluginRef = "file:///" + ($InstallDir -replace "\\", "/") + "/src/index.ts"
 
-function Add-PluginRef {
-    param([string]$Path, [string]$Ref)
-    $read = ""
-    if (Test-Path $Path) { $read = [IO.File]::ReadAllText($Path) }
-    if ($read -and $read.Contains($Ref)) {
-        Write-Host "==> 插件已在配置中，跳过注册（$Path）"
-        return
-    }
-    $cfg = @{}
-    if ($read.Trim()) {
-        try {
-            $cfg = (Remove-JsoncComment -Text $read) | ConvertFrom-Json
-        } catch {
-            Write-Host "警告: $Path 解析失败，跳过插件注册（$($_.Exception.Message)）" -ForegroundColor Yellow
+    function Add-PluginRef {
+        param([string]$Path, [string]$Ref)
+        $read = ""
+        if (Test-Path $Path) { $read = [IO.File]::ReadAllText($Path) }
+        if ($read -and $read.Contains($Ref)) {
+            Write-Host "==> 插件已在配置中，跳过注册（$Path）"
             return
         }
+        $cfg = @{}
+        if ($read.Trim()) {
+            try {
+                $cfg = (Remove-JsoncComment -Text $read) | ConvertFrom-Json
+            } catch {
+                Write-Host "警告: $Path 解析失败，跳过插件注册（$($_.Exception.Message)）" -ForegroundColor Yellow
+                return
+            }
+        }
+        if ($null -eq $cfg.plugin) {
+            $cfg | Add-Member -NotePropertyName "plugin" -NotePropertyValue @($Ref) -Force
+        } elseif ($cfg.plugin -is [array]) {
+            $cfg.plugin = @($cfg.plugin) + @($Ref)
+        } else {
+            $cfg.plugin = @($cfg.plugin, $Ref)
+        }
+        [IO.File]::WriteAllText($Path, ($cfg | ConvertTo-Json -Depth 20), $utf8NoBom)
+        Write-Host "==> 已注册插件到 $Path"
     }
-    if ($null -eq $cfg.plugin) {
-        $cfg | Add-Member -NotePropertyName "plugin" -NotePropertyValue @($Ref) -Force
-    } elseif ($cfg.plugin -is [array]) {
-        $cfg.plugin = @($cfg.plugin) + @($Ref)
-    } else {
-        $cfg.plugin = @($cfg.plugin, $Ref)
-    }
-    [IO.File]::WriteAllText($Path, ($cfg | ConvertTo-Json -Depth 20), $utf8NoBom)
-    Write-Host "==> 已注册插件到 $Path"
-}
-Add-PluginRef -Path $ocConfig -Ref $pluginRef
+    Add-PluginRef -Path $ocConfig -Ref $pluginRef
 
-# TUI 插件注册到 ~/.config/opencode/tui.jsonc（v1 TUI 插件与 server 插件分开注册）
-$tuiCfg = Join-Path $HOME ".config\opencode\tui.jsonc"
-$tuiRef = "file:///" + ($InstallDir -replace "\\", "/") + "/src/tui.ts"
-if (-not (Test-Path $tuiCfg)) {
-    [IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($tuiCfg)) | Out-Null
-    $tuiCfgObj = @{ plugin = @($tuiRef) } | ConvertTo-Json -Depth 10
-    [IO.File]::WriteAllText($tuiCfg, $tuiCfgObj, $utf8NoBom)
-    Write-Host "==> 已创建并注册 TUI 插件到 $tuiCfg"
+    # TUI 插件注册到 ~/.config/opencode/tui.jsonc（v1 TUI 插件与 server 插件分开注册）
+    $tuiCfg = Join-Path $HOME ".config\opencode\tui.jsonc"
+    $tuiRef = "file:///" + ($InstallDir -replace "\\", "/") + "/src/tui.ts"
+    if (-not (Test-Path $tuiCfg)) {
+        [IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($tuiCfg)) | Out-Null
+        $tuiCfgObj = @{ plugin = @($tuiRef) } | ConvertTo-Json -Depth 10
+        [IO.File]::WriteAllText($tuiCfg, $tuiCfgObj, $utf8NoBom)
+        Write-Host "==> 已创建并注册 TUI 插件到 $tuiCfg"
+    } else {
+        Add-PluginRef -Path $tuiCfg -Ref $tuiRef
+    }
 } else {
-    Add-PluginRef -Path $tuiCfg -Ref $tuiRef
+    Remove-SwarmPluginRefs -Path $ocConfig
+    Remove-SwarmPluginRefs -Path (Join-Path $HOME ".config\opencode\tui.jsonc")
+    Write-Host "==> V2 插件随 opencode 启动自动加载（无需配置条目）"
 }
 
 # 5. 安装 md 命令（/swarm-add：前台会话由 agent 生成 purpose 后调 MCP 工具）
@@ -251,4 +309,4 @@ foreach ($old in @("swarm-note", "swarm-desc", "swarm-resummarize", "swarm_regis
     if (Test-Path $f) { Remove-Item $f -Force; Write-Host "    已移除旧命令 /$old" }
 }
 
-Write-Host "✅ [opencode] 安装完成！重启 opencode 后：MCP 工具可用，插件自动心跳保活，/swarm-* 命令就绪。"
+Write-Host "✅ [opencode] 安装完成（$OcMode 插件）！重启 opencode 后：MCP 工具可用，插件自动心跳保活，/swarm-* 命令就绪。"

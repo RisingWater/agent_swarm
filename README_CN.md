@@ -182,8 +182,28 @@ FEISHU_APP_SECRET=xxx
 | `heartbeat` | 心跳保活，上报当前会话（插件每 30s 自动调用） |
 | `update_info` / `update_notes` | 更新工作区用途/能力描述、备注 |
 | `list_workspaces` | 列出可见工作区（默认仅在线） |
-| `a2a_call` | A2A 协议任务派发：内部工作区 ID 或外部 A2A agent 端点 URL（`from_workspace` 注明发起方） |
+| `a2a_call` | A2A 协议任务派发：内部工作区 ID 或外部 A2A agent 端点 URL（`from_workspace` 注明发起方）。可选 `wait_seconds`（建议 300~600）同步等到任务终态，免去轮询。**禁止向自己所在工作区派单**（自我调用死循环保护，服务端直接拒绝） |
 | `a2a_task` | 查询 A2A 任务状态与结果 |
+| `artifact_upload` | 两步文件上传（无 base64）：先调工具换一次性 `upload_url`（10 分钟有效、单次），再 `curl -F file=@<路径>` 直传原始字节。文件进入 web「产物」页，并推送到你绑定的聊天渠道 |
+
+## 产物（Artifacts）
+
+agent 交付的不只是文本，还有文件：web「产物」页列出全部产物（下载 / 固定 / 删除，TTL 7 天）。上传走两步，二进制字节不经 JSON：
+
+```bash
+# 1) agent 调 MCP 工具
+artifact_upload(name="report.pdf", note="...", task_id="<可选>")
+# → {"upload_url": "https://.../api/artifacts/upload?nonce=...&token=..."}
+
+# 2) 直传文件
+curl -sS -X POST "$upload_url" -F "file=@/绝对路径/report.pdf"
+```
+
+固定（pin）的产物永不过期；每次上传还会按简报规则推送到绑定的飞书/微信窗口（文件消息，失败降级文本链接）。
+
+## 外部客户端（桌宠等中枢消费方）
+
+任何会说 WebSocket + REST 的程序都能当中枢客户端：用**账号页 API Key**（长效，免 24h 重登录）鉴权 `WS /ws/nexus` 与 reply/history REST；可订阅单个工作区，也可**一次订阅名下全部工作区**（`subscribe {"workspace_id": "*"}`，通配不做历史回放）；实时收任务/监控事件，终态帧自带 `brief` 摘要（回答/失败原因明文）。完整协议、消息形状与 Python 骨架见 **[docs/desktop-client-nexus-integration.md](docs/desktop-client-nexus-integration.md)**。
 
 ## 配置
 
@@ -196,6 +216,8 @@ FEISHU_APP_SECRET=xxx
 | `AGENT_SWARM_ENC_KEY_RECOVERY` | 恢复密钥（可选）：与主密钥分开保存，主密钥丢失时仍可解密历史（也支持轮换：新密钥设为 `AGENT_SWARM_ENC_KEY`，旧密钥设为恢复密钥） | 未配置 |
 | `AGENT_SWARM_PUBLIC_URL` | 公网地址（注入 install 脚本，反代时设） | 从请求 Host 推断 |
 | `AGENT_SWARM_CALL_TIMEOUT` | 跨 agent 调用超时 | `3600`s |
+| `AGENT_SWARM_ARTIFACT_TTL_DAYS` | 产物保留天数（每小时 GC 清理过期文件；pin 的产物永不清） | `7` |
+| `AGENT_SWARM_ARTIFACT_MAX_MB` | 单个产物大小上限 | `20` |
 | `ADMIN_USERNAME` / `ADMIN_PASSWORD` | 后台管理登录（默认 `admin` / `Admin123!@#`，**生产必改**） | `admin` / `Admin123!@#` |
 | `FEISHU_APP_ID` / `FEISHU_APP_SECRET` | 飞书自建应用凭据（两者都配置后飞书网关随服务启动） | 未配置不启动 |
 

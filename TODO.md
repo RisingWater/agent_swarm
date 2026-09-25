@@ -1,8 +1,11 @@
 # agent_swarm 开发进度 TODO
 
-> 更新时间: 2026-09-20 · Windows 机（D:\wangxu\work\agent_swarm，workspace ID 4g8rHi43MHaWurH9XYsGNH）
-> 服务已跑在 :8700（.\deploy\start.ps1 后台窗口运行）· 前端构建产物由 8700 静态托管
+> 更新时间: 2026-09-25 · Linux 开发机（/home/wangxu/workdir/agent_swarm，workspace ID HQDCqedTfoHWKfaSxSJoKg；线上服务 10.17.17.19:8700 容器 agent-swarm）
+
+> **2026-09-25：桌宠（dsh-pet）对接批次落地——双鉴权（hello apikey/reply 等 5 端点）、派发链路可靠化（密文读回+ack 门控 working）、插件接单即 ack、WS 通配订阅 "*"；测试从零建起 26 例**，详见架构演进史 09-25 条
+> 服务已跑在 :8700（容器内 · 前端构建产物由 8700 静态托管）；本机 opencode 已是 **v2.0.15**
 > **alpha-v0.1 已发布**（tag = dev 快照 d3daafa，master 为其发布流水；GHCR 镜像 CI 就绪）。0.1 后主线：nexus-feishu 飞书渠道、后台管理页（详见 git log，TODO 未逐条补记）；落库加密已完成；**nexus-weixin-clawbot 微信渠道真机 E2E 已过（2026-09-20）**，含跨渠道权限四方先答先算
+> **2026-09-23：opencode V1/V2 双版本插件支持已打通（心跳/前台注入/后台模式/监控实测；权限/取消/续聊待验）**，详见「已完成」首节
 
 ## 项目一句话
 
@@ -27,6 +30,13 @@
 - **2026-09-19 微信 ClawBot 渠道（nexus-weixin-clawbot）**：与飞书同构但传输完全不同——官方 Tencent iLink Bot API 2.4.6（HTTP/JSON 长轮询，无 SDK，协议参考 D:\wangxu\work\weixin-ClawBot-API）；**每用户扫自己的微信做成 bot**（一人一行表，token 加密落库，无服务端 env 配置）；扫码二维码是 liteapp URL → qrcode[pil] 渲染 PNG；仅私聊、回复必须带最近入站 context_token、getupdates 游标持久化、token ~24h 过期重扫；**无卡片无按钮**——权限/提问渲染为编号文本选项（1/2/3 → once/always/reject），**纯数字应答**
 - **2026-09-19 分发模型统一（用户拍板，docs/channel-dispatch-design.md）**：微信自己派的 A2A 任务 → **详细流**（💭思考/🔧工具行/最终回答全量，终态免简报）；监控轮 → monitor_on 推详细流 + idle 有最终回答才简报（tool-only 空轮静默）；其它来源（web/飞书/agent 互调/A2A 外部）→ 终态简报 + input-required 单卡；飞书侧对齐（简报入口跳过 artifact 为空的监控轮）
 - **2026-09-20 跨渠道权限/提问四方先答先算（用户拍板）**：TUI 监控轮或 A2A 任务拉起 permission/question 且简报开着 → **web/飞书/微信同时收卡**，谁先应答谁生效、任务翻出 input-required、其余渠道后续应答干净失败；插件权限/提问改按 **request id** 去重（`inputSeen`/`a2aInputSeen` 集合，非单值状态——同轮第二个权限曾全渠道被吞）；opencode 权限事件**无 title**、路径/命令在 `patterns[]` → 渠道卡显示 `访问/执行：<patterns>`；微信渠道真机 E2E 全过（任务详细流/权限应答/简报/菜单/监控同步）
+- **2026-09-22 产物功能（MCP 第 12 个工具 artifact_upload）**：agent 输出的文件不再只存在于远端——**上传走两步（无 base64）**：MCP `artifact_upload` 签发一次性 signed `upload_url`（10min/单次/防重放），agent `curl -F file=@<path>` 直传原始字节；服务端落盘 `data/artifacts/<id>_<name>`（TTL 7 天 `AGENT_SWARM_ARTIFACT_TTL_DAYS`、上限 20MB `AGENT_SWARM_ARTIFACT_MAX_MB`，pinned 永久保留不自动清，main.py lifespan 每小时 GC）；REST：`GET /api/artifacts` / `PUT {id}/pin` / `DELETE {id}`（JWT）+ `POST /api/artifacts/upload`（一次性凭证免 JWT）+ `GET {id}/download?token=`（HMAC 签名 30 天，IM/浏览器点击场景——发不了 header 只能用 query）。上传后按简报规则推属主 brief_on 窗口：飞书 `im.v1.file.create` → 文件消息（失败降级文本链接）；微信 iLink 文件 item（type-2，未验证）失败降级文本链接。**请求基址**：ApiKeyMiddleware 记录 `current_base_url` contextvar（PUBLIC_URL → x-forwarded-* → host），MCP 工具据此拼绝对链接后方可用。web 新增「产物」页（文件名/下载/大小/时间/保留倒计时/固定 toggle/删除二次确认/30s 自动刷新）；opencode+claude 两处 skill 写明 artifact_upload 两步用法
+- **2026-09-23 多实例重连风暴冻死修复（用户报障，仅 dev）**：同项目多开 opencode 抢同一 `plugins[wid]` 单槽，服务端"新顶旧(4001)"+客户端 1s 无条件重连 → 每秒互踢磨光 15 个连接池、同步取连接阻塞事件循环、全站冻死（全天 15222 次连接仅 9 次自然断开）。改为一**个工作区保留多条连接**（`plugins[wid]` 单槽→列表），删除踢人；派发取 `primary_conn`（第一个新鲜连接，发送失败剔除并顺次回退）；应答按**连接自己上报的 session** 路由（工作区行的 session_id 会被多实例心跳互相覆盖，不可用）；SQLite WAL + busy_timeout + 池 30；**`with Session` 内一律不 await/yield**（顺带修掉 tasks/cancel 与超时置 failed 漏 commit 的真 bug）
+- **2026-09-23 opencode V2 支持（用户拍板：同时支持 V1+V2，安装脚本按版本分流；先打通心跳上线）**：V2 插件 API 全新——入口 `Plugin.define({id, setup})`、插件由**后台 service 按 location 常驻加载**（`opencode run` 只是客户端，`--pure` 已删）、**强类型命名事件**（非 V1 的 message.part.updated）、**无 `session.list`/`session.form`**。仓库双实现：V1 的 `src/index.ts`/`src/tui.ts` 原样不动 + 新增 `plugins/opencode/index.ts`（V2 包入口）/`tui.ts`（V2 CLI 入口）/`src/v2/*`；V2 插件**刻意零运行时裸依赖**（`@opencode/plugin` 只 `import type`）——否则配置目录下的插件在 opencode 加载器里解析不到该包；安装脚本 `opencode --version` 判 major 分流、单向覆盖
+- **2026-09-23 V2 在线语义 = 开着 TUI（用户拍板）**：V2 插件常驻 service，若由 server 插件心跳，则 service 加载过的每个项目（没开 TUI 也算）都会 online（用户实测反馈）。改为**在线只能由 TUI 自己上报**：server 插件不心跳，CLI 插件（TUI 进程）每 30s 心跳 + 上报当前查看的会话；关掉 TUI → 90s 超时离线（不主动 offline，防同项目多开互踢）
+- **2026-09-23 离线派发策略 C（用户拍板）**：新增 `dispatchable(wid)` = 有插件连接 且（心跳新鲜=有 TUI **或** 连接上报 `execution_mode=="background"`）。即**没开 TUI 的前台工作区不可派发（409）**，后台模式照常可派（常驻 service 插件代跑）；插件在 WS hello/ping 上报执行模式，`/swarm-mode` 切完下一次 ping 生效
+- **2026-09-23 A2A 轮权限应答 409 修复（用户实测 V1/V2 同样复现 → 锁定服务端）**：`handle_plugin_event`（A2A 轮事件入口）从 18de0c9 起**只做终态收尾，从不把 working/input-required 写回任务行**，而 web 下发的 `_send_message_core` 也不标 working → A2A 轮任务行**永远停在 queued**（accepted_at=None）→ `/reply` 对非 monitor 任务严格校验 `input-required` → 409 "task is queued, not waiting for input"（用户看到的 queueing not working）。权限 E2E 此前全过的都是监控轮（`handle_monitor_event` 有完整写回）+ feishu/weixin reply（`reply_task_from_feishu` 不校验状态），A2A 轮 web 应答属**首次真验**暴露的既有缺口（与插件版本无关）。修复：① `handle_plugin_event` 补非终态写回——working：queued→working（补记 accepted_at）/ input-required 且事件带 `metadata.replied`→working（input-required 期间的 text/tool 流式帧是 working 状态，**不得顶回**，对齐监控轮 566-569 的坑）；input-required：非终态→input-required。② `nexus_reply` / `reply_task_from_feishu` 转发成功后服务端自持 input-required→working（V1 插件不回发 replied 事件，不依赖插件回执）
+- **2026-09-25 桌宠（dsh-pet）对接批次：双鉴权 + 派发可靠化 + 通配订阅（agent 互调派单驱动，docs/desktop-client-nexus-integration.md）**：① **双鉴权**——WS `/ws/nexus` hello 支持 apikey（与 token 二选一，`_auth_apikey` 复用，长效免 24h 重登录）；新增 `_require_user_http`（JWT 或 apikey 任一）切换 reply/history/rounds 三端点；`GET /api/workspaces`、`/api/calls` 列表+删除同款换 `get_user_either`（workspaces:56 曾漏换被桌宠实测 401 抓到）。② **派发链路可靠化**——`dispatch_queued_for` 两连修：密文任务解密读回（**ENC_KEY 下读明文列派空指令**，插件 "text required" 拒单无痕、任务卡 working 的根因，nmj9ZdVL 事故）；顺序反转为**发送+ack（30s）成功才置 working**，发送失败/拒单/无 ack 一律回退 queued 等重试，死连接剔除，补 accepted/rejected/no-ack 日志（fY8LWdS2 超时无 agent 领取的另一半根因）。③ **插件接单即回 ack**（V1/V2 `onTask` 加 `onAccepted` 回调，nexus_a2a.ts 幂等 ack）——前台长任务不再拖满服务端 30s（V2 prompt 整轮才 resolve 的历史包袱）。④ **WS subscribe 通配 `"*"`**——订阅本用户全部工作区（`all_subscribers` 注册表 + `WebConn.all_workspaces`），`_push_web` 推送时逐事件 `_owns` 属主过滤（2026-09-18 跨用户泄漏教训必须保留）；**通配不做 history 回放**（回执 note 提示，历史走 REST）；与飞书/微信「属主全局」简报语义对齐（IM 是 internal_listeners 进程内广播 + 查库按属主收件，web 是按 wid 定向，桌宠现在两全）。⑤ **测试从零建起**：tests/ 26 例（MCP 12 工具全覆盖+四 annotation hint 校验、派发回归、双鉴权四态、通配隔离），夹具 session 级共享。**待办残留**：插件重装+重启 opencode 后验接单即 ack E2E；web 前端 `subscribed` 回执要兼容 `workspace_id:"*"`（现 web 只订单个 wid，不影响但留意）
 - ~~**headless spawn opencode 生成 purpose**~~（2026-09-14 已废弃）：挂 `--session 当前会话` 把对话上下文带进总结上传过屁话；专属 summarySessionId 复用会话方案复杂度又高，写了又删。purpose 回归前台 agent 自己分析（md 命令流程）
 - ~~teams 团队功能~~（API/前端已删，**表保留**，用户"想好后再加"）
 - ~~request_help 求助体系~~（被 workspace_call 替代后整体删除，help_requests 表已 DROP）
@@ -35,6 +45,38 @@
 - ~~e2e 测试脚本~~（用户 2026-09-12 决定放弃，scripts/test_plugin_smoke.ts 是死代码可删可留）
 
 ## 已完成（除注明外均已进 git）
+
+### opencode V1/V2 双版本插件支持（2026-09-23，核心链路实测；仅 dev 未合并 master）
+
+> 背景：本机 opencode 已升级 **v2.0.15**，V1 插件实现在 V2 **完全不运行**（官方明确）→ 全部工作区掉线。用户拍板「同时支持 V1+V2，安装脚本按版本分流」，并"先搞定心跳上线"。
+
+- ✅ **V2 加载规则（实测踩出来的，安装脚本据此）**：`opencode.jsonc` 的 `plugins` 条目必须是**目录的纯路径字符串**（指向文件的 `file://` 报 `configured plugin path must be a directory` 被丢弃）；目录里必须有**根 `index.ts`**（不读 package.json exports/main）；**配置目录下的插件解析不到 `@opencode/plugin`**（在插件目录或 `<config>/node_modules` 装都没用）→ 插件必须**零运行时裸依赖**（`@opencode/plugin` 只 `import type`；`define` 实测是恒等函数，直接导出对象即可）。满足后 V2 **自动发现** `<config>/plugins/agent-swarm/{index.ts,tui.ts}` 即可加载，无需任何配置条目、无需 node_modules
+- ✅ **仓库结构**：新增 `plugins/opencode/index.ts`（V2 server 入口，转发 `src/v2/index.ts`）+ `tui.ts`（V2 CLI 入口，转发 `src/v2/tui.ts`）+ `src/v2/{index,tui,background}.ts`；**V1 的 `src/index.ts`/`src/tui.ts` 与共享模块（nexus_a2a/client/config/sessions/wsfile）原样复用、未改动**（用户确认无需 V1 回归）
+- ✅ **V2 server 插件事件管道**（`src/v2/index.ts`）：`ctx.event.subscribe()` 是**全局事件流**（每个 location 实例都收到所有 location 的事件）→ 必须按 `event.location.directory` 过滤；无 location 的 `session.execution.*` 只接受本实例已知会话。事件按 V2 强类型命名改写——`session.inbox.enqueued`（自带提问文本）、`session.text/reasoning.delta+ended`、`session.tool.input.started`(带 name)/`called`/`success`/`failed`、`session.execution.succeeded/failed/interrupted`（**收尾信号，非 session.idle**）、`permission.asked`、`form.created`、`session.error`
+- ✅ **任务执行**：前台注入 `ctx.session.prompt({sessionID,text,delivery:"steer"})`、读消息 `ctx.session.context`、artifact 回传；踩坑：**V2 的 prompt 等到整轮结束才 resolve**，任务轮必须在注入**前**标记已开始（否则收尾判断不到、任务卡 working）；服务端下发的脏 session_id 用 `session.get().location.directory` 校验归属后才用
+- ✅ **后台模式**（`src/v2/background.ts`，从 V1 复制 + 两处改）：去掉 `--pure`（V2 插件由 service 加载，`opencode run` 不会再起插件实例；该标志也已从 V2 删除）、Windows bin 路径 `opencode-ai`→`@opencode/cli`；`opencode run --format json` 事件形状与 V1 相同
+- ✅ **V2 CLI 插件**（`src/v2/tui.ts`）：5 条命令 `/swarm-mode /swarm-monitor /swarm-remove /swarm-enable /swarm-disable` 迁到 `context.keymap.layer` + `ui.dialog.select` + `ui.toast.show`；坑：**`keymap.layer` 必须在 `ui.slot({append:"app"})` 的 render 里注册**（直接调报 `Keymap.Provider is missing`）；该插件还承担**在线心跳**（每 30s 调 MCP heartbeat + 上报 `router.current()` 里当前查看的会话）
+- ✅ **权限应答**：`ctx.permission.reply({sessionID,requestID,decision})`；权限卡取值 `action`→permission、`resources`→patterns
+- ⚠️ **提问（V2 改叫 form）**：server 插件 ctx **没有 `session.form`**（只有 CLI/TUI 插件有）→ 用户决策：**只上报、不应答**，后续按 V2 兼容问题反馈官方
+- ✅ **服务端**：多连接改造（见架构演进史首条）、离线派发策略 C（`dispatchable`）、`PluginConn.execution_mode`（WS hello/ping 上报）
+- ✅ **安装脚本分流**（`install-opencode.sh|.ps1` 对称）：`opencode --version` 判 major（>=2 → V2）；V1 分支保持原行为（plugin 数组 file:// + tui.jsonc + `mcp["agent-swarm"]` + 链接依赖），V2 分支不装依赖/不写插件配置（自动发现）/MCP 写 `mcp.servers["agent-swarm"]`（V2 用 disabled 反向）/清理另一版本残留条目；用假 HOME + stub opencode 实测两分支生成配置正确
+- ✅ **实测通过**：心跳上线（online/offline 语义正确）、前台注入任务 `completed` + artifact 回传、后台任务 `completed`（bg-ok）、监控轮落库且 `completed`（text/reasoning/tool 齐全）；`tsc --noEmit` 与 server `py_compile`、`dispatchable` 组合逻辑单测均过
+- ⚠️ **待验证**：权限 input-required **应答**全链路（从没真弹过权限框）、取消（`session.interrupt`）、后台续聊 resume、`session.error`→failed、5 条命令的交互行为、ps1 在 Windows 实机（只做了 BOM/括号静态检查）
+- ⚠️ **未部署**：服务端改动（多连接/不阻塞/连接池加固/dispatchable）需**重建镜像**才生效；线上目前仍是旧镜像（且旧镜像里没有 V2 插件——其它机器今天跑安装命令拿到的还是 V1 插件，不受影响）
+
+### 产物功能（2026-09-22，已提交推送；IM 推送真机已验）
+
+> Agent 产出文件回传：MCP `artifact_upload` 签一次性上传 URL → agent `curl -F` 直传 → 服务端落盘 + IM 推送（飞书文件消息/微信文件 item，降级文本链接）+ web「产物」页管理。**无 base64**（二进制不出现在 JSON 请求体里）。
+
+- ✅ **服务端 `server/artifacts.py`**：`artifact_upload` 签发一次性 signed `upload_url`（10min 有效/单次使用/防重放），`GET {id}/download?token=` HMAC 签名 30 天（IM/浏览器点击场景——发不了 header 只能用 query token）；token 签名逻辑全在这模块
+- ✅ **落盘与清理**：`data/artifacts/<id>_<name>`，TTL 7 天（`AGENT_SWARM_ARTIFACT_TTL_DAYS`）+ 大小上限 20MB（`AGENT_SWARM_ARTIFACT_MAX_MB`），**pinned 行永不自动删**；main.py lifespan 每小时 GC（启动先清一次）
+- ✅ **上传两步走**：MCP 工具只管签发（不出二进制），agent `curl -F file=@<path>` 直传原始字节到 `POST /api/artifacts/upload?nonce=&token=`（一次性凭证免 JWT）
+- ✅ **REST**（JWT）：`GET /api/artifacts`（列表 + 签名下载链接）、`PUT {id}/pin`、`DELETE {id}`（仅属主）
+- ✅ **IM 推送**（按简报规则推属主 brief_on 窗口）：飞书 `im.v1.file.create` → 文件消息，失败降级文本链接；微信 iLink 文件 item（type-2，尚未在真机验证渲染）失败降级文本链接
+- ✅ **请求基址**：ApiKeyMiddleware 记录 `current_base_url` contextvar（PUBLIC_URL → x-forwarded-* → host），MCP 工具据此拼绝对下载链接
+- ✅ **web「产物」页**（顶部导航）：文件名（点击下载）/大小/上传时间/保留倒计时/固定 toggle/删除（二次确认 Modal，30s 自动刷新）；首页与文档页补产物管理说明（e2f4986）
+- ✅ **skill**：opencode + claude 两处 `artifact_upload` 两步用法章节
+- ⚠️ **修复轮（579e57f）**：① 飞书 SDK 响应字段名错误——`CreateFileResponseBody` 是 `file_key` 不是 `file_id`（线上 AttributeError，上传成功但推送崩，走异常分支没发文件）→ 已改；② 产物页删除确认从行内气泡改居**中 Modal**（grid td `overflow:hidden` 气泡被单元格裁剪且相邻行遮挡）
 
 ### 微信 ClawBot 渠道 nexus-weixin-clawbot（2026-09-19 实现 + 2026-09-20 真机 E2E 全过）
 
@@ -179,21 +221,52 @@
 
 ### 高优先级
 
+- [ ] **桌宠对接 E2E 收尾**（2026-09-25 批次，服务端均已进 dev 并已在本机部署）：① 插件重装 + 重启 opencode 后验**接单即 ack**（长前台任务 plugin.log 无 "no ack in 30s"）；② 桌宠实测 **WS 通配订阅**：hello(apikey) → subscribe `{"workspace_id":"*"}` → 其它工作区事件实时到达、第二用户事件收不到；③ web 前端中枢页对 `subscribed` 回执 `workspace_id:"*"` 的兼容确认（web 不用通配，理论无影响）
+- [ ] **重建镜像并部署**（把本轮所有服务端改动带上线）：多连接/去 4001 踢人、`with Session` 内不 await、SQLite WAL+池 30、`tasks/cancel` 与超时置 failed 漏 commit、`dispatchable` 离线派发策略 C，外加 V2 插件与按版本分流的安装脚本（tarball 由 start.sh 打包）、09-25 桌宠批次（双鉴权/派发可靠化/通配订阅）。推送 `10.17.17.19:8082/agent-swarm:latest` 后从 dpanel 更新
+- [ ] **其它机器重装插件**：V1 机器走 V1 分支（逻辑未变）；V2 机器（如 4.193）重装后会自动发现 V2 插件。注意旧镜像 tarball 里没有 V2 插件，必须先重建镜像
+- [x] **V2 权限应答 E2E**：2026-09-23 已通（web 下发 A2A 轮 → TUI 弹权限 → web 点 allow always → 任务放行写入成功，任务行 accepted_at/completed 正常）。顺带暴露并修复服务端 A2A 轮状态写回 bug（见架构演进史 09-23 条）。取消（`session.interrupt`）仍未验
+- [ ] **V2 后台续聊 E2E**：同 caller 连发两单，确认第二单复用 `.agent_swarm/sessions.json` 的会话（plugin.log 见 resume）
+- [ ] **V2 5 条命令交互验证**：`/swarm-mode`、`/swarm-monitor`、`/swarm-remove|enable|disable` 在 TUI 里真按一遍（目前只验证了加载与注册）
+- [ ] **ps1 安装脚本 Windows 实测**：只做了 BOM/括号静态检查，未在 Windows 跑过 V2 分支
+- [ ] **V2 提问（form）支持**：server 插件 ctx 无 `session.form`——先按兼容 bug 反馈 opencode，官方补上后接应答（当前只上报）
+
 - [ ] **nexus-feishu**（下一个功能，用户已排期）：飞书渠道接入中枢，复用 A2A 下发/事件流/应答链路（caller=nexus-feishu）
 - [ ] **后台会话续聊 E2E（opencode 侧）**：同 caller（如 nexus-web）连发两个任务，验证第二个任务复用 `.agent_swarm/sessions.json` 里记录的会话（plugin.log 应见 `resume ses_`），且对话上下文延续
 - [ ] **后台任务独立会话在中枢页无区分展示**：后台任务（A2A-xxx 会话）与前台监控轮在时间线上无视觉区分；task 的 session_id 上报后工作区表"当前会话"列刷新未验证
-- [ ] 真实 opencode 前台注入权限应答 E2E：web 下发 → TUI 前台注入 → 权限应答 → artifact 回传（前台注入路径已验证；A2A 轮的权限/提问/input-required 未验——监控轮的已全链路验证）
+- [ ] 真实 opencode 前台注入权限应答 E2E：web 下发 → TUI 前台注入 → 权限应答 → artifact 回传（**A2A 轮权限应答 2026-09-23 已验证通过**；剩余未验：提问 question/form 应答——V2 server 插件无 session.form 只上报，见上面 form 待办）
 
 ### 备忘
 
 - [ ] a2a-inspector 互操作验证（规范符合性快检，可选）
 - [ ] nas_brain 工作区 ID：CZBLEoPszNwLWpA2J4auGA（Windows 机 nas_brain 目录）；XYaR4TdtGqdqoAEW9vNn8g（Linux 机旧记录可能已失效，以 web 工作区页为准）
 - [ ] npm install 慢（~40s）：可把 @opencode-ai/* 设为 peerDependencies
+- [ ] 微信产物文件 item（iLink type-2）真机渲染未验证：`server/weixin/file_push.py` 目前走官方文件 item，失败降级文本链接——真机发一个产物确认普通微信客户端能收文件
 - [ ] teams 表清理（确认永不恢复后删）
 - [ ] 前端 lint 有两个既存 warning（set-state-in-effect），非阻塞
 - [ ] 前端 lint 有一个既存 warning（WorkspacesPage set-state-in-effect），非阻塞
 
-## 环境/常用操作（Windows 本机）
+## 环境/常用操作（Linux 开发机 2026-09-23 起）
+
+```bash
+./deploy/start.sh            # 本机起服务（:8700；会重打 plugins/ -> data/agent-swarm-plugin.tar.gz）
+./deploy/stop.sh
+cd web && npm run build       # 产物由 8700 托管
+cd web && npm run dev         # dev :8701
+cd plugins/opencode && npx tsc --noEmit   # 插件类型检查
+# 改了 plugins/opencode/src/ 后在 V2 本机生效（V2 自动发现安装目录）：
+# 1. cp 改动的文件到 ~/.config/opencode/plugins/agent-swarm/{index.ts,tui.ts,src/...}
+# 2. touch ~/.config/opencode/plugins/agent-swarm/index.ts   # 触发 service 热重载
+#    （V2 插件由 service 加载，改完不必重启 TUI；V1 才需要重启 opencode）
+# 3. 看日志确认：~/.config/opencode/plugins/agent-swarm/plugin.log 出现 v2 start
+```
+
+- 线上服务：`10.17.17.19:8700`（容器 `agent-swarm`），`sshpass -p centerm ssh wangxu@10.17.17.19`，日志 `docker logs agent-swarm --timestamps`；**容器内代码即镜像 `/app`，改 server/ 必须重建镜像**（`./deploy/build_docker.sh 10.17.17.19:8082/agent-swarm:latest && docker push …`；8082 是 registry-ui 反代到 5000，同一后端）
+- 本机 opencode：**v2.0.15**（npm `@opencode/cli`）；V1 是 `opencode-ai`。安装目录 `~/.config/opencode/plugins/agent-swarm/`（V2 自动发现 `index.ts`+`tui.ts`，**不需要 node_modules**）
+- 插件配置：`~/.config/opencode/agent-swarm.json`（serverUrl+apiKey+executionMode+monitor）；opencode 全局配置 `~/.config/opencode/opencode.jsonc`（V2 不再需要写 agent-swarm 的 `plugins` 条目）
+- opencode 运行日志：`~/.local/share/opencode/log/opencode.log`（插件加载失败看这里：`grep "loading plugin\|failed to load plugin"`）
+- 心跳 30s，90s 超时判离线；**时间戳全是 UTC**，用户在 UTC+8（反复踩过，AGENTS.md 有记载）
+
+## 环境/常用操作（Windows 本机，历史存档）
 
 ```powershell
 .\deploy\start.ps1           # 服务 :8700（前台运行，Ctrl-C 停止；幂等，已在跑则退出）
