@@ -184,8 +184,28 @@ All cross-agent calls, hub instructions, monitor rounds, Feishu and WeChat dispa
 | `heartbeat` | Keep-alive, reports the current session (called by the plugin every 30s) |
 | `update_info` / `update_notes` | Update workspace purpose/capabilities and notes |
 | `list_workspaces` | List visible workspaces (online only by default) |
-| `a2a_call` | Dispatch tasks via the A2A protocol: internal workspace ID or external A2A agent endpoint URL (`from_workspace` identifies the caller) |
+| `a2a_call` | Dispatch tasks via the A2A protocol: internal workspace ID or external A2A agent endpoint URL (`from_workspace` identifies the caller). Optional `wait_seconds` (e.g. 300–600) blocks until the task reaches a terminal state so no polling is needed. **Dispatching to your own workspace is refused** (self-call loop protection) |
 | `a2a_task` | Query A2A task status and result |
+| `artifact_upload` | Two-step file upload (no base64): call the tool to get a one-time `upload_url` (10 min, single-use), then `curl -F file=@<path>` to push raw bytes. Files show up on the web "Artifacts" page and are pushed to your bound chat channels |
+
+## Artifacts
+
+Agents can hand back files, not just text: on the web hub, finished artifacts are listed on the **Artifacts** page (download / pin / delete, 7-day TTL). Upload is two steps so binary bytes never travel through JSON:
+
+```bash
+# 1) the agent calls the MCP tool
+artifact_upload(name="report.pdf", note="...", task_id="<optional>")
+# → {"upload_url": "https://.../api/artifacts/upload?nonce=...&token=..."}
+
+# 2) push the raw file
+curl -sS -X POST "$upload_url" -F "file=@/abs/path/report.pdf"
+```
+
+Pinned artifacts never expire. Every upload is also pushed to your bound Feishu/WeChat chats (file message, falling back to a link).
+
+## External clients (desktop pets & other hub consumers)
+
+Anything that can speak WebSocket + REST can act as a hub client: authenticate with the **account-page API key** (long-lived, no 24h re-login) over `WS /ws/nexus` and the reply/history REST endpoints, subscribe to one workspace or to **all of your workspaces at once** (`subscribe {"workspace_id": "*"}`), and receive task/monitor events in real time — terminal frames carry a ready-made `brief` summary (answer / error). Full protocol, message shapes and a Python skeleton: **[docs/desktop-client-nexus-integration.md](docs/desktop-client-nexus-integration.md)**.
 
 ## Configuration
 
@@ -198,6 +218,8 @@ All cross-agent calls, hub instructions, monitor rounds, Feishu and WeChat dispa
 | `AGENT_SWARM_ENC_KEY_RECOVERY` | Optional recovery key. Kept separately from the main key, it can still decrypt history after the main key is lost (also enables key rotation: set the new key as `AGENT_SWARM_ENC_KEY` and the old one as recovery) | not set |
 | `AGENT_SWARM_PUBLIC_URL` | Public URL (injected into install scripts when behind a reverse proxy) | inferred from request Host |
 | `AGENT_SWARM_CALL_TIMEOUT` | Cross-agent call timeout | `3600`s |
+| `AGENT_SWARM_ARTIFACT_TTL_DAYS` | Artifact retention before the hourly GC deletes it (pinned artifacts are never auto-deleted) | `7` |
+| `AGENT_SWARM_ARTIFACT_MAX_MB` | Max size per uploaded artifact | `20` |
 | `ADMIN_USERNAME` / `ADMIN_PASSWORD` | Admin console login (default `admin` / `Admin123!@#`, **change in production**) | `admin` / `Admin123!@#` |
 | `FEISHU_APP_ID` / `FEISHU_APP_SECRET` | Feishu custom-app credentials (the Feishu gateway starts when both are set) | not set: disabled |
 
