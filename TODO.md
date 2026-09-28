@@ -1,6 +1,8 @@
 # agent_swarm 开发进度 TODO
 
-> 更新时间: 2026-09-25 · Linux 开发机（/home/wangxu/workdir/agent_swarm，workspace ID HQDCqedTfoHWKfaSxSJoKg；线上服务 10.17.17.19:8700 容器 agent-swarm）
+> 更新时间: 2026-09-28 · Linux 开发机（/mnt/disk_nvme1/workdir/agent_swarm，workspace ID HQDCqedTfoHWKfaSxSJoKg；线上服务 10.17.17.19:8700 容器 agent-swarm）
+
+> **2026-09-28：重建镜像全员离线事故（sqlmodel 0.0.45+ 拒绝 naive datetime，已锁 `<0.0.45` 修复）**，详见架构演进史末条与高优先级待办（锁文件 / aware 迁移）
 
 > **2026-09-25：桌宠（dsh-pet）对接批次落地——双鉴权（hello apikey/reply 等 5 端点）、派发链路可靠化（密文读回+ack 门控 working）、插件接单即 ack、WS 通配订阅 "*"；测试从零建起 26 例**，详见架构演进史 09-25 条
 > 服务已跑在 :8700（容器内 · 前端构建产物由 8700 静态托管）；本机 opencode 已是 **v2.0.15**
@@ -37,6 +39,7 @@
 - **2026-09-23 离线派发策略 C（用户拍板）**：新增 `dispatchable(wid)` = 有插件连接 且（心跳新鲜=有 TUI **或** 连接上报 `execution_mode=="background"`）。即**没开 TUI 的前台工作区不可派发（409）**，后台模式照常可派（常驻 service 插件代跑）；插件在 WS hello/ping 上报执行模式，`/swarm-mode` 切完下一次 ping 生效
 - **2026-09-23 A2A 轮权限应答 409 修复（用户实测 V1/V2 同样复现 → 锁定服务端）**：`handle_plugin_event`（A2A 轮事件入口）从 18de0c9 起**只做终态收尾，从不把 working/input-required 写回任务行**，而 web 下发的 `_send_message_core` 也不标 working → A2A 轮任务行**永远停在 queued**（accepted_at=None）→ `/reply` 对非 monitor 任务严格校验 `input-required` → 409 "task is queued, not waiting for input"（用户看到的 queueing not working）。权限 E2E 此前全过的都是监控轮（`handle_monitor_event` 有完整写回）+ feishu/weixin reply（`reply_task_from_feishu` 不校验状态），A2A 轮 web 应答属**首次真验**暴露的既有缺口（与插件版本无关）。修复：① `handle_plugin_event` 补非终态写回——working：queued→working（补记 accepted_at）/ input-required 且事件带 `metadata.replied`→working（input-required 期间的 text/tool 流式帧是 working 状态，**不得顶回**，对齐监控轮 566-569 的坑）；input-required：非终态→input-required。② `nexus_reply` / `reply_task_from_feishu` 转发成功后服务端自持 input-required→working（V1 插件不回发 replied 事件，不依赖插件回执）
 - **2026-09-25 桌宠（dsh-pet）对接批次：双鉴权 + 派发可靠化 + 通配订阅（agent 互调派单驱动，docs/desktop-client-nexus-integration.md）**：① **双鉴权**——WS `/ws/nexus` hello 支持 apikey（与 token 二选一，`_auth_apikey` 复用，长效免 24h 重登录）；新增 `_require_user_http`（JWT 或 apikey 任一）切换 reply/history/rounds 三端点；`GET /api/workspaces`、`/api/calls` 列表+删除同款换 `get_user_either`（workspaces:56 曾漏换被桌宠实测 401 抓到）。② **派发链路可靠化**——`dispatch_queued_for` 两连修：密文任务解密读回（**ENC_KEY 下读明文列派空指令**，插件 "text required" 拒单无痕、任务卡 working 的根因，nmj9ZdVL 事故）；顺序反转为**发送+ack（30s）成功才置 working**，发送失败/拒单/无 ack 一律回退 queued 等重试，死连接剔除，补 accepted/rejected/no-ack 日志（fY8LWdS2 超时无 agent 领取的另一半根因）。③ **插件接单即回 ack**（V1/V2 `onTask` 加 `onAccepted` 回调，nexus_a2a.ts 幂等 ack）——前台长任务不再拖满服务端 30s（V2 prompt 整轮才 resolve 的历史包袱）。④ **WS subscribe 通配 `"*"`**——订阅本用户全部工作区（`all_subscribers` 注册表 + `WebConn.all_workspaces`），`_push_web` 推送时逐事件 `_owns` 属主过滤（2026-09-18 跨用户泄漏教训必须保留）；**通配不做 history 回放**（回执 note 提示，历史走 REST）；与飞书/微信「属主全局」简报语义对齐（IM 是 internal_listeners 进程内广播 + 查库按属主收件，web 是按 wid 定向，桌宠现在两全）。⑤ **测试从零建起**：tests/ 26 例（MCP 12 工具全覆盖+四 annotation hint 校验、派发回归、双鉴权四态、通配隔离），夹具 session 级共享。**待办残留**：插件重装+重启 opencode 后验接单即 ack E2E；web 前端 `subscribed` 回执要兼容 `workspace_id:"*"`（现 web 只订单个 wid，不影响但留意）
+- **2026-09-28 重建镜像全员离线事故 + sqlmodel 锁版本（用户报障）**：`requirements.txt` 全 `>=` 不锁版本，重建镜像拉到 sqlmodel **0.0.47**——其 DateTime 自 **0.0.45** 起换成 `UTCDateTime` TypeDecorator，**绑定时 naive datetime 直接 raise**（"Datetime values must have timezone information"），而代码库全线 naive UTC（`models.utcnow()` 取 UTC 后去掉 tzinfo）→ heartbeat/任务落库全炸、插件心跳连续失败 90s 超时、**所有工作区离线**（插件侧完全正常，纯服务端问题）。修复：`sqlmodel>=0.0.22,<0.0.45`（实测 0.0.45 仍炸、**0.0.44 naive 写库 OK**；本机 venv 0.0.42 同约定）。注意：**库里存的一直是 UTC，跨时区语义未受影响**——这是"naive UTC vs aware UTC"两种等价表示法的 Python API 口味之争，不是时区 bug。教训：不锁版本 = 构建不确定，同类事故防不胜防（见高优先级待办：锁文件 + aware 迁移）
 - ~~**headless spawn opencode 生成 purpose**~~（2026-09-14 已废弃）：挂 `--session 当前会话` 把对话上下文带进总结上传过屁话；专属 summarySessionId 复用会话方案复杂度又高，写了又删。purpose 回归前台 agent 自己分析（md 命令流程）
 - ~~teams 团队功能~~（API/前端已删，**表保留**，用户"想好后再加"）
 - ~~request_help 求助体系~~（被 workspace_call 替代后整体删除，help_requests 表已 DROP）
@@ -237,7 +240,9 @@
 
 ### 备忘
 
-- [ ] a2a-inspector 互操作验证（规范符合性快检，可选）
+- [ ] **aware datetime 迁移（后续单独立项）**：sqlmodel ≥0.0.45 的 `UTCDateTime` 是官方方向——要求 aware datetime、读取强制返回 UTC aware（`+00:00` 尾巴）。当前锁 `<0.0.45` 规避。迁移时全链路一起动：`models.utcnow()` 保留 tzinfo、各模型时间列注解、`init_db` 存量回填、API 序列化格式（`+00:00` vs `Z`，web/插件/渠道解析处全要过一遍）、AGENTS.md 的"UTC naive"约定更新。改动面大，勿顺手做
+- [ ] **依赖锁文件（防同类事故）**：`requirements.txt` 全 `>=` 不锁版本，本次 sqlmodel 0.0.45 行为变更是直接教训。建议生成锁文件（`pip freeze` 顶格或 `uv pip compile`）+ 镜像构建走锁文件；升级依赖改为显式改动+容器内冒烟验证（起服务后调一次 heartbeat）再推镜像
+- [ ] **a2a-inspector 互操作验证（规范符合性快检，可选）**
 - [ ] nas_brain 工作区 ID：CZBLEoPszNwLWpA2J4auGA（Windows 机 nas_brain 目录）；XYaR4TdtGqdqoAEW9vNn8g（Linux 机旧记录可能已失效，以 web 工作区页为准）
 - [ ] npm install 慢（~40s）：可把 @opencode-ai/* 设为 peerDependencies
 - [ ] 微信产物文件 item（iLink type-2）真机渲染未验证：`server/weixin/file_push.py` 目前走官方文件 item，失败降级文本链接——真机发一个产物确认普通微信客户端能收文件
