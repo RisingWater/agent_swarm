@@ -358,13 +358,16 @@ function applyInner(ctx: any): void {
     if (!sid) return
     const type = String(ev?.type ?? "")
     const data = ev?.data ?? {}
-    const turn = Number(data.turn ?? -1)
     const seq = Number(ev?.seq ?? 0)
 
     // 只监控本项目目录的会话（多项目共存时其它项目的会话不属于任何已注册工作区）
     const cwd = String(session?.header?.cwd ?? "").replace(/[\\/]+/g, "/").replace(/\/$/, "").toLowerCase()
     const knownDirs = readWorkspaceList().map((e) => e.directory.replace(/[\\/]+/g, "/").replace(/\/$/, "").toLowerCase())
     if (cwd && !knownDirs.includes(cwd)) return
+
+    if (type !== "user/message" && type !== "assistant/attempt" && type !== "turn/end") {
+      log(`monitor evt: ${type} seq=${seq}`)
+    }
 
     if (type === "user/message") {
       // 用户提问 = 开新轮（旧轮自动被服务端 superseded）
@@ -391,7 +394,7 @@ function applyInner(ctx: any): void {
           if (c.type === "text-delta") text += String(c.text ?? "")
           else if (c.type === "reasoning-delta") reasoning += String(c.text ?? "")
         }
-        log(`monitor ${round.roundKey}: attempt turn=${turn} text=${text.length} reasoning=${reasoning.length}`)
+        log(`monitor ${round.roundKey}: attempt text=${text.length} reasoning=${reasoning.length}`)
         if (reasoning.trim()) monEmit(round.roundKey, sid, { type: "reasoning", partId: `mon-${sid.slice(0, 6)}-r`, text: reasoning })
         if (text.trim()) monEmit(round.roundKey, sid, { type: "text", partId: `mon-${sid.slice(0, 6)}-t`, text })
         break
