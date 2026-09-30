@@ -294,6 +294,25 @@ function applyInner(ctx: any): void {
         log(`a2a ${taskId.slice(0, 8)}: message received (turn=${turn})`)
         const t = blockText(data.message?.content) || blockText(data.content)
         if (t) run.finalText = t
+        // 宿主根监听收不到 assistant/attempt（实测只有持久事件可达）——
+        // 从 message 附带的 stream 快照补 reasoning/text 流式上报
+        const stream = Array.isArray(data.stream) ? data.stream : []
+        let text = ""
+        let reasoning = ""
+        for (const rec of stream) {
+          if (rec?.type !== "chunk") continue
+          const c = rec.chunk ?? {}
+          if (c.type === "text-delta") text += String(c.text ?? "")
+          else if (c.type === "reasoning-delta") reasoning += String(c.text ?? "")
+        }
+        if (reasoning.length > run.lastReasoningLen) {
+          run.lastReasoningLen = reasoning.length
+          a2aEmit(streamStatus(task, "reasoning", `${taskId}-reasoning`, reasoning, "replace"))
+        }
+        if (text.length > run.lastTextLen) {
+          run.lastTextLen = text.length
+          a2aEmit(streamStatus(task, "text", `${taskId}-text`, text, "replace"))
+        }
         break
       }
       case "approval/asked": {
@@ -406,6 +425,18 @@ function applyInner(ctx: any): void {
         // payload = { message: AssistantMessage, stream }——文本在 data.message.content
         const t = blockText(data.message?.content) || blockText(data.content)
         if (t) round.finalText = t
+        // 宿主根监听收不到 assistant/attempt——从 stream 快照补 thinking/text 帧
+        const stream = Array.isArray(data.stream) ? data.stream : []
+        let mtext = ""
+        let mreasoning = ""
+        for (const rec of stream) {
+          if (rec?.type !== "chunk") continue
+          const c = rec.chunk ?? {}
+          if (c.type === "text-delta") mtext += String(c.text ?? "")
+          else if (c.type === "reasoning-delta") mreasoning += String(c.text ?? "")
+        }
+        if (mreasoning.trim()) monEmit(round.roundKey, sid, { type: "reasoning", partId: `mon-${sid.slice(0, 6)}-r`, text: mreasoning })
+        if (mtext.trim()) monEmit(round.roundKey, sid, { type: "text", partId: `mon-${sid.slice(0, 6)}-t`, text: mtext })
         break
       }
       case "tool/call": {

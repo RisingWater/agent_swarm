@@ -1975,18 +1975,19 @@ function NexusPage({ toast }: { toast: (m: string) => void }) {
     if (meta.nexus === "tool") {
       const key = `tool-${meta.call_id}`
       const cmd = toolCommand(meta.input as Record<string, unknown> | undefined)
-      const entry: TimelineItem = {
-        key,
-        kind: "tool",
-        text: cmd,
-        tool: String(meta.tool ?? ""),
-        state: String(meta.tool_state ?? "running"),
-        output: typeof meta.output === "string" ? meta.output : undefined,
-        time: Date.now(),
-      }
       setItems((prev) => {
         const next = [...prev]
         const i = next.findIndex((it) => it.key === key)
+        // 合并而非覆盖：result 帧只带 output 不带 input/工具名，直接覆盖会把 IN 冲掉
+        const base = i >= 0 ? next[i] : { key, kind: "tool" as const, text: "", time: Date.now() }
+        const entry: TimelineItem = {
+          ...base,
+          text: cmd || base.text,
+          tool: String(meta.tool ?? "") || base.tool,
+          state: String(meta.tool_state ?? "running"),
+          output: typeof meta.output === "string" ? meta.output : base.output,
+          time: Date.now(),
+        }
         if (i >= 0) next[i] = entry
         else next.push(entry)
         return next
@@ -2123,18 +2124,19 @@ function NexusPage({ toast }: { toast: (m: string) => void }) {
     }
     if (mtype === "tool") {
       const key = `tool-${p.callId ?? p.call_id ?? `${round}-${p.tool}`}`
-      const entry: TimelineItem = {
-        key,
-        kind: "tool",
-        text: toolCommand(p.input as Record<string, unknown> | undefined),
-        tool: String(p.tool ?? ""),
-        state: String(p.toolState ?? "running"),
-        output: typeof p.output === "string" ? p.output : undefined,
-        time: Date.now(),
-      }
       setItems((prev) => {
         const next = [...prev]
         const i = next.findIndex((it) => it.key === key)
+        // 合并而非覆盖：result 帧只带 output，覆盖会把 running 行的 IN 冲掉
+        const base = i >= 0 ? next[i] : { key, kind: "tool" as const, text: "", time: Date.now() }
+        const entry: TimelineItem = {
+          ...base,
+          text: toolCommand(p.input as Record<string, unknown> | undefined) || base.text,
+          tool: String(p.tool ?? "") || base.tool,
+          state: String(p.toolState ?? "running"),
+          output: typeof p.output === "string" ? p.output : base.output,
+          time: Date.now(),
+        }
         if (i >= 0) next[i] = entry
         else next.push(entry)
         // 同轮出现【新的 running 工具】= agent 已越过权限等待（多半在 TUI 里选过了）：
