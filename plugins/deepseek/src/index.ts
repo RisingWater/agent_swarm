@@ -687,7 +687,9 @@ function applyInner(ctx: any): void {
   a2a = startNexusA2AClient({
     url: cfg.serverUrl.replace(/^http/, "ws").replace(/\/+$/, "") + "/ws/plugin",
     apiKey: cfg.apiKey,
-    workspaceId: () => readWorkspaceId(directory),
+    // WS 连接的工作区：清单第一条（dsh 宿主 cwd 是 profile 目录，readWorkspaceId(cwd)
+    // 永远空——hello 需要一个 wid 才能注册连接；清单由 /swarm-add 维护）
+    workspaceId: () => readWorkspaceList()[0]?.workspaceId ?? readWorkspaceId(directory),
     executionMode: () => currentMode(),
     onTask: (task, text, caller, serverSessionId, onAccepted) =>
       executeTask(task, text, caller, serverSessionId ?? "", onAccepted),
