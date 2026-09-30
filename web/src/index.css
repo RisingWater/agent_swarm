@@ -146,7 +146,7 @@ body {
 
 .notif-panel {
   position: absolute;
-  top: 30px;
+  top: 40px;
   right: 0;
   z-index: 2;
   width: 340px;
@@ -161,6 +161,7 @@ body {
 .notif-head {
   position: sticky;
   top: 0;
+  z-index: 3;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -170,6 +171,8 @@ body {
 }
 
 .notif-item {
+  position: relative;
+  z-index: 1;
   padding: 10px 12px;
   border-bottom: 1px solid var(--border);
   cursor: pointer;
@@ -189,17 +192,24 @@ body {
 
 .notif-title {
   font-size: 13px;
+  line-height: 1.5;
   color: var(--text-strong);
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .notif-body {
   font-size: 12px;
+  line-height: 1.5;
   color: var(--text-weak);
   margin-top: 2px;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .notif-time {
   font-size: 11px;
+  line-height: 1.4;
   color: var(--text-weak);
   margin-top: 4px;
 }
