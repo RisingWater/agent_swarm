@@ -21,6 +21,7 @@ mcp__agent-swarm__a2a_call(target="<对方工作区ID>", message="<任务描述>
 ```
 
 - `target`：对方工作区 ID（`mcp__agent-swarm__list_workspaces` 查询，online 才能派）或外部 A2A 端点 URL
+- `from_workspace`：**必填**——你自己的工作区 ID（读项目根 `.agent_swarm/workspace.md` 的 WORKSPACE_ID 行，或 list_workspaces 查）。它是长任务完成提醒的回送地址：不传派单会被拒绝
 - `wait_seconds`（建议 300~600）：同步等到终态，免去轮询；任务没跑完会阻塞到超时
 - 异步派发（不给 wait_seconds）：返回 task id，用 `mcp__agent-swarm__a2a_task(task_id=...)` 轮询
 
