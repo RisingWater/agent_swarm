@@ -95,9 +95,9 @@
 ### P6 站内信（追加，2026-10-01）
 - [x] 模型 `notifications`（收件人/kind/title/body/team/actor/read/created_at）+ `server/notifications.py` 写侧 `add/add_many`
 - [x] 团队事件挂钩：邀请 / 申请 / 加入成功（本人+既有成员）/ 申请被拒 / 邀请被拒 / 被踢 / 退出 / 移交（新老队长）/ **解散（全部活跃成员）**
-- [x] REST `server/api/notifications.py`：list（limit/unread_only）、unread_count、`{id}/read`（仅本人）、read_all
-- [x] 前端顶栏铃铛 + 未读红点徽标（20s 轮询）+ 面板（点击标记已读 / 全部已读）
-- [x] 测试 `test_notifications.py` 4 例；全套 74 例通过
+- [x] REST `server/api/notifications.py`：list（limit/unread_only）、unread_count、`{id}/read`（仅本人）、`read_all`、`DELETE {id}`（仅本人）、`DELETE`（清空我的全部）
+- [x] 前端顶栏铃铛 + 未读红点徽标（20s 轮询）+ 面板（点击标记已读并跳团队页 / 全部已读 / 全部删除(二次确认) / 每条垃圾桶删除）
+- [x] 测试 `test_notifications.py` 5 例；全套 75 例通过
 
 ## 已完成（除注明外均已进 git）
 

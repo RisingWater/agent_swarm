@@ -186,9 +186,34 @@ body {
 .notif-item {
   position: relative;
   z-index: 1;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
   padding: 10px 12px;
   border-bottom: 1px solid var(--border);
   cursor: pointer;
+}
+
+.notif-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.notif-del {
+  flex: none;
+  margin-top: 1px;
+  color: var(--text-weak);
+  cursor: pointer;
+  opacity: 0.45;
+  transition: opacity 0.12s ease, color 0.12s ease;
+}
+
+.notif-item:hover .notif-del {
+  opacity: 1;
+}
+
+.notif-item .notif-del:hover {
+  color: #e5484d;
 }
 
 .notif-item:last-child {

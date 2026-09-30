@@ -165,5 +165,5 @@ queued ──(发送+ack 成功)──> working ──> completed | failed
 
 - **模型**：`notifications` 表（`user_id` 收件人、`kind`、`title`/`body`、`team_id`/`team_name`、`actor_id`/`actor_username`、`read`、`created_at`）。纯文本落库（团队名/用户名同属非加密字段）。
 - **写入时机**：团队生命周期事件在操作同一事务内落一条站内信（`server/notifications.py`，写侧 `add/add_many`）——邀请（收件人=被邀请人）、申请加入（收件人=队长）、加入成功（收件人=本人「已加入」+ 其余活跃成员「有人加入」）、申请被拒（收件人=申请人）、邀请被拒（收件人=队长）、被踢（收件人=被踢者）、退出（收件人=队长）、移交队长（收件人=新队长 + 原队长）、**团队解散（收件人=全部活跃成员）**。
-- **REST**：`GET /api/notifications?limit=&unread_only=`（默认 50 条，倒序）、`GET /api/notifications/unread_count`、`POST /api/notifications/{id}/read`（仅本人，他人 404）、`POST /api/notifications/read_all`。
-- **前端**：顶栏铃铛 + 未读红点徽标（20s 轮询未读数）；点开面板列出消息（未读高亮、点击标记已读、全部已读）。
+- **REST**：`GET /api/notifications?limit=&unread_only=`（默认 50 条，倒序）、`GET /api/notifications/unread_count`、`POST /api/notifications/{id}/read`（仅本人，他人 404）、`POST /api/notifications/read_all`、`DELETE /api/notifications/{id}`（仅本人）、`DELETE /api/notifications`（清空我的全部）。
+- **前端**：顶栏铃铛 + 未读红点徽标（20s 轮询未读数）；点开面板列出消息（未读高亮、点击标记已读并跳转「团队」页、`全部已读` / `全部删除`、每条消息带垃圾桶删除按钮）。

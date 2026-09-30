@@ -99,6 +99,26 @@ def test_join_rejected_notifies_applicant(nt_env):
     assert "team_join_rejected" in _kinds("u-bob")
 
 
+def test_notification_delete_api(nt_env):
+    with Session(engine) as s:
+        t = teams_api.create_team({"name": "ND", "join_policy": "approval"}, user=_user("u-alice"), session=s)
+        teams_api.invite_member(t["id"], {"username": "bob"}, user=_user("u-alice"), session=s)  # bob 收到邀请
+        teams_api.join_team(t["id"], user=_user("u-carol"), session=s)  # alice 收到 carol 的申请
+    with Session(engine) as s:
+        bob_list = notif_api.list_notifications(user=_user("u-bob"), session=s)["notifications"]
+        assert bob_list
+        nid = bob_list[0]["id"]
+        with pytest.raises(HTTPException):
+            notif_api.delete_notification(nid, user=_user("u-carol"), session=s)  # 他人 404
+        notif_api.delete_notification(nid, user=_user("u-bob"), session=s)
+        assert notif_api.list_notifications(user=_user("u-bob"), session=s)["notifications"] == []
+        # 全部删除（alice 名下有「申请加入」通知）
+        assert notif_api.list_notifications(user=_user("u-alice"), session=s)["notifications"]
+        res = notif_api.delete_all_notifications(user=_user("u-alice"), session=s)
+        assert res["count"] >= 1
+        assert notif_api.list_notifications(user=_user("u-alice"), session=s)["notifications"] == []
+
+
 def test_notification_read_api(nt_env):
     with Session(engine) as s:
         t = teams_api.create_team({"name": "NR", "join_policy": "approval"}, user=_user("u-alice"), session=s)

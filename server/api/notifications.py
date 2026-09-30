@@ -72,6 +72,34 @@ def mark_all_read(
     return {"ok": True, "count": len(rows)}
 
 
+@router.delete("")
+def delete_all_notifications(
+    user: models.User = Depends(get_user_either),
+    session: Session = Depends(get_session),
+):
+    rows = session.exec(
+        select(models.Notification).where(models.Notification.user_id == user.id)
+    ).all()
+    for n in rows:
+        session.delete(n)
+    session.commit()
+    return {"ok": True, "count": len(rows)}
+
+
+@router.delete("/{notification_id}")
+def delete_notification(
+    notification_id: str,
+    user: models.User = Depends(get_user_either),
+    session: Session = Depends(get_session),
+):
+    n = session.get(models.Notification, notification_id)
+    if n is None or n.user_id != user.id:
+        raise HTTPException(404, "notification not found")
+    session.delete(n)
+    session.commit()
+    return {"ok": True}
+
+
 @router.post("/{notification_id}/read")
 def mark_read(
     notification_id: str,

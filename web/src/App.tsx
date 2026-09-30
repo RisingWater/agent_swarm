@@ -236,6 +236,7 @@ function NotificationBell({ onOpenTeam }: { onOpenTeam: (teamId?: string) => voi
   const [open, setOpen] = useState(false)
   const [list, setList] = useState<Notification[]>([])
   const [loading, setLoading] = useState(false)
+  const [confirmClear, setConfirmClear] = useState(false)
 
   const refreshCount = useCallback(() => {
     api.notificationUnreadCount().then((r) => setCount(r.count)).catch(() => {})
@@ -249,6 +250,7 @@ function NotificationBell({ onOpenTeam }: { onOpenTeam: (teamId?: string) => voi
   const toggle = async () => {
     const next = !open
     setOpen(next)
+    setConfirmClear(false)
     if (next) {
       setLoading(true)
       try { setList((await api.notifications()).notifications) } catch { /* ignore */ } finally { setLoading(false) }
@@ -276,6 +278,27 @@ function NotificationBell({ onOpenTeam }: { onOpenTeam: (teamId?: string) => voi
     } catch { /* ignore */ }
   }
 
+  const removeOne = async (n: Notification) => {
+    try {
+      await api.deleteNotification(n.id)
+      setList((prev) => prev.filter((x) => x.id !== n.id))
+      if (!n.read) setCount((c) => Math.max(0, c - 1))
+    } catch { /* ignore */ }
+  }
+
+  const removeAll = async () => {
+    if (!confirmClear) {
+      setConfirmClear(true)  // 二次确认：再点一次才真正清空
+      return
+    }
+    try {
+      await api.deleteAllNotifications()
+      setList([])
+      setCount(0)
+    } catch { /* ignore */ }
+    setConfirmClear(false)
+  }
+
   return (
     <span className="notif-wrap">
       <a className={`user notif-bell${open ? " active" : ""}`} title="站内信" onClick={toggle}>
@@ -292,7 +315,12 @@ function NotificationBell({ onOpenTeam }: { onOpenTeam: (teamId?: string) => voi
           <div className="notif-panel">
             <div className="notif-head">
               <b>站内信</b>
-              <Btn size="sm" variant="ghost" disabled={count === 0} onClick={readAll}>全部已读</Btn>
+              <span style={{ display: "inline-flex", gap: 6 }}>
+                <Btn size="sm" variant="ghost" disabled={count === 0} onClick={readAll}>全部已读</Btn>
+                <Btn size="sm" variant="ghost" disabled={list.length === 0} onClick={removeAll}>
+                  {confirmClear ? "确认删除" : "全部删除"}
+                </Btn>
+              </span>
             </div>
             {loading ? (
               <p className="notif-empty">加载中…</p>
@@ -300,9 +328,18 @@ function NotificationBell({ onOpenTeam }: { onOpenTeam: (teamId?: string) => voi
               <div className="notif-list">
                 {list.map((n) => (
                   <div key={n.id} className={`notif-item${n.read ? "" : " unread"}`} onClick={() => handleClick(n)}>
-                    <div className="notif-title">{n.title}</div>
-                    {n.body && <div className="notif-body">{n.body}</div>}
-                    <div className="notif-time">{fmtTime(n.created_at, "datetime")}</div>
+                    <div className="notif-main">
+                      <div className="notif-title">{n.title}</div>
+                      {n.body && <div className="notif-body">{n.body}</div>}
+                      <div className="notif-time">{fmtTime(n.created_at, "datetime")}</div>
+                    </div>
+                    <button
+                      className="notif-del"
+                      title="删除该消息"
+                      onClick={(e) => { e.stopPropagation(); removeOne(n) }}
+                    >
+                      <TrashIcon size={14} />
+                    </button>
                   </div>
                 ))}
               </div>
@@ -1868,7 +1905,8 @@ agent: (a2a_call) → 对方 TUI 实时出现任务 → 执行 → 结果自动�
           </p>
           <p>
             团队动态——被邀请、申请/审批结果、有人加入、被移出、移交队长、团队解散——都会记一条<b>站内信</b>；
-            顶栏的铃铛显示未读数，点开可查看列表并标记已读；点击某条站内信会跳到「团队」页并打开对应团队。
+            顶栏的铃铛显示未读数，点开可查看列表并标记已读（点击某条会跳到「团队」页并打开对应团队）；
+            支持<b>全部已读 / 全部删除</b>，每条消息也可用垃圾桶按钮单独删除。
           </p>
         </section>
 

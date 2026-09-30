@@ -284,6 +284,10 @@ export const api = {
     request(`/api/notifications/${encodeURIComponent(id)}/read`, { method: "POST", body: "{}" }) as Promise<{ ok: boolean }>,
   markAllNotificationsRead: () =>
     request("/api/notifications/read_all", { method: "POST", body: "{}" }) as Promise<{ ok: boolean; count: number }>,
+  deleteNotification: (id: string) =>
+    request(`/api/notifications/${encodeURIComponent(id)}`, { method: "DELETE" }) as Promise<{ ok: boolean }>,
+  deleteAllNotifications: () =>
+    request("/api/notifications", { method: "DELETE" }) as Promise<{ ok: boolean; count: number }>,
 
   /** 微信 ClawBot：申请登录二维码 */
   weixinLoginStart: () =>
