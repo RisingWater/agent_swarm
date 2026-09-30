@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlmodel import Session, select
 
-from server import crypto, models
+from server import crypto, models, teams_service
 from server.auth import get_current_user, get_user_either
 from server.db import get_session, engine
 
@@ -159,9 +159,83 @@ def delete_workspace(
     ws = _get_ws_with_perm(workspace_id, user, session)
     if ws_is_online(ws):
         raise HTTPException(409, "workspace is online, disable or wait for it to go offline first")
+    # 级联清理团队共享关系（team_workspaces）
+    for sh in session.exec(
+        select(models.TeamWorkspace).where(models.TeamWorkspace.workspace_id == workspace_id)
+    ).all():
+        session.delete(sh)
     session.delete(ws)
     session.commit()
     return {"ok": True}
+
+
+# ---------------------------------------------------------------- 团队共享（调用权）
+# 共享 = 把工作区借给团队做 a2a_call（仅调用权）。这里只维护 team_workspaces 关系；
+# 可见性（监控/Nexus/产物/简报）仍由工作区属主独占，不因共享而放宽。
+
+
+@router.get("/{workspace_id}/shares")
+def get_workspace_shares(
+    workspace_id: str,
+    user: models.User = Depends(get_user_either),
+    session: Session = Depends(get_session),
+):
+    """该工作区当前共享到的团队（仅属主可查）。"""
+    _get_ws_with_perm(workspace_id, user, session)
+    out = []
+    for sh in session.exec(
+        select(models.TeamWorkspace).where(models.TeamWorkspace.workspace_id == workspace_id)
+    ).all():
+        t = session.get(models.Team, sh.team_id)
+        out.append(
+            {
+                "team_id": sh.team_id,
+                "name": t.name if t else "",
+                "shared_by": sh.shared_by,
+                "created_at": sh.created_at.isoformat() + "Z" if sh.created_at else None,
+            }
+        )
+    out.sort(key=lambda x: x["name"])
+    return {"teams": out}
+
+
+@router.put("/{workspace_id}/shares")
+def set_workspace_shares(
+    workspace_id: str,
+    body: dict,
+    user: models.User = Depends(get_user_either),
+    session: Session = Depends(get_session),
+):
+    """整体替换该工作区的团队共享集合（仅属主；目标团队必须是属主已加入的团队）。"""
+    import shortuuid
+
+    _get_ws_with_perm(workspace_id, user, session)
+    team_ids = [str(x) for x in (body.get("team_ids") or [])]
+    team_ids = list(dict.fromkeys(team_ids))  # 去重保序
+    active = teams_service.active_team_ids(session, user.id)
+    for tid in team_ids:
+        if session.get(models.Team, tid) is None:
+            raise HTTPException(404, f"team {tid} not found")
+        if tid not in active:
+            raise HTTPException(403, "只能共享到你已加入的团队")
+    existing = {
+        sh.team_id: sh
+        for sh in session.exec(
+            select(models.TeamWorkspace).where(models.TeamWorkspace.workspace_id == workspace_id)
+        ).all()
+    }
+    for tid, sh in existing.items():
+        if tid not in team_ids:
+            session.delete(sh)
+    for tid in team_ids:
+        if tid not in existing:
+            session.add(
+                models.TeamWorkspace(
+                    id=shortuuid.uuid(), team_id=tid, workspace_id=workspace_id, shared_by=user.id
+                )
+            )
+    session.commit()
+    return {"ok": True, "team_ids": sorted(team_ids)}
 
 
 def _get_ws_with_perm(workspace_id: str, user: models.User, session: Session) -> models.Workspace:

@@ -2,12 +2,14 @@ from contextlib import asynccontextmanager
 import asyncio
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from server.db import init_db
-from server.api import auth, me, workspaces, calls, chat_binds, admin
+from server.api import auth, me, workspaces, calls, chat_binds, admin, teams
+from server.teams_service import TeamError
 from server.api_artifacts import routes as artifact_routes
 from server.download import routes as download_routes
 from server.mcp_endpoint import build_mcp_asgi_app, mcp_lifespan
@@ -99,7 +101,13 @@ def create_app() -> FastAPI:
     app.include_router(calls.router)
     app.include_router(chat_binds.router)
     app.include_router(admin.router)
+    app.include_router(teams.router)
     app.include_router(nexus_a2a_router)
+
+    @app.exception_handler(TeamError)
+    async def _team_error_handler(_request: Request, exc: TeamError):
+        # 团队业务错误（数量限制/权限冲突等）→ 明确状态码与文案
+        return JSONResponse({"detail": str(exc)}, status_code=exc.status)
     app.include_router(weixin_router)
 
     # 插件分发（免鉴权）

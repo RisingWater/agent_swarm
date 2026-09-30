@@ -49,6 +49,37 @@
 - ~~视频走 git lfs~~（放弃：mp4 39MB 普通 blob 已推送成功，用户接受仓库变大）
 - ~~e2e 测试脚本~~（用户 2026-09-12 决定放弃，scripts/test_plugin_smoke.ts 是死代码可删可留）
 
+## 🟢 进行中：团队功能（分支 feat/team）
+
+> 需求详见 `docs/team_requirement.md`。核心原则：**共享 = 授予"调用权"，不授予"可见权"**——团队成员可 `a2a_call` 共享工作区并拿最终答复，但看不到监控/Nexus/产物/简报/调用细节。数量限制：创建默认 3、加入默认 8。
+
+### P1 模型 + 团队/共享 REST + 数量限制 + 访问控制助手
+- [x] P1-1 模型：`Team` +join_policy/description；`TeamMember` +status/kind/initiated_by/created_at；新增 `TeamWorkspace`；`A2aTask` +from_user_id
+- [x] P1-2 迁移：`db._migrate` 加列（teams/team_members/a2a_tasks）+ 历史成员回填 active；新表 create_all
+- [x] P1-3 配置：`AGENT_SWARM_TEAM_MAX_OWNED=3` / `MAX_JOINED=8` / `MAX_MEMBERS=50` / `MAX_PENDING=10`
+- [x] P1-4 访问控制助手 `server/teams_service.py`：active_team_ids / quota 校验 / shared_workspace_ids / can_invoke
+- [x] P1-5 团队 REST `server/api/teams.py`：CRUD + 邀请/申请/审批/踢人/退出/移交 + invitations
+- [x] P1-6 工作区共享 REST：`PUT/GET /api/workspaces/{wid}/shares`（仅属主；删工作区级联清理）
+- [x] P1-7 路由注册 `server/main.py`（+ TeamError → HTTP 处理器）
+- [x] P1-8 测试 `tests/test_teams.py`：18 例（数量限制 / 生命周期 / 共享 / can_invoke 隔离）；全套 55 例通过
+- [x] P1-9 文档：TODO 记录（本清单）+ 迁移在旧库上实测通过
+
+### P2 MCP + 调用记录 + 完成提醒兼容
+- [ ] `list_workspaces` 并入共享工作区（带 shared 标记，字段 name/purpose/capabilities/agent_type/status/owner）
+- [ ] `a2a_call` 目标可见性放宽 + 写 `user_id=执行方属主` / `from_user_id=调用方`（执行方属主 key 加密）
+- [ ] `a2a_task` 授权 `user_id==我 OR from_user_id==我`；解密用任务属主 key
+- [ ] 调用记录：`list_calls` / `delete_call` 加 `from_workspace_id` 维度（A、B 均可见指令+答复）
+- [ ] 完成提醒链路跨用户兼容验证
+
+### P3 前端
+- [ ] 顶栏「团队」页：创建/成员/待审批/共享工作区/邀请/审批/踢人/移交/退出 + 待办红点
+- [ ] 工作区页「共享到团队」多选（仅属主）
+- [ ] 不做共享工作区调用 UI（成员只走 MCP）
+
+### P4 测试 + 文档 + 隔离回归
+- [ ] 隔离红线回归：成员订阅被拒 / 产物不可见 / 简报与权限卡只到属主
+- [ ] 文档：`docs/requirements.md` 团队节、README/README_CN、web 文档页 FAQ
+
 ## 已完成（除注明外均已进 git）
 
 ### deepseek harness（dsh）全功能对齐 + 跨工作区长任务完成提醒（2026-09-30 ~ 10-01，E2E 实测）

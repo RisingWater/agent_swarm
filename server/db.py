@@ -1,4 +1,5 @@
 import os
+from datetime import datetime, timezone
 from pathlib import Path
 
 from sqlalchemy import event
@@ -84,11 +85,34 @@ def _migrate() -> None:
             task_cols = {r[1] for r in con.execute("PRAGMA table_info(a2a_tasks)")}
             if "from_workspace_id" not in task_cols:
                 con.execute("ALTER TABLE a2a_tasks ADD COLUMN from_workspace_id TEXT DEFAULT ''")
+            if "from_user_id" not in task_cols:
+                con.execute("ALTER TABLE a2a_tasks ADD COLUMN from_user_id TEXT DEFAULT ''")
             if "user_id" not in task_cols:
                 con.execute("ALTER TABLE a2a_tasks ADD COLUMN user_id TEXT DEFAULT ''")
             for c in ("message_enc", "artifact_enc", "error_enc"):
                 if c not in task_cols:
                     con.execute(f"ALTER TABLE a2a_tasks ADD COLUMN {c} TEXT")
+        # 团队功能（2026-10-01）：teams/team_members 历史表加列；team_workspaces 新表由 create_all 建
+        if "teams" in {r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}:
+            team_cols = {r[1] for r in con.execute("PRAGMA table_info(teams)")}
+            if "join_policy" not in team_cols:
+                con.execute("ALTER TABLE teams ADD COLUMN join_policy TEXT DEFAULT 'approval'")
+            if "description" not in team_cols:
+                con.execute("ALTER TABLE teams ADD COLUMN description TEXT")
+        if "team_members" in {r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}:
+            tm_cols = {r[1] for r in con.execute("PRAGMA table_info(team_members)")}
+            if "status" not in tm_cols:
+                con.execute("ALTER TABLE team_members ADD COLUMN status TEXT DEFAULT 'pending'")
+                # 历史成员一律视为正式成员（迁移先于任何新写入）
+                con.execute("UPDATE team_members SET status = 'active'")
+            if "kind" not in tm_cols:
+                con.execute("ALTER TABLE team_members ADD COLUMN kind TEXT DEFAULT 'invite'")
+            if "initiated_by" not in tm_cols:
+                con.execute("ALTER TABLE team_members ADD COLUMN initiated_by TEXT DEFAULT ''")
+            if "created_at" not in tm_cols:
+                con.execute("ALTER TABLE team_members ADD COLUMN created_at TEXT")
+                con.execute("UPDATE team_members SET created_at = ? WHERE created_at IS NULL",
+                            (datetime.now(timezone.utc).replace(tzinfo=None).isoformat(sep=" "),))
         # 旧用户没有明文（哈希不可逆）：补发新 key，旧 key 立即失效
         from server import models
 

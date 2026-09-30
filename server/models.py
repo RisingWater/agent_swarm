@@ -52,20 +52,57 @@ class User(SQLModel, table=True):
 
 
 class Team(SQLModel, table=True):
+    """团队：由一名队长（owner_id）与若干成员组成。
+
+    队长身份以 owner_id 为唯一真源（成员表不再存 role）。团队本身不持有工作区，
+    工作区通过 TeamWorkspace 多对多共享进来（仅授予调用权，不授予可见权）。
+    """
+
     __tablename__ = "teams"
 
     id: str = Field(primary_key=True)
     name: str = Field(index=True, unique=True)
-    owner_id: str = Field(foreign_key="users.id", index=True)
+    owner_id: str = Field(foreign_key="users.id", index=True)  # 队长（唯一真源）
+    join_policy: str = Field(default="approval")  # approval / open / closed
+    description: Optional[str] = Field(default=None, sa_column=Column(Text))
     created_at: datetime = Field(default_factory=utcnow)
 
 
 class TeamMember(SQLModel, table=True):
+    """团队成员关系。
+
+    两种进入方式共用一张表，用 kind + initiated_by 区分：
+      - invite（队长邀请）：initiated_by = 队长，待被邀请人接受 → active
+      - request（用户申请）：initiated_by = 申请人，待队长审批 → active
+    status=pending 是待处理邀请/申请，active 是正式成员。
+    """
+
     __tablename__ = "team_members"
 
     id: Optional[int] = Field(default=None, primary_key=True)
     team_id: str = Field(foreign_key="teams.id", index=True)
     user_id: str = Field(foreign_key="users.id", index=True)
+    status: str = Field(default="pending", index=True)  # pending / active
+    kind: str = Field(default="invite")  # invite / request
+    initiated_by: str = Field(default="")  # 发起人 user_id
+    created_at: datetime = Field(default_factory=utcnow)
+
+
+class TeamWorkspace(SQLModel, table=True):
+    """工作区 ↔ 团队 共享关系（多对多）。
+
+    工作区属主把自己的工作区共享给若干团队。团队成员据此获得对该工作区的
+    **调用权**（a2a_call / a2a_task），但不获得监控/Nexus/产物/简报等可见权。
+    逻辑唯一 (team_id, workspace_id) 由业务层保证。
+    """
+
+    __tablename__ = "team_workspaces"
+
+    id: str = Field(primary_key=True)
+    team_id: str = Field(foreign_key="teams.id", index=True)
+    workspace_id: str = Field(foreign_key="workspaces.id", index=True)
+    shared_by: str = Field(default="", index=True)  # 共享操作者（工作区属主）user_id
+    created_at: datetime = Field(default_factory=utcnow)
 
 
 class Workspace(SQLModel, table=True):
@@ -104,6 +141,7 @@ class A2aTask(SQLModel, table=True):
     workspace_id: str = Field(default="", index=True)  # 执行方工作区（内部任务）
     user_id: str = Field(default="", index=True)  # 属主用户（加密子密钥派生用；外部任务=调用者）
     from_workspace_id: str = Field(default="")  # 发起方工作区（agent 互调时由 a2a_call 传入）
+    from_user_id: str = Field(default="")  # 调用方用户（跨用户团队调用取件授权；同用户/外部任务可为空）
     external_url: str = Field(default="")  # 外部 A2A agent 端点（外部任务）
     caller: str = Field(default="")  # 调用方标注（agent / nexus-web / nexus-feishu / ...）
     message: str = Field(default="", sa_column=Column(Text))  # 初始指令文本
