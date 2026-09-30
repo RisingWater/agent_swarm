@@ -71,13 +71,30 @@ ADD_ARGS+=(add "$BUNDLE_DIR")
 echo "==> dsh ${ADD_ARGS[*]}（安装 bundle）"
 "$DSH_BIN" "${ADD_ARGS[@]}"
 
-# 2. 全局配置
+# 2. 全局配置 + 环境变量层（bundle 的 mcp-client 条目从 process.env 读凭据）
 CFG_DIR="$HOME/.config/dsh"
 mkdir -p "$CFG_DIR"
 cat > "$CFG_DIR/agent-swarm.json" <<EOF
 {"serverUrl": "$SERVER", "apiKey": "$API_KEY"}
 EOF
 echo "==> 已写配置 $CFG_DIR/agent-swarm.json"
+
+# ~/.dsh/.env：dsh 启动时加载进 process.env
+DSH_ENV="$HOME/.dsh/.env"
+mkdir -p "$HOME/.dsh"
+touch "$DSH_ENV"
+# 删旧行再追加（幂等更新）
+grep -vE "^AGENT_SWARM_(SERVER|API_KEY)=" "$DSH_ENV" > "$DSH_ENV.tmp" || true
+printf 'AGENT_SWARM_SERVER=%s\nAGENT_SWARM_API_KEY=%s\n' "$SERVER" "$API_KEY" >> "$DSH_ENV.tmp"
+mv "$DSH_ENV.tmp" "$DSH_ENV"
+echo "==> 已更新 $DSH_ENV（AGENT_SWARM_SERVER / AGENT_SWARM_API_KEY）"
+
+# 2.5 skill：复制到 ~/.dsh/skills（dsh 本地提供方 user-dsh root，rank 400）
+if [ -d "$SRC/skills" ]; then
+  mkdir -p "$HOME/.dsh/skills"
+  cp -r "$SRC/skills/." "$HOME/.dsh/skills/"
+  echo "==> 已安装 skill 到 $HOME/.dsh/skills/agent-swarm"
+fi
 
 # 3. 注册工作区
 WS_MD="$PATH_ARG/.agent_swarm/workspace.md"

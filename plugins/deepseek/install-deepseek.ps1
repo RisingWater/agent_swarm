@@ -78,12 +78,36 @@ Write-Host "==> dsh $($addArgs -join ' ')（安装 bundle）"
 & $dshBin @addArgs
 if ($LASTEXITCODE -ne 0) { throw "dsh plugin add failed（若 pnpm 提示 allowBuilds，按提示把键加入 profile 的 pnpm-workspace.yaml 后重跑）" }
 
-# 2. 写全局配置
+# 2. 写全局配置 + 环境变量层（bundle 的 mcp-client 条目从 process.env 读凭据）
 $cfgDir = Join-Path $HOME ".config\dsh"
 New-Item -ItemType Directory -Force -Path $cfgDir | Out-Null
 $cfg = @{ serverUrl = $Server; apiKey = $ApiKey } | ConvertTo-Json
 [IO.File]::WriteAllText((Join-Path $cfgDir "agent-swarm.json"), $cfg, $utf8NoBom)
 Write-Host "==> 已写配置 $cfgDir\agent-swarm.json"
+
+# ~/.dsh/.env：dsh 启动时加载进 process.env（AGENT_SWARM_SERVER/API_KEY 供 MCP 条目用）
+$dshEnv = Join-Path $HOME ".dsh\.env"
+$envLines = @{ AGENT_SWARM_SERVER = $Server; AGENT_SWARM_API_KEY = $ApiKey }
+$existing = @{}
+if (Test-Path $dshEnv) {
+    Get-Content $dshEnv | ForEach-Object {
+        if ($_ -match "^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=(.*)$") { $existing[$Matches[1]] = $Matches[2].Trim() }
+    }
+}
+foreach ($k in $envLines.Keys) { $existing[$k] = $envLines[$k] }
+$newContent = ($existing.GetEnumerator() | Sort-Object Name | ForEach-Object { "$($_.Key)=$($_.Value)" }) -join "`n"
+New-Item -ItemType Directory -Force -Path (Join-Path $HOME ".dsh") | Out-Null
+[IO.File]::WriteAllText($dshEnv, $newContent + "`n", $utf8NoBom)
+Write-Host "==> 已更新 $dshEnv（AGENT_SWARM_SERVER / AGENT_SWARM_API_KEY）"
+
+# 2.5 skill：复制到 ~/.dsh/skills（dsh 本地提供方 user-dsh root，rank 400）
+$skillSrc = Join-Path $Src "skills"
+if (Test-Path $skillSrc) {
+    $skillsDir = Join-Path $HOME ".dsh\skills"
+    New-Item -ItemType Directory -Force -Path $skillsDir | Out-Null
+    Copy-Item -Path $skillSrc -Destination $skillsDir -Recurse -Force
+    Write-Host "==> 已安装 skill 到 $skillsDir\agent-swarm"
+}
 
 # 3. 注册工作区：调 MCP workspace_add（agent_type=deepseek）并写 .agent_swarm/workspace.md
 $wsMd = Join-Path $Path ".agent_swarm\workspace.md"

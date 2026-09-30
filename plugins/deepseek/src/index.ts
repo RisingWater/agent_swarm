@@ -74,6 +74,13 @@ interface A2aRun {
   finalText: string
   /** 权限等待（input-required 已上报；requestId = dsh ApprovalRequestId） */
   permission: { requestId: string; resolve: (outcome: string) => void } | null
+  /** 提问等待（question input-required；requestId = 随机生成，answer 原样回传） */
+  question: {
+    requestId: string
+    resolve: (answer: unknown) => void
+    /** 原始问题定义（超时未答时恢复用） */
+    request: any
+  } | null
 }
 
 export function apply(ctx: any): void {
@@ -137,6 +144,9 @@ export function apply(ctx: any): void {
     if (sessionTasks.get(run.sessionId) === taskId) sessionTasks.delete(run.sessionId)
     if (run.permission) {
       settlePermission(run, "cancelled")
+    }
+    if (run.question) {
+      settleQuestion(run, null) // 取消/收尾时提问恢复拒绝（agent 已不在等答案）
     }
     const t: A2aTaskRef = { taskId, contextId: taskId }
     if (outcome === "completed") {
@@ -357,6 +367,7 @@ export function apply(ctx: any): void {
       lastReasoningLen: 0,
       finalText: "",
       permission: null,
+      question: null,
     }
     a2aRuns.set(task.taskId, run)
     sessionTasks.set(sessionId, task.taskId)
@@ -434,6 +445,77 @@ export function apply(ctx: any): void {
     }
   }
 
+  // ---------------- user-questions/request 应答器（提问远程应答桥） ----------------
+
+  // ask_user_question 走 user-questions/request waterfall。本监听器把「等远程
+  // 回答」接进 waterfall：远程（web/飞书/微信/桌宠）回答 → settleQuestion →
+  // 把 AskUserQuestionAnswer 返回给 dsh。本地 UI 先答：内建 answerer 先返回，
+  // 之后 question 状态由 askUserQuestion 的 settle 清理。
+  ;(ctx as any).on("user-questions/request", async (req: any, next: () => Promise<any>) => {
+    const sid = req?.agent?.session?.header?.id
+    const taskId = sid ? sessionTasks.get(sid) : undefined
+    const run = taskId ? a2aRuns.get(taskId) : undefined
+    // 非本插件任务轮的提问：交给下游（dsh 内建 UI answerer）
+    if (!run || run.permission) return next()
+    const requestId = randomUUID()
+    const task: A2aTaskRef = { taskId: taskId!, contextId: taskId! }
+    run.question = {
+      requestId,
+      resolve: () => {}, // 真正收尾走 settleQuestion
+      request: req,
+    }
+    let resolveWaterfall!: (answer: any) => void
+    const answerPromise = new Promise<any>((r) => { resolveWaterfall = r })
+    ;(run.question as any)._waterfallResolve = resolveWaterfall
+    a2aEmit(
+      inputRequired(task, "question", {
+        requestId,
+        questions: req.questions ?? [],
+      }),
+    )
+    log(`a2a ${taskId!.slice(0, 8)}: question ${requestId.slice(0, 12)} (${req.questions?.length ?? 0} item(s))`)
+    return answerPromise
+  })
+
+  /** question 统一收尾：清状态 + 通知 waterfall；answer=null=放弃（返回拒绝错误） */
+  function settleQuestion(run: A2aRun, answer: unknown): void {
+    const q = run.question
+    if (!q) return
+    run.question = null
+    q.resolve(answer)
+    const wf = (q as any)._waterfallResolve as ((a: any) => void) | undefined
+    if (wf) {
+      ;(q as any)._waterfallResolve = undefined
+      if (answer === null) {
+        // 远程取消/任务收尾：恢复一个干净的拒绝（dsh 侧 ask 抛 NO_PROVIDER 之外的错即可）
+        wf(Promise.reject(new Error("question canceled by task teardown")))
+      } else {
+        wf(answer)
+      }
+    }
+  }
+
+  /** 远程 question 回答入口（WS 续聊 DataPart） */
+  function replyQuestion(taskId: string, requestId: string, answers: string[][]): void {
+    const run = a2aRuns.get(taskId)
+    if (!run || !run.question || run.question.requestId !== requestId) {
+      throw new Error("question not pending (already answered?)")
+    }
+    // answers = [[label, ...], ...]（按问题顺序）；转 dsh AskUserQuestionAnswer
+    const questions = (run.question.request?.questions ?? []) as any[]
+    const items = questions.map((q, i) => ({
+      id: String(q.id ?? `q${i}`),
+      selected: answers[i] ?? [],
+    }))
+    a2aEmit(
+      statusUpdate({ taskId, contextId: taskId }, "working", {
+        metadata: { question_resolved: "remote" },
+      }),
+    )
+    log(`a2a ${taskId.slice(0, 8)}: question ${requestId.slice(0, 12)} answered (${items.length} item(s))`)
+    settleQuestion(run, { answers: items })
+  }
+
   // ---------------- WS 客户端 ----------------
 
   a2a = startNexusA2AClient({
@@ -443,8 +525,13 @@ export function apply(ctx: any): void {
     onTask: (task, text, caller, serverSessionId, onAccepted) =>
       executeTask(task, text, caller, serverSessionId ?? "", onAccepted),
     onReply: async (task, data) => {
-      if (data.type !== "permission") throw new Error(`unsupported reply type: ${data.type}`)
-      replyPermission(task.taskId, data.requestId, String(data.reply ?? "once"))
+      if (data.type === "permission") {
+        replyPermission(task.taskId, data.requestId, String(data.reply ?? "once"))
+      } else if (data.type === "question") {
+        replyQuestion(task.taskId, data.requestId, (data.answers ?? []) as string[][])
+      } else {
+        throw new Error(`unsupported reply type: ${data.type}`)
+      }
     },
     onTaskCancel: (taskId) => {
       const run = a2aRuns.get(taskId)
