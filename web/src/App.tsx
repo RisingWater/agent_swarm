@@ -231,7 +231,7 @@ function Confirm({ text, onOk, onClose }: { text: string; onOk: () => void; onCl
 
 // ---------------- 站内信 ----------------
 
-function NotificationBell() {
+function NotificationBell({ onOpenTeam }: { onOpenTeam: (teamId?: string) => void }) {
   const [count, setCount] = useState(0)
   const [open, setOpen] = useState(false)
   const [list, setList] = useState<Notification[]>([])
@@ -256,13 +256,16 @@ function NotificationBell() {
     }
   }
 
-  const readOne = async (n: Notification) => {
-    if (n.read) return
-    try {
-      await api.markNotificationRead(n.id)
-      setList((prev) => prev.map((x) => (x.id === n.id ? { ...x, read: true } : x)))
-      setCount((c) => Math.max(0, c - 1))
-    } catch { /* ignore */ }
+  const handleClick = async (n: Notification) => {
+    if (!n.read) {
+      try {
+        await api.markNotificationRead(n.id)
+        setList((prev) => prev.map((x) => (x.id === n.id ? { ...x, read: true } : x)))
+        setCount((c) => Math.max(0, c - 1))
+      } catch { /* ignore */ }
+    }
+    setOpen(false)
+    onOpenTeam(n.team_id || undefined)  // 跳到「团队」页（有 team 时自动打开该团队）
   }
 
   const readAll = async () => {
@@ -296,7 +299,7 @@ function NotificationBell() {
             ) : list.length ? (
               <div className="notif-list">
                 {list.map((n) => (
-                  <div key={n.id} className={`notif-item${n.read ? "" : " unread"}`} onClick={() => readOne(n)}>
+                  <div key={n.id} className={`notif-item${n.read ? "" : " unread"}`} onClick={() => handleClick(n)}>
                     <div className="notif-title">{n.title}</div>
                     {n.body && <div className="notif-body">{n.body}</div>}
                     <div className="notif-time">{fmtTime(n.created_at, "datetime")}</div>
@@ -321,6 +324,7 @@ export default function App() {
   const { msg, show: toast } = useToast()
   const [token, setToken] = useState(localStorage.getItem("swarm_token"))
   const [page, setPage] = useState<Page>("home")
+  const [openTeamId, setOpenTeamId] = useState<string | null>(null)
 
   // 后台管理：独立 hash 路由（#/admin），独立登录，不进主导航。
   // 注意 hooks 顺序：adminHash 判断必须在全部 hooks 声明之后（条件 return 会破坏 hooks 规则）
@@ -347,6 +351,12 @@ export default function App() {
     window.scrollTo({ top: 0 })
   }
 
+  // 站内信点击：跳到「团队」页（带 team_id 时自动打开该团队详情）
+  const openTeam = (teamId?: string) => {
+    setOpenTeamId(teamId ?? null)
+    goto("teams")
+  }
+
   return (
     <>
       <header className="topnav">
@@ -365,7 +375,7 @@ export default function App() {
               <a className={effectivePage === "artifacts" ? "active" : ""} onClick={() => goto("artifacts")}>产物</a>
             </>
           )}
-          {loggedIn && <NotificationBell />}
+          {loggedIn && <NotificationBell onOpenTeam={openTeam} />}
           {loggedIn ? (
             <a
               className={`user${effectivePage === "account" ? " active" : ""}`}
@@ -419,7 +429,7 @@ export default function App() {
         )}
         {effectivePage === "docs" && <DocsPage />}
         {effectivePage === "nexus" && <NexusPage toast={toast} />}
-        {effectivePage === "teams" && <TeamsPage toast={toast} />}
+        {effectivePage === "teams" && <TeamsPage toast={toast} openTeamId={openTeamId} onConsumeOpenTeam={() => setOpenTeamId(null)} />}
         {effectivePage === "workspaces" && <WorkspacesPage toast={toast} />}
         {effectivePage === "calls" && <CallsPage toast={toast} />}
         {effectivePage === "artifacts" && <ArtifactsPage toast={toast} />}
@@ -1858,7 +1868,7 @@ agent: (a2a_call) → 对方 TUI 实时出现任务 → 执行 → 结果自动�
           </p>
           <p>
             团队动态——被邀请、申请/审批结果、有人加入、被移出、移交队长、团队解散——都会记一条<b>站内信</b>；
-            顶栏的铃铛显示未读数，点开可查看列表并标记已读。
+            顶栏的铃铛显示未读数，点开可查看列表并标记已读；点击某条站内信会跳到「团队」页并打开对应团队。
           </p>
         </section>
 
@@ -3319,7 +3329,7 @@ function ClaudeHookOutput({ output }: { output: string }) {
 
 // ---------------- 工作区 ----------------
 
-function TeamsPage({ toast }: { toast: (m: string) => void }) {
+function TeamsPage({ toast, openTeamId, onConsumeOpenTeam }: { toast: (m: string) => void; openTeamId?: string | null; onConsumeOpenTeam?: () => void }) {
   const [teams, setTeams] = useState<TeamSummary[]>([])
   const [inv, setInv] = useState<TeamInvitations>({ invites: [], requests: [] })
   const [detail, setDetail] = useState<TeamDetail | null>(null)
@@ -3346,6 +3356,14 @@ function TeamsPage({ toast }: { toast: (m: string) => void }) {
   }, [toast])
   useEffect(() => { refresh() }, [refresh])
   useEffect(() => { api.me().then(setMe).catch(() => {}) }, [])
+
+  // 站内信点击跳转：自动打开指定团队详情（消费后清空，避免返回时重复弹）
+  useEffect(() => {
+    if (!openTeamId) return
+    api.teamDetail(openTeamId).then(setDetail).catch((e: any) => toast(e.message))
+    onConsumeOpenTeam?.()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openTeamId])
 
   // 详情打开时轮询刷新（成员/待审批实时些）
   useEffect(() => {
