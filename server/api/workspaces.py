@@ -66,6 +66,59 @@ def list_workspaces(
     return out
 
 
+@router.get("/shared")
+def list_shared_workspaces(
+    user: models.User = Depends(get_user_either),
+    session: Session = Depends(get_session),
+):
+    """团队共享给我的工作区（只读：不能启用/禁用/删除/再共享）。
+
+    返回项含 `owner`（属主）与 `teams`（通过哪些团队共享给我）。可见字段与
+    MCP list_workspaces 的共享项一致（name/purpose/capabilities/agent_type/status/
+    owner），不含 path/notes/session；自有工作区不重复出现在此表。
+    """
+    team_ids = teams_service.active_team_ids(session, user.id)
+    if not team_ids:
+        return {"workspaces": []}
+    team_names = {
+        t.id: t.name
+        for t in session.exec(
+            select(models.Team).where(models.Team.id.in_(team_ids))  # type: ignore[attr-defined]
+        ).all()
+    }
+    by_ws: dict[str, set[str]] = {}
+    for sh in session.exec(
+        select(models.TeamWorkspace).where(
+            models.TeamWorkspace.team_id.in_(team_ids)  # type: ignore[attr-defined]
+        )
+    ).all():
+        if sh.team_id in team_names:
+            by_ws.setdefault(sh.workspace_id, set()).add(team_names[sh.team_id])
+    out = []
+    for wid, tnames in by_ws.items():
+        ws = session.get(models.Workspace, wid)
+        if ws is None or ws.user_id == user.id:
+            continue  # 自己的工作区在「我的」表里，不重复
+        owner = session.get(models.User, ws.user_id)
+        key = (owner.api_key or "") if owner else ""
+        online = ws_is_online(ws)
+        out.append(
+            {
+                "id": ws.id,
+                "name": ws.name,
+                "purpose": crypto.decrypt(key, ws.purpose_enc, ws.purpose),
+                "capabilities": ws.capabilities,
+                "agent_type": ws.agent_type or None,
+                "status": "online" if online else ("disabled" if ws.status == "disabled" else "offline"),
+                "owner": {"id": owner.id, "username": owner.username} if owner else None,
+                "teams": sorted(tnames),
+                "last_heartbeat": ws.last_heartbeat.isoformat() + "Z" if ws.last_heartbeat else None,
+            }
+        )
+    out.sort(key=lambda x: x["name"])
+    return {"workspaces": out}
+
+
 @router.post("")
 def create_workspace(
     body: dict,

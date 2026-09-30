@@ -159,4 +159,4 @@ queued ──(发送+ack 成功)──> working ──> completed | failed
 - **发现**：`list_workspaces` 并入共享项（`shared=true`，暴露 `name/purpose/capabilities/agent_type/status/owner`，**隐藏** path/notes/session）；`GET /api/teams/discover` 按名搜索可申请加入的团队（排除 closed 与已在/待处理）。
 - **调用记录**：`list_calls` 维度含执行（`workspace_id`）与发起（`from_workspace_id`）两侧，A/B 双方均可见"指令 + 答复"，无监控细节；`delete_call` 发起方或执行方均可删。
 - **产物随工作区共享**：产物归属其上传时所在的工作区（`artifact_upload` 的 `workspace_id` **必填**，见 §8）；产物列表 = 自有 + 归属工作区被共享给我所在活跃团队的他人产物（`shared=true`，**只读**、不可 pin/delete）；无归属工作区的产物不共享。
-- **前端**：顶栏「团队」页（创建 / 发现加入 / 成员审批 / 邀请 / 踢人 / 移交 / 退出 / 解散）+ 工作区页「共享到团队」多选；**不做**网页端共享工作区调用入口（成员只走 MCP）。需求详见 `docs/team_requirement.md`。
+- **前端**：顶栏「团队」页（创建 / 发现加入 / 成员审批 / 邀请 / 踢人 / 移交 / 退出 / 解散）；工作区页分「**我的工作区**」（可启用/禁用/删除 + 共享到团队多选）与「**共享工作区**」（只读列表，显示属主与共享团队，不可启用/禁用/删除）两张表；**不做**网页端共享工作区调用入口（成员只走 MCP）。需求详见 `docs/team_requirement.md`。

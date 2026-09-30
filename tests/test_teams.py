@@ -268,6 +268,21 @@ def test_team_detail_requires_membership(env):
     assert ei.value.status_code == 403
 
 
+def test_list_shared_workspaces(env):
+    with Session(engine) as s:
+        t = _create(s, env["alice"], "STeam", policy="open")
+        teams_api.join_team(t["id"], user=env["bob"], session=s)
+        ws_api.set_workspace_shares("w-alice", {"team_ids": [t["id"]]}, user=env["alice"], session=s)
+        alice_shared = ws_api.list_shared_workspaces(user=env["alice"], session=s)["workspaces"]
+        bob_shared = ws_api.list_shared_workspaces(user=env["bob"], session=s)["workspaces"]
+        carol_shared = ws_api.list_shared_workspaces(user=env["carol"], session=s)["workspaces"]
+    assert all(w["id"] != "w-alice" for w in alice_shared)  # 自有不重复出现在共享表
+    assert [w["id"] for w in bob_shared] == ["w-alice"]
+    assert bob_shared[0]["owner"]["username"] == "alice"
+    assert bob_shared[0]["teams"] == ["STeam"]
+    assert carol_shared == []
+
+
 def test_discover_excludes_joined_and_closed(env):
     with Session(engine) as s:
         open_t = _create(s, env["alice"], "Discoverable", policy="open")

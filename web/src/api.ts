@@ -48,6 +48,19 @@ export interface Workspace {
 /** 安装命令用：当前页面 origin（vite dev 时代理到后端，生产同域） */
 export const pageOrigin = window.location.origin
 
+/** 团队共享给我的工作区（只读：不能启用/禁用/删除/再共享） */
+export interface SharedWorkspace {
+  id: string
+  name: string
+  purpose: string
+  capabilities: string | null
+  agent_type: string | null
+  status: "online" | "offline" | "disabled"
+  owner: { id: string; username: string } | null
+  teams: string[]
+  last_heartbeat: string | null
+}
+
 /** A2A 任务（调用记录页 / a2a_call 历史） */
 export interface WorkspaceCall {
   id: string
@@ -158,6 +171,7 @@ export const api = {
   resetApiKey: () => request("/api/me/apikey/reset", { method: "POST" }) as Promise<{ api_key: string }>,
 
   workspaces: () => request("/api/workspaces") as Promise<Workspace[]>,
+  sharedWorkspaces: () => request("/api/workspaces/shared") as Promise<{ workspaces: SharedWorkspace[] }>,
   disableWorkspace: (id: string) => request(`/api/workspaces/${id}/disable`, { method: "POST" }),
   enableWorkspace: (id: string) => request(`/api/workspaces/${id}/enable`, { method: "POST" }),
   deleteWorkspace: (id: string) => request(`/api/workspaces/${id}`, { method: "DELETE" }),

@@ -16,6 +16,7 @@ import {
   type TeamDetail,
   type TeamInvitations,
   type DiscoveredTeam,
+  type SharedWorkspace,
 } from "./api"
 import { copyText } from "./copy"
 import { AdminPage } from "./AdminPage"
@@ -1727,7 +1728,12 @@ agent: (a2a_call) → 对方 TUI 实时出现任务 → 执行 → 结果自动�
           <p>
             所有已注册工作区的看板：在线状态（30 秒心跳，离线显示最后心跳时间）、
             agent 类型、路径与用途说明。可以启用/禁用工作区（禁用后不参与任务派发）、
-            删除离线工作区，支持按名称、路径、用途搜索。
+            删除离线工作区，支持按名称、路径、用途搜索。<b>我的工作区</b>每行还有「共享到团队」入口。
+          </p>
+          <p>
+            下方另列<b>共享工作区</b>：队友共享给你的工作区（只读）——显示所有者、共享团队与用途，
+            可被你的 agent 通过 <code>a2a_call</code> 调用（只拿最终答复），但你不能启用/禁用/删除，
+            也看不到它的监控 / 产物 / 调用细节。
           </p>
           <h3>调用记录</h3>
           <p>
@@ -3529,9 +3535,16 @@ function WorkspacesPage({ toast }: { toast: (m: string) => void }) {
   const [myTeams, setMyTeams] = useState<TeamSummary[]>([])
   const [shareTeamIds, setShareTeamIds] = useState<Set<string>>(new Set())
   const [sharing, setSharing] = useState(false)
+  // 团队共享给我的工作区（只读）
+  const [sharedList, setSharedList] = useState<SharedWorkspace[]>([])
+  const [sharedDetail, setSharedDetail] = useState<SharedWorkspace | null>(null)
 
   const refresh = useCallback(async () => {
-    try { setList(await api.workspaces()) } catch (e: any) { toast(e.message) }
+    try {
+      const [mine, shared] = await Promise.all([api.workspaces(), api.sharedWorkspaces()])
+      setList(mine)
+      setSharedList(shared.workspaces)
+    } catch (e: any) { toast(e.message) }
   }, [toast])
   useEffect(() => {
     refresh()
@@ -3592,7 +3605,8 @@ function WorkspacesPage({ toast }: { toast: (m: string) => void }) {
   return (
     <>
       <h1 className="page-title">工作区</h1>
-      <p className="page-sub">你的 agent 工作区及在线状态，每 10s 自动刷新。</p>
+      <p className="page-sub">你的 agent 工作区及在线状态，每 10s 自动刷新；下方另列团队共享给你的工作区。</p>
+      <h3 style={{ margin: "8px 0" }}>我的工作区</h3>
       <SearchBox value={query} onChange={setQuery} placeholder="搜索名称 / 路径 / 用途…" />
       <table className="grid ws-grid">
         <thead>
@@ -3656,6 +3670,66 @@ function WorkspacesPage({ toast }: { toast: (m: string) => void }) {
           )}
         </tbody>
       </table>
+
+      <h3 style={{ marginTop: 28, marginBottom: 8 }}>共享工作区</h3>
+      <p className="page-sub" style={{ marginTop: 0 }}>
+        团队共享给你的工作区：可被你的 agent 通过 a2a_call 调用（只拿最终答复），
+        你看不到它的监控 / 产物 / 调用细节，也无法启用 / 禁用 / 删除。
+      </p>
+      {sharedList.length ? (
+        <table className="grid ws-grid">
+          <thead>
+            <tr>
+              <th>名称</th>
+              <th style={{ width: 80 }}>状态</th>
+              <th style={{ width: 150 }}>所有者</th>
+              <th style={{ width: 180 }}>共享团队</th>
+              <th>用途</th>
+            </tr>
+          </thead>
+          <tbody>
+            {sharedList.map((w) => (
+              <tr key={w.id}>
+                <td className="strong">
+                  <AgentTypeIcon type={w.agent_type} />
+                  <a className="link" onClick={() => setSharedDetail(w)}>{w.name}</a>
+                </td>
+                <td>
+                  <span title={w.status === "offline" && w.last_heartbeat ? `最后心跳: ${fmtTime(w.last_heartbeat, "datetime")}` : undefined}>
+                    <StatusDot status={w.status} />
+                  </span>
+                </td>
+                <td>{w.owner?.username ?? "-"}</td>
+                <td style={{ fontSize: 12, color: "var(--text-weak)" }}>{w.teams.join("、")}</td>
+                <td style={{ fontSize: 12, color: "var(--text-weak)" }}>{w.purpose || "-"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      ) : (
+        <p style={{ color: "var(--text-weak)" }}>[*] 暂无共享工作区——加入团队后，队友共享的工作区会出现在这里。</p>
+      )}
+
+      {sharedDetail && (
+        <Modal title={sharedDetail.name} onClose={() => setSharedDetail(null)}>
+          <dl className="dl">
+            <dt>状态</dt><dd><StatusDot status={sharedDetail.status} /></dd>
+            <dt>所有者</dt><dd>{sharedDetail.owner?.username ?? "-"}</dd>
+            <dt>共享团队</dt><dd>{sharedDetail.teams.join("、")}</dd>
+            <dt>agent</dt>
+            <dd style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <AgentTypeIcon type={sharedDetail.agent_type} />
+              {sharedDetail.agent_type || "未知"}
+            </dd>
+            <dt>用途</dt><dd>{sharedDetail.purpose || "-"}</dd>
+            <dt>能力</dt><dd>{sharedDetail.capabilities || "-"}</dd>
+            <dt>最后心跳</dt><dd>{fmtTime(sharedDetail.last_heartbeat, "datetime")}</dd>
+          </dl>
+          <p style={{ color: "var(--text-weak)", fontSize: 13, marginTop: 12 }}>
+            团队共享工作区：可 a2a_call 获取最终答复，看不到监控 / 产物 / 调用细节；不能启用 / 禁用 / 删除。
+          </p>
+        </Modal>
+      )}
 
       {shareTarget && (
         <Modal title={`共享「${shareTarget.name}」到团队`} onClose={() => setShareTarget(null)}>
