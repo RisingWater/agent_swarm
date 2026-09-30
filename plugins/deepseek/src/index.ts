@@ -241,6 +241,7 @@ function applyInner(ctx: any): void {
       }
       case "assistant/attempt": {
         // 持久流快照：stream[] 里 text-delta / reasoning-delta 累计值做全量快照上报
+        log(`a2a ${taskId.slice(0, 8)}: attempt received (turn=${turn})`)
         const stream = Array.isArray(data.stream) ? data.stream : []
         let text = ""
         let reasoning = ""
@@ -289,6 +290,7 @@ function applyInner(ctx: any): void {
       }
       case "assistant/message": {
         // 步骤收尾：最终文本（completed 时作 artifact）；interrupted 前缀也算
+        log(`a2a ${taskId.slice(0, 8)}: message received (turn=${turn})`)
         const t = blockText(data.content)
         if (t) run.finalText = t
         break
