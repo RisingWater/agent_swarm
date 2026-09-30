@@ -266,3 +266,19 @@ def test_team_detail_requires_membership(env):
         with pytest.raises(HTTPException) as ei:
             teams_api.team_detail(t["id"], user=env["carol"], session=s)
     assert ei.value.status_code == 403
+
+
+def test_discover_excludes_joined_and_closed(env):
+    with Session(engine) as s:
+        open_t = _create(s, env["alice"], "Discoverable", policy="open")
+        _create(s, env["alice"], "ClosedTeam", policy="closed")
+        _create(s, env["alice"], "ApplyTeam", policy="approval")
+        teams_api.join_team(open_t["id"], user=env["bob"], session=s)  # bob 已加入
+        names = {t["name"] for t in teams_api.discover_teams(user=env["bob"], session=s)["teams"]}
+    assert "Discoverable" not in names  # 已加入
+    assert "ClosedTeam" not in names    # closed
+    assert "ApplyTeam" in names         # approval 可申请
+    # 关键词搜索
+    with Session(engine) as s:
+        only = teams_api.discover_teams(q="apply", user=env["bob"], session=s)["teams"]
+    assert [t["name"] for t in only] == ["ApplyTeam"]

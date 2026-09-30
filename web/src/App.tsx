@@ -12,6 +12,10 @@ import {
   type ChatBindInfo,
   type ChatBindPatch,
   type WeixinStatus,
+  type TeamSummary,
+  type TeamDetail,
+  type TeamInvitations,
+  type DiscoveredTeam,
 } from "./api"
 import { copyText } from "./copy"
 import { AdminPage } from "./AdminPage"
@@ -169,6 +173,19 @@ function TrashIcon({ size = 16 }: { size?: number }) {
   )
 }
 
+function ShareIcon({ size = 16 }: { size?: number }) {
+  // 共享（节点连线）风格图标
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <circle cx="18" cy="5" r="3" />
+      <circle cx="6" cy="12" r="3" />
+      <circle cx="18" cy="19" r="3" />
+      <path d="M8.6 13.5l6.8 4M15.4 6.5l-6.8 4" />
+    </svg>
+  )
+}
+
 function ChevronIcon({ up, size = 14 }: { up?: boolean; size?: number }) {
   // 展开按钮的箭头：默认向下（点击展开），展开后向上
   return (
@@ -207,7 +224,7 @@ function Confirm({ text, onOk, onClose }: { text: string; onOk: () => void; onCl
 
 // ---------------- 应用骨架 ----------------
 
-export type Page = "home" | "docs" | "workspaces" | "calls" | "artifacts" | "account" | "nexus" | "login"
+export type Page = "home" | "docs" | "workspaces" | "calls" | "artifacts" | "account" | "nexus" | "teams" | "login"
 
 export default function App() {
   const { msg, show: toast } = useToast()
@@ -229,7 +246,7 @@ export default function App() {
 
   // 未登录：可见页面只有 首页/文档，受保护页面跳回首页
   const effectivePage: Page =
-    !loggedIn && (page === "workspaces" || page === "calls" || page === "artifacts" || page === "account" || page === "nexus")
+    !loggedIn && (page === "workspaces" || page === "calls" || page === "artifacts" || page === "account" || page === "nexus" || page === "teams")
       ? "home"
       : page
 
@@ -251,6 +268,7 @@ export default function App() {
           {loggedIn && (
             <>
               <a className={effectivePage === "nexus" ? "active" : ""} onClick={() => goto("nexus")}>中枢</a>
+              <a className={effectivePage === "teams" ? "active" : ""} onClick={() => goto("teams")}>团队</a>
               <a className={effectivePage === "workspaces" ? "active" : ""} onClick={() => goto("workspaces")}>工作区</a>
               <a className={effectivePage === "calls" ? "active" : ""} onClick={() => goto("calls")}>调用记录</a>
               <a className={effectivePage === "artifacts" ? "active" : ""} onClick={() => goto("artifacts")}>产物</a>
@@ -309,6 +327,7 @@ export default function App() {
         )}
         {effectivePage === "docs" && <DocsPage />}
         {effectivePage === "nexus" && <NexusPage toast={toast} />}
+        {effectivePage === "teams" && <TeamsPage toast={toast} />}
         {effectivePage === "workspaces" && <WorkspacesPage toast={toast} />}
         {effectivePage === "calls" && <CallsPage toast={toast} />}
         {effectivePage === "artifacts" && <ArtifactsPage toast={toast} />}
@@ -3145,12 +3164,317 @@ function ClaudeHookOutput({ output }: { output: string }) {
 
 // ---------------- 工作区 ----------------
 
+function TeamsPage({ toast }: { toast: (m: string) => void }) {
+  const [teams, setTeams] = useState<TeamSummary[]>([])
+  const [inv, setInv] = useState<TeamInvitations>({ invites: [], requests: [] })
+  const [detail, setDetail] = useState<TeamDetail | null>(null)
+  const [me, setMe] = useState<User | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  const [showCreate, setShowCreate] = useState(false)
+  const [newName, setNewName] = useState("")
+  const [newPolicy, setNewPolicy] = useState("approval")
+
+  const [showBrowse, setShowBrowse] = useState(false)
+  const [discover, setDiscover] = useState<DiscoveredTeam[]>([])
+  const [dq, setDq] = useState("")
+
+  const [inviteName, setInviteName] = useState("")
+  const [confirmDelete, setConfirmDelete] = useState(false)
+
+  const refresh = useCallback(async () => {
+    try {
+      const [t, i] = await Promise.all([api.teams(), api.teamInvitations()])
+      setTeams(t.teams)
+      setInv(i)
+    } catch (e: any) { toast(e.message) }
+  }, [toast])
+  useEffect(() => { refresh() }, [refresh])
+  useEffect(() => { api.me().then(setMe).catch(() => {}) }, [])
+
+  // 详情打开时轮询刷新（成员/待审批实时些）
+  useEffect(() => {
+    const id = detail?.id
+    if (!id) return
+    const t = setInterval(async () => {
+      try { setDetail(await api.teamDetail(id)) } catch { /* ignore */ }
+    }, 5000)
+    return () => clearInterval(t)
+  }, [detail?.id])
+
+  useEffect(() => {
+    if (!showBrowse) return
+    let alive = true
+    api.discoverTeams(dq).then((r) => { if (alive) setDiscover(r.teams) }).catch(() => {})
+    return () => { alive = false }
+  }, [showBrowse, dq])
+
+  const act = async (fn: () => Promise<unknown>, msg: string, close = false) => {
+    setBusy(true)
+    try {
+      await fn()
+      toast(msg)
+      if (close) setDetail(null)
+      else if (detail) {
+        try { setDetail(await api.teamDetail(detail.id)) } catch { setDetail(null) }
+      }
+      await refresh()
+    } catch (e: any) { toast(e.message) } finally { setBusy(false) }
+  }
+
+  const openDetail = async (id: string) => {
+    try { setDetail(await api.teamDetail(id)) } catch (e: any) { toast(e.message) }
+  }
+
+  const createTeam = async () => {
+    if (!newName.trim()) { toast("请输入团队名"); return }
+    setBusy(true)
+    try {
+      await api.createTeam({ name: newName.trim(), join_policy: newPolicy })
+      toast("团队已创建")
+      setShowCreate(false); setNewName(""); setNewPolicy("approval")
+      await refresh()
+    } catch (e: any) { toast(e.message) } finally { setBusy(false) }
+  }
+
+  const policyLabel = (p: string) => ({ approval: "审批加入", open: "开放加入", closed: "禁止加入" } as Record<string, string>)[p] ?? p
+  const memberLabel = (m: TeamMemberInfoLike) =>
+    m.status === "active" ? "成员" : m.kind === "invite" ? "待接受邀请" : "待审批申请"
+
+  const hasInv = inv.invites.length + inv.requests.length > 0
+
+  return (
+    <>
+      <h1 className="page-title">团队</h1>
+      <p className="page-sub">
+        创建团队、邀请成员，并把工作区共享给团队当工具调用——团队成员可对其 a2a_call，
+        只拿最终答复，看不到监控 / 产物 / 调用细节。
+      </p>
+
+      <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+        <Btn onClick={() => setShowCreate(true)}>+ 创建团队</Btn>
+        <Btn variant="ghost" onClick={() => setShowBrowse(true)}>申请加入团队</Btn>
+      </div>
+
+      {hasInv && (
+        <>
+          <h3 style={{ margin: "8px 0" }}>待处理</h3>
+          <table className="grid">
+            <thead>
+              <tr><th style={{ width: 70 }}>类型</th><th style={{ width: 200 }}>团队</th><th>对方</th><th style={{ width: 170 }}>操作</th></tr>
+            </thead>
+            <tbody>
+              {inv.invites.map((v, i) => (
+                <tr key={"inv" + i}>
+                  <td>邀请</td>
+                  <td className="strong">{v.team.name}</td>
+                  <td>{v.invited_by.username} 邀请你加入</td>
+                  <td>
+                    <Btn size="sm" disabled={busy || !me} onClick={() => act(() => api.decideMembership(v.team.id, me!.id, "accept"), "已加入")}>接受</Btn>{" "}
+                    <Btn size="sm" variant="ghost" disabled={busy || !me} onClick={() => act(() => api.decideMembership(v.team.id, me!.id, "reject"), "已拒绝")}>拒绝</Btn>
+                  </td>
+                </tr>
+              ))}
+              {inv.requests.map((v, i) => (
+                <tr key={"req" + i}>
+                  <td>申请</td>
+                  <td className="strong">{v.team.name}</td>
+                  <td>{v.user.username} 申请加入</td>
+                  <td>
+                    <Btn size="sm" disabled={busy} onClick={() => act(() => api.decideMembership(v.team.id, v.user.id, "accept"), "已通过")}>通过</Btn>{" "}
+                    <Btn size="sm" variant="ghost" disabled={busy} onClick={() => act(() => api.decideMembership(v.team.id, v.user.id, "reject"), "已拒绝")}>拒绝</Btn>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
+      )}
+
+      <h3 style={{ margin: "16px 0 8px" }}>我的团队</h3>
+      <table className="grid">
+        <thead>
+          <tr>
+            <th>名称</th>
+            <th style={{ width: 160 }}>队长</th>
+            <th style={{ width: 70 }}>成员</th>
+            <th style={{ width: 100 }}>共享工作区</th>
+            <th style={{ width: 110 }}>加入方式</th>
+          </tr>
+        </thead>
+        <tbody>
+          {teams.map((t) => (
+            <tr key={t.id}>
+              <td className="strong">
+                <a className="link" onClick={() => openDetail(t.id)}>{t.name}</a>
+                {t.is_leader && <span className="status-pill accepted" style={{ marginLeft: 6 }}>队长</span>}
+                {t.is_leader && t.pending_count > 0 && <span title="待审批申请" style={{ marginLeft: 6, color: "var(--accent, #e6a23c)" }}>● {t.pending_count}</span>}
+              </td>
+              <td>{t.leader.username}</td>
+              <td>{t.member_count}</td>
+              <td>{t.workspace_count}</td>
+              <td style={{ color: "var(--text-weak)", fontSize: 12 }}>{policyLabel(t.join_policy)}</td>
+            </tr>
+          ))}
+          {!teams.length && (
+            <tr><td colSpan={5} style={{ color: "var(--text-weak)", textAlign: "center", padding: 32 }}>
+              [*] 暂无团队 — 创建一个，或申请加入
+            </td></tr>
+          )}
+        </tbody>
+      </table>
+
+      {showCreate && (
+        <Modal title="创建团队" onClose={() => setShowCreate(false)}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <label>团队名
+              <input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="如：前端组" style={{ width: "100%", marginTop: 4 }} />
+            </label>
+            <label>加入方式
+              <select value={newPolicy} onChange={(e) => setNewPolicy(e.target.value)} style={{ width: "100%", marginTop: 4 }}>
+                <option value="approval">审批加入（我审核申请）</option>
+                <option value="open">开放加入（无需审核）</option>
+                <option value="closed">禁止加入（仅邀请）</option>
+              </select>
+            </label>
+          </div>
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
+            <Btn size="sm" variant="ghost" onClick={() => setShowCreate(false)}>取消</Btn>
+            <Btn size="sm" disabled={busy} onClick={createTeam}>创建</Btn>
+          </div>
+        </Modal>
+      )}
+
+      {showBrowse && (
+        <Modal title="申请加入团队" onClose={() => setShowBrowse(false)}>
+          <SearchBox value={dq} onChange={setDq} placeholder="搜索团队名…" />
+          <div style={{ maxHeight: 320, overflow: "auto", marginTop: 8 }}>
+            <table className="grid">
+              <thead><tr><th>名称</th><th style={{ width: 140 }}>队长</th><th style={{ width: 70 }}>成员</th><th style={{ width: 90 }}>加入方式</th><th style={{ width: 90 }}></th></tr></thead>
+              <tbody>
+                {discover.map((t) => (
+                  <tr key={t.id}>
+                    <td className="strong">{t.name}</td>
+                    <td>{t.leader.username}</td>
+                    <td>{t.member_count}</td>
+                    <td style={{ color: "var(--text-weak)", fontSize: 12 }}>{policyLabel(t.join_policy)}</td>
+                    <td>
+                      <Btn size="sm" disabled={busy} onClick={() => act(() => api.joinTeam(t.id), t.join_policy === "open" ? "已加入团队" : "已提交申请")}>申请</Btn>
+                    </td>
+                  </tr>
+                ))}
+                {!discover.length && <tr><td colSpan={5} style={{ color: "var(--text-weak)", textAlign: "center", padding: 24 }}>[*] 没有可加入的团队</td></tr>}
+              </tbody>
+            </table>
+          </div>
+          <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 12 }}>
+            <Btn size="sm" variant="ghost" onClick={() => setShowBrowse(false)}>关闭</Btn>
+          </div>
+        </Modal>
+      )}
+
+      {detail && (
+        <Modal wide title={`团队：${detail.name}`} onClose={() => { setDetail(null); setConfirmDelete(false) }}>
+          <dl className="dl">
+            <dt>队长</dt><dd>{detail.leader.username}{detail.is_leader && "（你）"}</dd>
+            <dt>加入方式</dt><dd>{policyLabel(detail.join_policy)}</dd>
+            <dt>成员</dt><dd>{detail.member_count}</dd>
+            <dt>描述</dt><dd>{detail.description || "-"}</dd>
+          </dl>
+
+          {detail.is_leader && (
+            <div style={{ marginTop: 12 }}>
+              <h4 style={{ margin: "8px 0" }}>邀请成员</h4>
+              <div style={{ display: "flex", gap: 8 }}>
+                <input value={inviteName} onChange={(e) => setInviteName(e.target.value)} placeholder="输入用户名" style={{ flex: 1 }} />
+                <Btn size="sm" disabled={busy || !inviteName.trim()} onClick={async () => { const n = inviteName.trim(); await act(() => api.inviteMember(detail.id, n), "邀请已发出"); setInviteName("") }}>邀请</Btn>
+              </div>
+            </div>
+          )}
+
+          <h4 style={{ margin: "16px 0 8px" }}>成员</h4>
+          <table className="grid">
+            <thead><tr><th>用户</th><th style={{ width: 120 }}>状态</th><th style={{ width: 220 }}>操作</th></tr></thead>
+            <tbody>
+              {detail.members.map((m) => (
+                <tr key={m.user_id}>
+                  <td>{m.username}{m.user_id === me?.id && "（你）"}</td>
+                  <td style={{ color: "var(--text-weak)", fontSize: 12 }}>{memberLabel(m)}</td>
+                  <td>
+                    {m.status === "active" && detail.is_leader && m.user_id !== detail.leader.id && (
+                      <>
+                        <Btn size="sm" variant="ghost" disabled={busy} onClick={() => act(() => api.transferLeadership(detail.id, m.user_id), "已移交队长")}>移交队长</Btn>{" "}
+                        <Btn size="sm" variant="danger" disabled={busy} onClick={() => act(() => api.removeMember(detail.id, m.user_id), "已移除成员")}>移除</Btn>
+                      </>
+                    )}
+                    {m.status === "pending" && m.kind === "request" && detail.is_leader && (
+                      <>
+                        <Btn size="sm" disabled={busy} onClick={() => act(() => api.decideMembership(detail.id, m.user_id, "accept"), "已通过")}>通过</Btn>{" "}
+                        <Btn size="sm" variant="ghost" disabled={busy} onClick={() => act(() => api.decideMembership(detail.id, m.user_id, "reject"), "已拒绝")}>拒绝</Btn>
+                      </>
+                    )}
+                    {m.status === "pending" && m.kind === "invite" && m.user_id === me?.id && (
+                      <>
+                        <Btn size="sm" disabled={busy} onClick={() => act(() => api.decideMembership(detail.id, m.user_id, "accept"), "已加入")}>接受</Btn>{" "}
+                        <Btn size="sm" variant="ghost" disabled={busy} onClick={() => act(() => api.decideMembership(detail.id, m.user_id, "reject"), "已拒绝")}>拒绝</Btn>
+                      </>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+
+          <h4 style={{ margin: "16px 0 8px" }}>共享到本团队的工作区</h4>
+          {detail.workspaces.length ? (
+            <ul style={{ margin: 0, paddingLeft: 18 }}>
+              {detail.workspaces.map((w) => (
+                <li key={w.workspace_id}>
+                  {w.name} <span style={{ color: "var(--text-weak)", fontSize: 12, fontFamily: "var(--font-mono)" }}>{w.workspace_id.slice(0, 8)}</span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p style={{ color: "var(--text-weak)", fontSize: 13 }}>暂无 — 到「工作区」页把工作区共享给本团队。</p>
+          )}
+
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 16 }}>
+            <div>
+              {!detail.is_leader && (
+                <Btn variant="ghost" disabled={busy} onClick={() => act(() => api.leaveTeam(detail.id), "已退出团队", true)}>退出团队</Btn>
+              )}
+            </div>
+            <div>
+              {detail.is_leader && (confirmDelete ? (
+                <span style={{ display: "inline-flex", gap: 8, alignItems: "center" }}>
+                  解散团队？
+                  <Btn size="sm" variant="danger" disabled={busy} onClick={() => act(() => api.deleteTeam(detail.id), "团队已解散", true)}>确认</Btn>
+                  <Btn size="sm" variant="ghost" onClick={() => setConfirmDelete(false)}>取消</Btn>
+                </span>
+              ) : (
+                <Btn variant="danger" onClick={() => setConfirmDelete(true)}>解散团队</Btn>
+              ))}
+            </div>
+          </div>
+        </Modal>
+      )}
+    </>
+  )
+}
+
+type TeamMemberInfoLike = { status: string; kind: string }
+
 function WorkspacesPage({ toast }: { toast: (m: string) => void }) {
   const [list, setList] = useState<Workspace[]>([])
   const [detail, setDetail] = useState<Workspace | null>(null)
   const [delTarget, setDelTarget] = useState<Workspace | null>(null)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [query, setQuery] = useState("")
+  // 团队共享（调用权）
+  const [shareTarget, setShareTarget] = useState<Workspace | null>(null)
+  const [myTeams, setMyTeams] = useState<TeamSummary[]>([])
+  const [shareTeamIds, setShareTeamIds] = useState<Set<string>>(new Set())
+  const [sharing, setSharing] = useState(false)
 
   const refresh = useCallback(async () => {
     try { setList(await api.workspaces()) } catch (e: any) { toast(e.message) }
@@ -3185,6 +3509,25 @@ function WorkspacesPage({ toast }: { toast: (m: string) => void }) {
       else next.add(id)
       return next
     })
+  }
+
+  const openShare = async (w: Workspace) => {
+    try {
+      const [t, s] = await Promise.all([api.teams(), api.workspaceShares(w.id)])
+      setMyTeams(t.teams)
+      setShareTeamIds(new Set(s.teams.map((x) => x.team_id)))
+      setShareTarget(w)
+    } catch (e: any) { toast(e.message) }
+  }
+
+  const saveShare = async () => {
+    if (!shareTarget) return
+    setSharing(true)
+    try {
+      await api.setWorkspaceShares(shareTarget.id, Array.from(shareTeamIds))
+      toast("共享设置已保存")
+      setShareTarget(null)
+    } catch (e: any) { toast(e.message) } finally { setSharing(false) }
   }
 
   const q = query.trim().toLowerCase()
@@ -3241,6 +3584,9 @@ function WorkspacesPage({ toast }: { toast: (m: string) => void }) {
                 </div>
               </td>
               <td>
+                <Btn variant="icon" title="共享到团队" onClick={() => openShare(w)}>
+                  <ShareIcon />
+                </Btn>
                 {w.status !== "online" && (
                   <Btn variant="icon" title="删除" onClick={() => setDelTarget(w)}>
                     <TrashIcon />
@@ -3256,6 +3602,45 @@ function WorkspacesPage({ toast }: { toast: (m: string) => void }) {
           )}
         </tbody>
       </table>
+
+      {shareTarget && (
+        <Modal title={`共享「${shareTarget.name}」到团队`} onClose={() => setShareTarget(null)}>
+          <p style={{ margin: 0, color: "var(--text-weak)", fontSize: 13 }}>
+            共享后，所选团队的成员可对该工作区发起 a2a_call（只拿最终答复），
+            但看不到监控 / 产物 / 调用细节。
+          </p>
+          {myTeams.length ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, margin: "14px 0" }}>
+              {myTeams.map((t) => (
+                <label key={t.id} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <input
+                    type="checkbox"
+                    checked={shareTeamIds.has(t.id)}
+                    onChange={(e) => {
+                      setShareTeamIds((prev) => {
+                        const next = new Set(prev)
+                        if (e.target.checked) next.add(t.id)
+                        else next.delete(t.id)
+                        return next
+                      })
+                    }}
+                  />
+                  {t.name}
+                  {t.is_leader && <span style={{ color: "var(--text-weak)", fontSize: 12 }}>（队长）</span>}
+                </label>
+              ))}
+            </div>
+          ) : (
+            <p style={{ color: "var(--text-weak)", fontSize: 13, margin: "14px 0" }}>
+              你还没有加入任何团队 — 先到「团队」页创建或加入。
+            </p>
+          )}
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 8 }}>
+            <Btn size="sm" variant="ghost" onClick={() => setShareTarget(null)}>取消</Btn>
+            <Btn size="sm" disabled={sharing || !myTeams.length} onClick={saveShare}>保存</Btn>
+          </div>
+        </Modal>
+      )}
 
       {delTarget && (
         <Modal title={`删除 ${delTarget.name}？`} onClose={() => setDelTarget(null)}>

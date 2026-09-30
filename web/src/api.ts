@@ -63,6 +63,49 @@ export interface WorkspaceCall {
   done_at: string | null
 }
 
+// ────────────── 团队 ──────────────
+
+export interface TeamSummary {
+  id: string
+  name: string
+  join_policy: "approval" | "open" | "closed"
+  description: string
+  leader: { id: string; username: string }
+  is_leader: boolean
+  member_count: number
+  pending_count: number
+  workspace_count: number
+  created_at: string
+}
+
+export interface TeamMemberInfo {
+  user_id: string
+  username: string
+  status: "pending" | "active"
+  kind: "invite" | "request"
+  initiated_by: string
+  created_at: string | null
+}
+
+export interface TeamDetail extends TeamSummary {
+  members: TeamMemberInfo[]
+  workspaces: { workspace_id: string; name: string; shared_by: string }[]
+}
+
+export interface TeamInvitations {
+  invites: { team: { id: string; name: string }; invited_by: { id: string; username: string }; created_at: string | null }[]
+  requests: { team: { id: string; name: string }; user: { id: string; username: string }; created_at: string | null }[]
+}
+
+export interface DiscoveredTeam {
+  id: string
+  name: string
+  join_policy: "approval" | "open" | "closed"
+  description: string
+  leader: { id: string; username: string }
+  member_count: number
+}
+
 export interface Artifact {
   id: string
   name: string
@@ -119,6 +162,44 @@ export const api = {
   calls: (workspaceId = "") =>
     request(`/api/calls${workspaceId ? `?workspace_id=${encodeURIComponent(workspaceId)}` : ""}`) as Promise<WorkspaceCall[]>,
   deleteCall: (id: string) => request(`/api/calls/${id}`, { method: "DELETE" }),
+
+  // 团队
+  teams: () => request("/api/teams") as Promise<{ teams: TeamSummary[] }>,
+  createTeam: (body: { name: string; join_policy?: string; description?: string }) =>
+    request("/api/teams", { method: "POST", body: JSON.stringify(body) }) as Promise<TeamSummary>,
+  teamDetail: (id: string) => request(`/api/teams/${encodeURIComponent(id)}`) as Promise<TeamDetail>,
+  updateTeam: (id: string, patch: { name?: string; join_policy?: string; description?: string }) =>
+    request(`/api/teams/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(patch) }) as Promise<TeamSummary>,
+  deleteTeam: (id: string) => request(`/api/teams/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  discoverTeams: (q = "") =>
+    request(`/api/teams/discover?q=${encodeURIComponent(q)}`) as Promise<{ teams: DiscoveredTeam[] }>,
+  teamInvitations: () => request("/api/teams/invitations") as Promise<TeamInvitations>,
+  inviteMember: (id: string, username: string) =>
+    request(`/api/teams/${encodeURIComponent(id)}/members/invite`, {
+      method: "POST", body: JSON.stringify({ username }),
+    }) as Promise<{ ok: boolean }>,
+  joinTeam: (id: string) =>
+    request(`/api/teams/${encodeURIComponent(id)}/join`, { method: "POST", body: "{}" }) as Promise<{ ok: boolean; status: string }>,
+  decideMembership: (id: string, userId: string, action: "accept" | "reject") =>
+    request(`/api/teams/${encodeURIComponent(id)}/members/${encodeURIComponent(userId)}/decision`, {
+      method: "POST", body: JSON.stringify({ action }),
+    }) as Promise<{ ok: boolean }>,
+  removeMember: (id: string, userId: string) =>
+    request(`/api/teams/${encodeURIComponent(id)}/members/${encodeURIComponent(userId)}`, { method: "DELETE" }) as Promise<{ ok: boolean }>,
+  leaveTeam: (id: string) =>
+    request(`/api/teams/${encodeURIComponent(id)}/leave`, { method: "POST", body: "{}" }) as Promise<{ ok: boolean }>,
+  transferLeadership: (id: string, userId: string) =>
+    request(`/api/teams/${encodeURIComponent(id)}/members/${encodeURIComponent(userId)}/transfer`, {
+      method: "POST", body: "{}",
+    }) as Promise<{ ok: boolean }>,
+
+  // 工作区共享（调用权）
+  workspaceShares: (id: string) =>
+    request(`/api/workspaces/${encodeURIComponent(id)}/shares`) as Promise<{ teams: { team_id: string; name: string }[] }>,
+  setWorkspaceShares: (id: string, teamIds: string[]) =>
+    request(`/api/workspaces/${encodeURIComponent(id)}/shares`, {
+      method: "PUT", body: JSON.stringify({ team_ids: teamIds }),
+    }) as Promise<{ ok: boolean; team_ids: string[] }>,
 
   artifacts: () => request("/api/artifacts") as Promise<Artifact[]>,
   pinArtifact: (id: string, pinned: boolean) =>

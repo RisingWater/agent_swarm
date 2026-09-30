@@ -185,6 +185,42 @@ def my_invitations(
     return {"invites": invites, "requests": requests}
 
 
+@router.get("/discover")
+def discover_teams(
+    q: str = "",
+    user: models.User = Depends(get_user_either),
+    session: Session = Depends(get_session),
+):
+    """公开团队目录：按名称搜索可申请加入的团队。
+
+    排除：closed 团队、我已在/待处理的团队。仅返回轻量信息。
+    """
+    my = set(
+        session.exec(
+            select(models.TeamMember.team_id).where(models.TeamMember.user_id == user.id)
+        ).all()
+    )
+    needle = q.strip().lower()
+    out = []
+    for team in session.exec(select(models.Team).where(models.Team.join_policy != "closed")).all():
+        if team.id in my:
+            continue
+        if needle and needle not in team.name.lower():
+            continue
+        out.append(
+            {
+                "id": team.id,
+                "name": team.name,
+                "join_policy": team.join_policy,
+                "description": team.description or "",
+                "leader": {"id": team.owner_id, "username": _username(session, team.owner_id)},
+                "member_count": teams_service.team_member_count(session, team.id, "active"),
+            }
+        )
+    out.sort(key=lambda x: x["name"])
+    return {"teams": out}
+
+
 @router.get("/{team_id}")
 def team_detail(
     team_id: str,
