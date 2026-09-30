@@ -21,6 +21,8 @@ import { readWorkspaceId, writeWorkspaceId, workspaceFilePath } from "./workspac
 interface McpResult {
   ok: boolean
   text: string
+  /** content[0].text 解析出的对象（工具返回 JSON 时）；非 JSON 时 undefined */
+  data?: any
 }
 
 function mcpClient(cfg: SwarmConfig) {
@@ -32,31 +34,49 @@ function mcpClient(cfg: SwarmConfig) {
   })
   return {
     async callTool(name: string, args: Record<string, unknown>): Promise<McpResult> {
+      // 每请求 8s 超时：命令 handler 挂住会卡死 UI（Electron 环境代理劫持 localhost 等场景）
+      const timeout = (ms: number) => {
+        const ctl = new AbortController()
+        const timer = setTimeout(() => ctl.abort(), ms)
+        return { signal: ctl.signal, done: () => clearTimeout(timer) }
+      }
       try {
+        const t1 = timeout(8_000)
         const init = await fetch(`${base}/mcp/`, {
           method: "POST",
           headers: headers(),
+          signal: t1.signal,
           body: JSON.stringify({
             jsonrpc: "2.0", id: 1, method: "initialize",
             params: { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "dsh-agent-swarm", version: "0.1.0" } },
           }),
         })
+        t1.done()
         if (init.status === 401) return { ok: false, text: "apikey 无效（401），请在 web 账号页重新获取并更新配置" }
         if (!init.ok) return { ok: false, text: `服务端连接失败（HTTP ${init.status}）` }
+        const t2 = timeout(8_000)
         const r = await fetch(`${base}/mcp/`, {
           method: "POST",
           headers: headers(),
+          signal: t2.signal,
           body: JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name, arguments: args } }),
         })
-        if (!r.ok) return { ok: false, text: `tools/call ${name} 失败（HTTP ${r.status}）` }
         const body: any = await r.json()
+        t2.done()
+        if (!r.ok) return { ok: false, text: `tools/call ${name} 失败（HTTP ${r.status}）` }
         if (body.error) return { ok: false, text: JSON.stringify(body.error) }
         const result = body.result
         if (result?.isError) return { ok: false, text: String(result?.content?.[0]?.text ?? "tool error") }
         const sc = result?.structuredContent
-        return { ok: true, text: JSON.stringify(sc ?? (result?.content ?? []).map((c: any) => c.text).join("\n")) }
+        const textOnly = (result?.content ?? []).map((c: any) => c.text).join("\n")
+        // content[0].text 常是 JSON 字符串（服务端工具的返回）——解析成对象随行，
+        // 调用方优先用 data，避免二次 stringify/parse 的引号地狱
+        let data: any
+        try { data = JSON.parse(textOnly) } catch { /* 非 JSON 文本 */ }
+        return { ok: true, text: sc !== undefined ? JSON.stringify(sc) : textOnly, data: data ?? sc }
       } catch (e) {
-        return { ok: false, text: `连接失败: ${e}` }
+        const msg = String((e as Error)?.cause ?? e)
+        return { ok: false, text: msg.includes("abort") ? "服务端响应超时（8s）——检查 agent_swarm 服务是否在线" : `连接失败: ${msg}` }
       }
     },
   }
@@ -73,6 +93,13 @@ function writeWorkspaceIdFile(directory: string, id: string): void {
   writeWorkspaceId(directory, id)
 }
 
+/** 命令目标目录：优先会话工作区（invocation.agent.session.header.cwd，用户在哪个
+ * 项目里敲的命令就是哪个项目）；取不到回退插件 cwd。 */
+function invocationDir(invocation: any, fallback: string): string {
+  const cwd = invocation?.agent?.session?.header?.cwd
+  return typeof cwd === "string" && cwd ? cwd : fallback
+}
+
 export function swarmCommands(ctx: any, opts: { directory: string; log: (msg: string) => void }): void {
   const { directory, log } = opts
   const commands = ctx.commands
@@ -81,14 +108,14 @@ export function swarmCommands(ctx: any, opts: { directory: string; log: (msg: st
     return
   }
 
-  const register = (name: string, description: string, run: (rawInput: string) => Promise<{ kind: string; text?: string }>) => {
+  const register = (name: string, description: string, run: (rawInput: string, invocation: any) => Promise<{ kind: string; text?: string }>) => {
     try {
       commands.register({
         name,
         description,
         handler: async (invocation: any) => {
           try {
-            return await run(String(invocation?.rawInput ?? ""))
+            return await run(String(invocation?.rawInput ?? ""), invocation)
           } catch (e) {
             return { kind: "error", text: String(e) }
           }
@@ -100,10 +127,11 @@ export function swarmCommands(ctx: any, opts: { directory: string; log: (msg: st
     }
   }
 
-  // /swarm-add —— 注册当前目录
-  register("swarm-add", "把当前目录注册到 agent_swarm 中枢", async (rawInput) => {
+  // /swarm-add —— 注册当前项目（会话工作区）
+  register("swarm-add", "把当前项目注册到 agent_swarm 中枢", async (rawInput, invocation) => {
     const cfg = loadConfig()
     if (!cfg) return { kind: "error", text: "插件未配置（缺 ~/.config/dsh/agent-swarm.json），请先运行安装脚本" }
+    const directory = invocationDir(invocation, opts.directory)
     const purpose = rawInput.trim()
     const existing = readWorkspaceId(directory)
     if (existing) return { kind: "success", text: `当前目录已是工作区：${existing}（${workspaceFilePath(directory)}）` }
@@ -124,15 +152,15 @@ export function swarmCommands(ctx: any, opts: { directory: string; log: (msg: st
       name: basename(directory),
     })
     if (!rsp.ok) return { kind: "error", text: rsp.text }
-    let id = ""
-    try { id = String(JSON.parse(rsp.text).workspace_id ?? "") } catch { /* ignore */ }
-    if (!id) return { kind: "error", text: `注册返回无 workspace_id: ${rsp.text}` }
+    const id = String(rsp.data?.workspace_id ?? "")
+    if (!id) return { kind: "error", text: `注册返回无 workspace_id: ${rsp.text.slice(0, 300)}` }
     writeWorkspaceIdFile(directory, id)
-    return { kind: "success", text: `✅ 已注册工作区 ${id}\n${workspaceFilePath(directory)}` }
+    return { kind: "success", text: `✅ 已注册工作区 ${id}（${directory}）\n${workspaceFilePath(directory)}` }
   })
 
   // /swarm-remove —— 注销（仅离线可删）
-  register("swarm-remove", "从中枢注销当前工作区", async () => {
+  register("swarm-remove", "从中枢注销当前工作区", async (_rawInput, invocation) => {
+    const directory = invocationDir(invocation, opts.directory)
     const cfg = loadConfig()
     if (!cfg) return { kind: "error", text: "插件未配置" }
     const wid = workspaceIdOrError(directory)
@@ -148,7 +176,8 @@ export function swarmCommands(ctx: any, opts: { directory: string; log: (msg: st
 
   // /swarm-enable / /swarm-disable
   const toggle = (name: string, tool: "workspace_enable" | "workspace_disable", label: string) =>
-    register(name, `${label}当前工作区`, async () => {
+    register(name, `${label}当前工作区`, async (_rawInput, invocation) => {
+      const directory = invocationDir(invocation, opts.directory)
       const cfg = loadConfig()
       if (!cfg) return { kind: "error", text: "插件未配置" }
       const wid = workspaceIdOrError(directory)
@@ -162,7 +191,8 @@ export function swarmCommands(ctx: any, opts: { directory: string; log: (msg: st
   toggle("swarm-disable", "workspace_disable", "禁用")
 
   // /swarm-notes —— 更新备注
-  register("swarm-notes", "更新当前工作区备注", async (rawInput) => {
+  register("swarm-notes", "更新当前工作区备注", async (rawInput, invocation) => {
+    const directory = invocationDir(invocation, opts.directory)
     const cfg = loadConfig()
     if (!cfg) return { kind: "error", text: "插件未配置" }
     const notes = rawInput.trim()
