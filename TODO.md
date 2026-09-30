@@ -65,11 +65,11 @@
 - [x] P1-9 文档：TODO 记录（本清单）+ 迁移在旧库上实测通过
 
 ### P2 MCP + 调用记录 + 完成提醒兼容
-- [ ] `list_workspaces` 并入共享工作区（带 shared 标记，字段 name/purpose/capabilities/agent_type/status/owner）
-- [ ] `a2a_call` 目标可见性放宽 + 写 `user_id=执行方属主` / `from_user_id=调用方`（执行方属主 key 加密）
-- [ ] `a2a_task` 授权 `user_id==我 OR from_user_id==我`；解密用任务属主 key
-- [ ] 调用记录：`list_calls` / `delete_call` 加 `from_workspace_id` 维度（A、B 均可见指令+答复）
-- [ ] 完成提醒链路跨用户兼容验证
+- [x] `list_workspaces` 并入共享工作区（带 shared 标记，字段 name/purpose/capabilities/agent_type/status/owner；隐藏 path/notes）
+- [x] `a2a_call` 目标可见性放宽（can_invoke）+ 写 `user_id=执行方属主` / `from_user_id=调用方`（执行方属主 key 加密）
+- [x] `a2a_task` 授权 `user_id==我 OR from_user_id==我`；解密/超时写回统一用任务属主 key
+- [x] 调用记录：`list_calls` / `delete_call` 加 `from_workspace_id` 维度（A、B 均可见指令+答复）
+- [x] 完成提醒链路跨用户兼容（按 from_workspace_id 回到发起方；7 例新测试覆盖）
 
 ### P3 前端
 - [ ] 顶栏「团队」页：创建/成员/待审批/共享工作区/邀请/审批/踢人/移交/退出 + 待办红点

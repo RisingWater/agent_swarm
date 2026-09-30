@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import or_
 from sqlmodel import Session, select
 
 from server import crypto, models
@@ -60,16 +61,27 @@ def list_calls(
 ):
     """调用记录（调用方向 = a2a_tasks 表，含 A2A 任务与前台监控轮）。
 
-    workspace_id 非空时按执行工作区过滤（web 调用记录页要求先选工作区）。
+    workspace_id 非空时按工作区过滤（web 调用记录页要求先选工作区）。
+    维度包含"执行"与"发起"两侧：workspace_id==wid（该工作区执行的）或
+    from_workspace_id==wid（该工作区发起的，含跨用户团队调用）。
     """
     ws_ids = visible_workspace_ids(user, session)
     stmt = select(models.A2aTask)
     if workspace_id:
         if workspace_id not in ws_ids:
             raise HTTPException(404, "workspace not found")
-        stmt = stmt.where(models.A2aTask.workspace_id == workspace_id)
+        stmt = stmt.where(
+            or_(
+                models.A2aTask.workspace_id == workspace_id,
+                models.A2aTask.from_workspace_id == workspace_id,
+            )
+        )
     rows = session.exec(stmt).all()
-    out = [call_out(c, session) for c in rows if c.workspace_id in ws_ids or c.external_url]
+    out = [
+        call_out(c, session)
+        for c in rows
+        if c.workspace_id in ws_ids or c.from_workspace_id in ws_ids or c.external_url
+    ]
     out.sort(key=lambda x: x["created_at"], reverse=True)
     return out
 
@@ -83,7 +95,12 @@ def delete_call(
     call = session.get(models.A2aTask, call_id)
     if call is None:
         raise HTTPException(404, "call not found")
-    owned = call.workspace_id in visible_workspace_ids(user, session) if call.workspace_id else bool(call.external_url)
+    ws_ids = visible_workspace_ids(user, session)
+    owned = (
+        call.workspace_id in ws_ids
+        or call.from_workspace_id in ws_ids
+        or (bool(call.external_url) and not call.workspace_id)
+    )
     if not owned:
         raise HTTPException(403, "not your call")
     if call.status not in ("completed", "failed", "canceled"):

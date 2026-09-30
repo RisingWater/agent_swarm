@@ -374,9 +374,11 @@ def update_info(
 
 @mcp.tool(annotations=_ann(readonly=True))
 def list_workspaces(include_offline: bool = False) -> dict:
-    """列出当前用户可见的 agent 工作区（自己创建的）。
+    """列出当前用户可见的 agent 工作区（自己创建的 + 团队共享给你的）。
 
     默认只返回在线且启用的工作区；请求方可直接挑选目标发起求助。
+    团队共享的工作区带 ``shared=true``：可对其 a2a_call（只拿最终答复），
+    但看不到其监控/产物/调用细节（共享只授予调用权，不授予可见权）。
 
     Args:
         include_offline: 是否包含离线工作区（默认 false）
@@ -387,11 +389,14 @@ def list_workspaces(include_offline: bool = False) -> dict:
     user = get_user()
     session = next(get_session())
     try:
-        mine = session.exec(
-            select(models.Workspace).where(models.Workspace.user_id == user.id)
-        ).all()
+        from server import teams_service
+
         out = []
-        for ws in mine:
+        mine_ids: set[str] = set()
+        for ws in session.exec(
+            select(models.Workspace).where(models.Workspace.user_id == user.id)
+        ).all():
+            mine_ids.add(ws.id)
             online = ws_is_online(ws)
             if not include_offline and not online:
                 continue
@@ -408,9 +413,38 @@ def list_workspaces(include_offline: bool = False) -> dict:
                     "status": "online" if online else ("disabled" if ws.status == "disabled" else "offline"),
                     "owner": owner.username if owner else None,
                     "is_self": ws.user_id == user.id,
+                    "shared": False,
                     "last_heartbeat": ws.last_heartbeat.isoformat() + "Z" if ws.last_heartbeat else None,
                 }
             )
+        # 团队共享给我的工作区：只暴露 名称/用途/能力/在线/属主，隐藏 path/notes/session/调用细节
+        for wid in teams_service.shared_workspace_ids(session, user.id):
+            if wid in mine_ids:
+                continue
+            ws = session.get(models.Workspace, wid)
+            if ws is None or ws.status == "disabled":
+                continue
+            online = ws_is_online(ws)
+            if not include_offline and not online:
+                continue
+            owner = session.get(models.User, ws.user_id)
+            owner_key = (owner.api_key or "") if owner else ""
+            out.append(
+                {
+                    "workspace_id": ws.id,
+                    "name": ws.name,
+                    "purpose": crypto.decrypt(owner_key, ws.purpose_enc, ws.purpose),
+                    "capabilities": ws.capabilities,
+                    "agent_type": ws.agent_type or None,
+                    "status": "online" if online else "offline",
+                    "owner": owner.username if owner else None,
+                    "is_self": False,
+                    "shared": True,
+                    "note": "团队共享工作区：可 a2a_call 获取最终答复，无监控/产物/调用细节",
+                    "last_heartbeat": ws.last_heartbeat.isoformat() + "Z" if ws.last_heartbeat else None,
+                }
+            )
+        out.sort(key=lambda x: x["name"])
         return {"workspaces": out}
     finally:
         session.close()
@@ -430,7 +464,9 @@ async def a2a_call(target: str, message: str, context_id: str = "", *, from_work
     A2A 端点 URL（如 https://host/a2a/agent-id）。返回 task_id，用 a2a_task 轮询结果。
 
     Args:
-        target: 内部工作区 ID，或外部 A2A agent 端点 URL。**禁止指向你自己的
+        target: 内部工作区 ID，或外部 A2A agent 端点 URL。内部工作区可以是
+            你自己的，也可以是**团队共享给你的**（list_workspaces 里 shared=true，
+            你只会收到最终答复，看不到监控/产物/调用细节）。**禁止指向你自己的
             工作区**（即 from_workspace 填的那个 ID）——自我派单会无限循环，
             服务端会直接拒绝
         message: 任务指令，尽量具体（涉及文件写绝对路径）
@@ -477,6 +513,7 @@ async def a2a_call(target: str, message: str, context_id: str = "", *, from_work
                 user_id=user.id,
                 caller="agent",
                 from_workspace_id=from_workspace if from_ws_valid else "",
+                from_user_id=user.id,
                 status=status if status in ("queued", "working", "input-required", "completed", "failed", "canceled") else "working",
             )
             msg_enc = crypto.encrypt(user.api_key or "", message)
@@ -494,8 +531,11 @@ async def a2a_call(target: str, message: str, context_id: str = "", *, from_work
                 "note": "external A2A agent; poll with a2a_task",
             }
         # 内部工作区：落 queued 任务，WS 实时推给目标插件
+        # 目标可见性：自有 **或** 团队共享给我（can_invoke，仅调用权）
+        from server import teams_service
+
         tgt = session.get(models.Workspace, target)
-        if tgt is None or tgt.user_id != user.id:
+        if tgt is None or not teams_service.can_invoke(session, user.id, tgt.id):
             raise ValueError(f"target workspace {target!r} not found or not visible to you")
         # 二次防线：发起方注明时已拦（上面）；这里兜底 target 恰为发起工作区本身
         if tgt.id == from_workspace:
@@ -507,16 +547,21 @@ async def a2a_call(target: str, message: str, context_id: str = "", *, from_work
         online = _ws_plugin_online(tgt.id)
         if not online and not ws_is_online(tgt):
             raise ValueError("target workspace is not online")
+        # 执行方属主 = 任务/加密/通知归属（简报与权限卡只到属主）；调用方记 from_user_id（取件授权）。
+        # 同用户调用时两者一致，行为与此前完全相同。
+        exec_owner = session.get(models.User, tgt.user_id)
+        exec_key = (exec_owner.api_key or "") if exec_owner else ""
         task = models.A2aTask(
             id=shortuuid.uuid(),
             context_id=context_id or shortuuid.uuid(),
             workspace_id=tgt.id,
-            user_id=user.id,
+            user_id=tgt.user_id,
+            from_user_id=user.id,
             caller="agent",
             from_workspace_id=from_workspace if from_ws_valid else "",
             status="queued",
         )
-        msg_enc = crypto.encrypt(user.api_key or "", message)
+        msg_enc = crypto.encrypt(exec_key, message)
         task.message_enc = msg_enc
         task.message = "" if msg_enc else message
         session.add(task)
@@ -538,7 +583,7 @@ async def a2a_call(target: str, message: str, context_id: str = "", *, from_work
             # 同步等待终态（事件总线驱动，零轮询）；返回体带结果
             from server.nexus_a2a import wait_task_final
 
-            final_status, artifact, error = await wait_task_final(task.id, user.api_key or "", wait_seconds)
+            final_status, artifact, error = await wait_task_final(task.id, exec_key, wait_seconds)
             result["status"] = final_status
             if artifact:
                 result["result"] = artifact
@@ -569,18 +614,27 @@ def a2a_task(task_id: str) -> dict:
         task = session.get(models.A2aTask, task_id)
         if task is None:
             raise ValueError(f"task {task_id} not found")
-        # 归属校验：内部任务看工作区属主；外部任务记录创建人（简化：caller + 外部不校验属主，MCP 层已按用户隔离）
+        # 归属校验：内部任务 = 执行方属主 **或** 发起方用户（跨用户团队调用）；
+        # 外部任务记录创建人（简化：外部不校验属主，MCP 层已按用户隔离）。
         if task.workspace_id:
             ws = session.get(models.Workspace, task.workspace_id)
-            if ws is None or ws.user_id != user.id:
+            is_owner = ws is not None and ws.user_id == user.id
+            is_caller = bool(task.from_user_id) and task.from_user_id == user.id
+            if not (is_owner or is_caller):
                 raise ValueError("not your task")
+        # 解密/加密统一用**任务属主 key**（内部任务属主=执行方；外部任务=创建人）
+        owner_key = user.api_key or ""
+        if task.user_id:
+            owner = session.get(models.User, task.user_id)
+            if owner is not None:
+                owner_key = owner.api_key or ""
         # 超时兜底：working/queued 超时标记 failed
         if task.status in ("queued", "working") and task.created_at:
             created = task.created_at if task.created_at.tzinfo else task.created_at.replace(tzinfo=timezone.utc)
             if (datetime.now(timezone.utc) - created).total_seconds() > CALL_TIMEOUT_SECONDS:
                 timeout_msg = f"timeout after {CALL_TIMEOUT_SECONDS}s"
                 task.status = "failed"
-                task.error_enc = crypto.encrypt(user.api_key or "", timeout_msg)
+                task.error_enc = crypto.encrypt(owner_key, timeout_msg)
                 task.error = None if task.error_enc else timeout_msg
                 task.done_at = utcnow()
                 session.add(task)
@@ -594,8 +648,8 @@ def a2a_task(task_id: str) -> dict:
             "task_id": task.id,
             "context_id": task.context_id,
             "status": task.status,
-            "result": crypto.decrypt(user.api_key or "", task.artifact_enc, task.artifact),
-            "error": crypto.decrypt(user.api_key or "", task.error_enc, task.error),
+            "result": crypto.decrypt(owner_key, task.artifact_enc, task.artifact),
+            "error": crypto.decrypt(owner_key, task.error_enc, task.error),
         }
         if task.status == "input-required":
             out["note"] = "task needs input (permission/question); reply via web nexus page"
