@@ -5,6 +5,8 @@
     "moduleResolution": "bundler",
     "strict": true,
     "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "rewriteRelativeImportExtensions": true,
     "skipLibCheck": true,
     "typeRoots": ["../opencode/node_modules/@types"],
     "types": ["node"]

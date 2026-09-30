@@ -23,9 +23,9 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync, truncate
 import { homedir } from "node:os"
 import { join, resolve } from "node:path"
 import { randomUUID } from "node:crypto"
-import { loadConfig } from "./config"
-import { readWorkspaceId, readSessionMap, writeSessionEntry } from "./workspace"
-import { SwarmHeartbeat } from "./heartbeat"
+import { loadConfig } from "./config.ts"
+import { readWorkspaceId, readSessionMap, writeSessionEntry } from "./workspace.ts"
+import { SwarmHeartbeat } from "./heartbeat.ts"
 import {
   startNexusA2AClient,
   type NexusA2AClient,
@@ -36,7 +36,7 @@ import {
   inputRequired,
   toolStatus,
   streamStatus,
-} from "./ws"
+} from "./ws.ts"
 
 const LOG_DIR = join(homedir(), ".config", "dsh", "agent-swarm")
 const LOG_FILE = join(LOG_DIR, "plugin.log")

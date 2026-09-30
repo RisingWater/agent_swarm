@@ -1,7 +1,7 @@
 /** agent_swarm MCP 心跳客户端（HTTP JSON-RPC，每次独立 initialize，服务端 stateless）。
  * 与 register.mjs / opencode 插件 SwarmClient 同款协议；仅心跳用（任务走 WS）。 */
 
-import type { SwarmConfig } from "./config"
+import type { SwarmConfig } from "./config.ts"
 
 export class SwarmHeartbeat {
   private baseUrl: string
