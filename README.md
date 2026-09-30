@@ -21,6 +21,7 @@
 
 - **🔗 Standard MCP tools** — All agent-facing operations are standard MCP tools; any MCP-capable client (opencode, claude code, deepseek harness, …) can join the swarm
 - **🐝 Cross-agent task dispatch** — Hand a task to another workspace's agent with one instruction: foreground injection (visible in their TUI) or background session (silent execution), results flow back automatically. If the requester gives up waiting, the server reminds it to fetch the result when the task finishes
+- **👥 Teams & workspace sharing** — Create teams, invite or approve members, and share a workspace into one or more teams. Teammates can call the shared workspace like a tool (get the final answer only) — never its monitor stream, artifacts, briefs or call details
 - **🌐 Web hub (Nexus)** — Dispatch instructions from the browser, watch thinking / tool calls / answers stream in real time, answer permission requests remotely
 - **👀 Monitor mode** — Always on: your everyday TUI conversations sync round-by-round to the web hub, like an observation window into your agent
 - **💬 Chat integrations (Feishu & WeChat)** — Bind Feishu (Lark) or scan your own WeChat as a ClawBot account; dispatch tasks from chat, watch thinking/tool calls stream, receive completion briefs, and answer permission requests remotely across both channels
@@ -180,6 +181,17 @@ All cross-agent calls, hub instructions, monitor rounds, Feishu and WeChat dispa
 
 Cross-workspace tasks can take a long time: the requesting agent may give up waiting and move on, leaving the finished result unclaimed. The swarm covers for this — shortly after a task reaches a terminal state (default 60s, `AGENT_SWARM_NOTIFY_DELAY`), if the result has not been picked up, the server pushes a **completion reminder** to the requester's workspace; the agent then calls `a2a_task` to fetch the result and resumes its original work. Tasks whose results were already delivered are never re-notified; if the requester is offline the reminder queues until it comes back online; while the requester is still actively waiting the server stays quiet and re-checks every 60s. Reminders carry only the task ID and fetch instructions — no task content — so the requester continues from its own context.
 
+### Teams & workspace sharing
+
+Create teams on the **Teams** page, invite members by username, or let users apply to join (the leader approves). A workspace owner can share a workspace into any team they belong to. Sharing grants **call access only**:
+
+- A teammate can `a2a_call` the shared workspace and gets the **final answer** — no thinking, tool calls, monitor rounds, artifacts, briefs or call details.
+- Completion briefs and permission/question cards still go **only to the workspace owner**; the caller never sees them.
+- The shared workspace does **not** appear in the teammate's Nexus / workspaces / call-records lists.
+- Discoverable via `list_workspaces` (`shared: true`, exposing name/purpose/capabilities/status/owner — never path/notes), and callable with `from_workspace` set to your own workspace.
+
+Per-user limits (configurable): create up to 3 teams, join up to 8, 50 members per team, 10 pending invites/requests.
+
 ## MCP Tools (`/mcp/`, Bearer apikey auth)
 
 | Tool | Description |
@@ -188,8 +200,8 @@ Cross-workspace tasks can take a long time: the requesting agent may give up wai
 | `workspace_remove` / `workspace_enable` / `workspace_disable` / `workspace_offline` | Workspace management (remove only when offline) |
 | `heartbeat` | Keep-alive, reports the current session (called by the plugin every 30s) |
 | `update_info` / `update_notes` | Update workspace purpose/capabilities and notes |
-| `list_workspaces` | List visible workspaces (online only by default) |
-| `a2a_call` | Dispatch tasks via the A2A protocol: internal workspace ID or external A2A agent endpoint URL (`from_workspace` **required** — your own workspace ID; also the return address for long-task completion reminders). Optional `wait_seconds` (e.g. 300–600) blocks until the task reaches a terminal state so no polling is needed; if you give up waiting early, the server will remind you when the task finishes. **Dispatching to your own workspace is refused** (self-call loop protection) |
+| `list_workspaces` | List visible workspaces (own + team-shared, online only by default); team-shared entries are flagged `shared: true` |
+| `a2a_call` | Dispatch tasks via the A2A protocol: internal workspace ID (your own **or one shared to a team you belong to**) or external A2A agent endpoint URL (`from_workspace` **required** — your own workspace ID; also the return address for long-task completion reminders). Optional `wait_seconds` (e.g. 300–600) blocks until the task reaches a terminal state so no polling is needed; if you give up waiting early, the server will remind you when the task finishes. **Dispatching to your own workspace is refused** (self-call loop protection) |
 | `a2a_task` | Query A2A task status and result (use this to fetch the result after a completion reminder) |
 | `artifact_upload` | Two-step file upload (no base64): call the tool to get a one-time `upload_url` (10 min, single-use), then `curl -F file=@<path>` to push raw bytes. Files show up on the web "Artifacts" page and are pushed to your bound chat channels |
 
@@ -226,6 +238,10 @@ Anything that can speak WebSocket + REST can act as a hub client: authenticate w
 | `AGENT_SWARM_NOTIFY_DELAY` | Re-check interval for long-task completion reminders (after a task finishes, the server re-checks every N seconds whether the result has been picked up) | `60`s |
 | `AGENT_SWARM_ARTIFACT_TTL_DAYS` | Artifact retention before the hourly GC deletes it (pinned artifacts are never auto-deleted) | `7` |
 | `AGENT_SWARM_ARTIFACT_MAX_MB` | Max size per uploaded artifact | `20` |
+| `AGENT_SWARM_TEAM_MAX_OWNED` | Max teams a user can **create** (as leader) | `3` |
+| `AGENT_SWARM_TEAM_MAX_JOINED` | Max teams a user can **actively belong to** (including their own) | `8` |
+| `AGENT_SWARM_TEAM_MAX_MEMBERS` | Max active members per team | `50` |
+| `AGENT_SWARM_TEAM_MAX_PENDING` | Max pending invites/requests per user (anti-spam) | `10` |
 | `ADMIN_USERNAME` / `ADMIN_PASSWORD` | Admin console login (default `admin` / `Admin123!@#`, **change in production**) | `admin` / `Admin123!@#` |
 | `FEISHU_APP_ID` / `FEISHU_APP_SECRET` | Feishu custom-app credentials (the Feishu gateway starts when both are set) | not set: disabled |
 

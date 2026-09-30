@@ -1,6 +1,6 @@
 # agent_swarm 需求与行为规格（现行）
 
-> 更新: 2026-09-25 · 本文档定义系统**当前**的具体行为，是需求与验收的基准。
+> 更新: 2026-10-01 · 本文档定义系统**当前**的具体行为，是需求与验收的基准。
 > 历史决策脉络（为什么变成这样）见 `TODO.md` 架构演进史；架构边界与坑见 `AGENTS.md`；用户视角功能介绍见 `README.md` / `README_CN.md`；外部客户端协议细则见 `docs/desktop-client-nexus-integration.md`。
 
 ---
@@ -140,10 +140,21 @@ queued ──(发送+ack 成功)──> working ──> completed | failed
 
 ## 12. 明确不做 / 已废弃
 
-- 不做团队（teams 表保留但功能已移除，勿接回）。
 - 不做 `register_workspace`/`workspace_whoami`（workspace_add 覆盖）。
 - 不把 MCP 工具挪进插件（MCP-first 决策）。
 - 微信不做群聊、不做卡片/按钮、不做打字机流式。
 - V2 server 插件不做提问（form）应答（ctx 无能力，等官方补）。
 - 飞书/微信自发任务不发简报（时间线已有）。
 - 通配订阅不做历史回放。
+
+## 13. 团队与工作区共享（Team，2026-10-01）
+
+- **核心原则**：共享 = 授予"调用权"，**不**授予"可见权"。团队共享**不**并入 `visible_workspace_ids` / `_owns`——团队成员仍看不到对方工作区的监控 / Nexus / 产物 / 简报 / 调用细节。判定集中在 `server/teams_service.py`。
+- **数量限制**（env 优先 → `.env` → 默认）：`AGENT_SWARM_TEAM_MAX_OWNED=3`（创建）、`AGENT_SWARM_TEAM_MAX_JOINED=8`（活跃加入总数，含自建）、`AGENT_SWARM_TEAM_MAX_MEMBERS=50`（单团队活跃成员）、`AGENT_SWARM_TEAM_MAX_PENDING=10`（同时挂起邀请/申请）。
+- **生命周期**：创建者即队长（`Team.owner_id`，唯一真源）；邀请（`kind=invite`，被邀请人接受）/ 申请（`kind=request`，队长审批）共用 `team_members`。`join_policy` = `approval`(默认)/`open`/`closed`。队长可踢人 / 移交 / 解散；普通成员可退出（队长须先移交或解散）；成员退出或被踢时自动清理其共享给该团队的工作区。
+- **共享**：仅工作区属主可 `PUT /api/workspaces/{wid}/shares`（整体替换），且只能共享到自己**已加入**的团队；一个工作区可共享到多个团队；删除工作区级联清理。
+- **跨用户调用**：`a2a_call` 目标可见性 = `teams_service.can_invoke`（自有 **或** 共享给我所在活跃团队）；内部任务 `user_id` = **执行方属主**（加密与简报/权限路由归属），新增 `from_user_id` = 调用方（取件授权）；`a2a_task` 授权 = 执行方属主 **或** 发起方，解密与超时写回统一用任务属主 key。
+- **通知隔离**：共享工作区的简报 / 权限卡 / 提问只到**执行方属主**（微信按 `task.user_id`、飞书按 `ws.user_id`，均指向属主）；调用方只拿最终答复。
+- **发现**：`list_workspaces` 并入共享项（`shared=true`，暴露 `name/purpose/capabilities/agent_type/status/owner`，**隐藏** path/notes/session）；`GET /api/teams/discover` 按名搜索可申请加入的团队（排除 closed 与已在/待处理）。
+- **调用记录**：`list_calls` 维度含执行（`workspace_id`）与发起（`from_workspace_id`）两侧，A/B 双方均可见"指令 + 答复"，无监控细节；`delete_call` 发起方或执行方均可删。
+- **前端**：顶栏「团队」页（创建 / 发现加入 / 成员审批 / 邀请 / 踢人 / 移交 / 退出 / 解散）+ 工作区页「共享到团队」多选；**不做**网页端共享工作区调用入口（成员只走 MCP）。需求详见 `docs/team_requirement.md`。

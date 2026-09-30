@@ -1,6 +1,6 @@
 # 团队功能需求文档（Team）
 
-> 状态：设计稿 · 最后更新：2026-10-01
+> 状态：已实现（分支 feat/team）· 最后更新：2026-10-01
 > 范围：平台用户之间的团队组织、工作区受控共享、跨用户工作区调用
 > 相关：`docs/requirements.md`（系统总体规格）
 
@@ -134,8 +134,10 @@ A2aTask        + from_user_id: str = ""   # 调用方用户（跨用户取件授
 
 ### 11.1 团队 REST（新增 `server/api/teams.py`）
 - `GET/POST /api/teams`；`GET/PATCH/DELETE /api/teams/{id}`
+- `GET /api/teams/discover?q=`（按名搜索可申请加入的团队；排除 closed / 已加入）
 - `POST /api/teams/{id}/members/invite {username}`（队长）
-- `POST /api/teams/{id}/join`；`POST /api/teams/{id}/members/{uid}/approve|reject`
+- `POST /api/teams/{id}/join`；`POST /api/teams/{id}/members/{uid}/decision {action: accept|reject}`
+  （对 request 仅队长可批；对 invite 仅被邀请人本人可处理）
 - `DELETE /api/teams/{id}/members/{uid}`（踢人）；`POST /api/teams/{id}/leave`
 - `POST /api/teams/{id}/members/{uid}/transfer`
 - `GET /api/teams/invitations`（我的待处理）
