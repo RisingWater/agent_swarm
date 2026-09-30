@@ -37,8 +37,17 @@ fi
 echo "==> [deepseek] 安装插件"
 echo "    服务器: $SERVER"
 
-if ! command -v dsh >/dev/null 2>&1; then
-  echo "错误: 未找到 dsh 命令，请先安装 DeepSeek Harness" >&2
+# dsh CLI 探测顺序：PATH → DeepSeek Harness 桌面版内置（Electron asar，未注册 PATH）
+DSH_BIN="$(command -v dsh || true)"
+DESKTOP_DSH="$HOME/.local/share/DeepSeek Harness/resources/runtime/cli/bin/dsh"
+if [ -n "$DSH_BIN" ]; then
+  :
+elif [ -f "$DESKTOP_DSH" ]; then
+  DSH_BIN="$DESKTOP_DSH"
+  echo "==> 使用桌面版内置 dsh：$DSH_BIN"
+  if [ -z "$PROFILE" ]; then PROFILE="desktop"; fi
+else
+  echo "错误: 未找到 dsh 命令（PATH 与桌面版默认安装路径均无），请先安装 DeepSeek Harness" >&2
   exit 1
 fi
 if ! command -v node >/dev/null 2>&1; then
@@ -49,7 +58,7 @@ fi
 # 1. bundle 目录 + 转发器
 BUNDLE_DIR="$HOME/.dsh/agent-swarm-plugin"
 mkdir -p "$BUNDLE_DIR/src"
-cp "$SRC/package.json" "$SRC/cordis.patch.yml" "$BUNDLE_DIR/"
+cp "$SRC/package.json" "$SRC/cordis.patch.yml" "$SRC/register.mjs" "$BUNDLE_DIR/"
 cp "$SRC"/src/*.ts "$BUNDLE_DIR/src/"
 cat > "$BUNDLE_DIR/index.js" <<'EOF'
 // 由 install 脚本生成：转发到 TypeScript 源码（dsh 运行时自带 tsx 加载）
@@ -60,7 +69,7 @@ ADD_ARGS=(plugin)
 if [ -n "$PROFILE" ]; then ADD_ARGS+=(--profile "$PROFILE"); fi
 ADD_ARGS+=(add "$BUNDLE_DIR")
 echo "==> dsh ${ADD_ARGS[*]}（安装 bundle）"
-dsh "${ADD_ARGS[@]}"
+"$DSH_BIN" "${ADD_ARGS[@]}"
 
 # 2. 全局配置
 CFG_DIR="$HOME/.config/dsh"

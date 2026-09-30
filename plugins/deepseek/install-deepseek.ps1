@@ -12,6 +12,7 @@ param(
     [string]$Server,
     [string]$ApiKey,
     [string]$Src,
+    # 缺省自动探测：桌面版 → desktop profile；CLI 版 → 空（default profile）
     [string]$Profile = "",
     [string]$Path = (Get-Location).Path
 )
@@ -35,8 +36,18 @@ if (-not $ApiKey) {
 Write-Host "==> [deepseek] 安装插件"
 Write-Host "    服务器: $Server"
 
-if (-not (Get-Command dsh -ErrorAction SilentlyContinue)) {
-    Write-Host "错误: 未找到 dsh 命令，请先安装 DeepSeek Harness（npx @deepseek-ai/dsh 或源码 pnpm dsh）" -ForegroundColor Red
+# dsh CLI 探测顺序：PATH → DeepSeek Harness 桌面版内置（Electron asar，未注册 PATH）
+$desktopDsh = Join-Path ${env:LOCALAPPDATA} "Programs\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd"
+$dshCmd = Get-Command dsh -ErrorAction SilentlyContinue
+if ($dshCmd) {
+    $dshBin = $dshCmd.Source
+} elseif (Test-Path $desktopDsh) {
+    $dshBin = $desktopDsh
+    Write-Host "==> 使用桌面版内置 dsh：$desktopDsh"
+    # 桌面版固定用 desktop profile（用户没显式指定时）
+    if (-not $Profile) { $Profile = "desktop" }
+} else {
+    Write-Host "错误: 未找到 dsh 命令（PATH 与桌面版默认安装路径均无），请先安装 DeepSeek Harness" -ForegroundColor Red
     exit 1
 }
 if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
@@ -48,11 +59,11 @@ $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 
 # 1. 安装 bundle：把插件目录复制到固定位置并 dsh plugin add（本地路径免构建脚本）
 $bundleDir = Join-Path $HOME ".dsh\agent-swarm-plugin"
-New-Item -ItemType Directory -Force -Path $bundleDir | Out-Null
+New-Item -ItemType Directory -Force -Path (Join-Path $bundleDir "src") | Out-Null
 Copy-Item -Path (Join-Path $Src "package.json") -Destination $bundleDir -Force
 Copy-Item -Path (Join-Path $Src "cordis.patch.yml") -Destination $bundleDir -Force
-Copy-Item -Path (Join-Path $Src "index.ts") -Destination $bundleDir -Force -ErrorAction SilentlyContinue
-Copy-Item -Path (Join-Path $Src "src") -Destination $bundleDir -Recurse -Force
+Copy-Item -Path (Join-Path $Src "register.mjs") -Destination $bundleDir -Force
+Copy-Item -Path (Join-Path $Src "src\*.ts") -Destination (Join-Path $bundleDir "src") -Force
 
 # dsh 以 tsx 加载源码（源码运行形态），bundle main 指向 js 转发器即可
 $forwarder = @"
@@ -64,7 +75,7 @@ $addArgs = @("plugin")
 if ($Profile) { $addArgs += @("--profile", $Profile) }
 $addArgs += @("add", $bundleDir)
 Write-Host "==> dsh $($addArgs -join ' ')（安装 bundle）"
-& dsh @addArgs
+& $dshBin @addArgs
 if ($LASTEXITCODE -ne 0) { throw "dsh plugin add failed（若 pnpm 提示 allowBuilds，按提示把键加入 profile 的 pnpm-workspace.yaml 后重跑）" }
 
 # 2. 写全局配置
