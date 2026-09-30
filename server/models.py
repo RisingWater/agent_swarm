@@ -176,6 +176,26 @@ class A2aEvent(SQLModel, table=True):
     created_at: datetime = Field(default_factory=utcnow)
 
 
+class Notification(SQLModel, table=True):
+    """站内信：用户可见的事件通知记录（团队邀请/审批/加入/踢出/移交/解散等）。
+
+    body 为展示文本（纯文本，与团队名/用户名同属非加密字段）。
+    """
+    __tablename__ = "notifications"
+
+    id: str = Field(primary_key=True)
+    user_id: str = Field(foreign_key="users.id", index=True)  # 收件人
+    kind: str = Field(default="", index=True)  # team_invite / team_join_request / team_joined / ...
+    title: str = Field(default="")
+    body: str = Field(default="", sa_column=Column(Text))
+    team_id: str = Field(default="", index=True)
+    team_name: str = Field(default="")
+    actor_id: str = Field(default="")  # 触发者 user_id
+    actor_username: str = Field(default="")
+    read: bool = Field(default=False, index=True)
+    created_at: datetime = Field(default_factory=utcnow)
+
+
 class FeishuBinding(SQLModel, table=True):
     """飞书用户 ↔ 平台账号绑定（open_id 唯一；一个飞书人只能绑一个账号）。"""
     __tablename__ = "feishu_bindings"

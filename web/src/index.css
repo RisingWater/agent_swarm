@@ -111,6 +111,106 @@ body {
   gap: 5px;
 }
 
+/* ---------- 站内信 ---------- */
+
+.notif-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.notif-bell {
+  cursor: pointer;
+  position: relative;
+}
+
+.notif-badge {
+  position: absolute;
+  top: -7px;
+  right: -11px;
+  min-width: 16px;
+  padding: 1px 4px;
+  border-radius: 9px;
+  background: #e5484d;
+  color: #fff;
+  font-size: 10px;
+  line-height: 14px;
+  text-align: center;
+}
+
+.notif-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+}
+
+.notif-panel {
+  position: absolute;
+  top: 30px;
+  right: 0;
+  z-index: 2;
+  width: 340px;
+  max-height: 70vh;
+  overflow: auto;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+}
+
+.notif-head {
+  position: sticky;
+  top: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+}
+
+.notif-item {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+}
+
+.notif-item:last-child {
+  border-bottom: none;
+}
+
+.notif-item:hover {
+  background: var(--bg-strong);
+}
+
+.notif-item.unread {
+  background: rgba(64, 120, 255, 0.08);
+}
+
+.notif-title {
+  font-size: 13px;
+  color: var(--text-strong);
+}
+
+.notif-body {
+  font-size: 12px;
+  color: var(--text-weak);
+  margin-top: 2px;
+}
+
+.notif-time {
+  font-size: 11px;
+  color: var(--text-weak);
+  margin-top: 4px;
+}
+
+.notif-empty {
+  padding: 20px;
+  margin: 0;
+  text-align: center;
+  color: var(--text-weak);
+}
+
 /* ---------- 修改密码表单 ---------- */
 
 .auth-dialog {

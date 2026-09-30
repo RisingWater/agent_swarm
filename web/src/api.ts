@@ -137,6 +137,19 @@ export interface Artifact {
   download_url: string
 }
 
+/** 站内信 */
+export interface Notification {
+  id: string
+  kind: string
+  title: string
+  body: string
+  team_id: string
+  team_name: string
+  actor: { id: string; username: string } | null
+  read: boolean
+  created_at: string
+}
+
 export const api = {
   async register(username: string, password: string) {
     const rsp = await fetch(`${BASE}/api/auth/register`, {
@@ -262,6 +275,15 @@ export const api = {
   /** 解绑飞书账号（清绑定与窗口工作区选择，飞书端会收到通知） */
   unbindChatAccount: (openId: string) =>
     request(`/api/chat-binds/${encodeURIComponent(openId)}`, { method: "DELETE" }) as Promise<{ ok: boolean }>,
+
+  // 站内信
+  notifications: (unreadOnly = false) =>
+    request(`/api/notifications${unreadOnly ? "?unread_only=true" : ""}`) as Promise<{ notifications: Notification[] }>,
+  notificationUnreadCount: () => request("/api/notifications/unread_count") as Promise<{ count: number }>,
+  markNotificationRead: (id: string) =>
+    request(`/api/notifications/${encodeURIComponent(id)}/read`, { method: "POST", body: "{}" }) as Promise<{ ok: boolean }>,
+  markAllNotificationsRead: () =>
+    request("/api/notifications/read_all", { method: "POST", body: "{}" }) as Promise<{ ok: boolean; count: number }>,
 
   /** 微信 ClawBot：申请登录二维码 */
   weixinLoginStart: () =>

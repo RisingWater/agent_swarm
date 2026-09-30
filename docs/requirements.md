@@ -160,3 +160,10 @@ queued ──(发送+ack 成功)──> working ──> completed | failed
 - **调用记录**：`list_calls` 维度含执行（`workspace_id`）与发起（`from_workspace_id`）两侧，A/B 双方均可见"指令 + 答复"，无监控细节；`delete_call` 发起方或执行方均可删。
 - **产物随工作区共享**：产物归属其上传时所在的工作区（`artifact_upload` 的 `workspace_id` **必填**，见 §8）；产物列表 = 自有 + 归属工作区被共享给我所在活跃团队的他人产物（`shared=true`，**只读**、不可 pin/delete）；无归属工作区的产物不共享。
 - **前端**：顶栏「团队」页（创建 / 发现加入 / 成员审批 / 邀请 / 踢人 / 移交 / 退出 / 解散）；工作区页分「**我的工作区**」（可启用/禁用/删除 + 共享到团队多选）与「**共享工作区**」（只读列表，显示属主与共享团队，不可启用/禁用/删除）两张表；**不做**网页端共享工作区调用入口（成员只走 MCP）。需求详见 `docs/team_requirement.md`。
+
+## 14. 站内信（Notifications，2026-10-01）
+
+- **模型**：`notifications` 表（`user_id` 收件人、`kind`、`title`/`body`、`team_id`/`team_name`、`actor_id`/`actor_username`、`read`、`created_at`）。纯文本落库（团队名/用户名同属非加密字段）。
+- **写入时机**：团队生命周期事件在操作同一事务内落一条站内信（`server/notifications.py`，写侧 `add/add_many`）——邀请（收件人=被邀请人）、申请加入（收件人=队长）、加入成功（收件人=本人「已加入」+ 其余活跃成员「有人加入」）、申请被拒（收件人=申请人）、邀请被拒（收件人=队长）、被踢（收件人=被踢者）、退出（收件人=队长）、移交队长（收件人=新队长 + 原队长）、**团队解散（收件人=全部活跃成员）**。
+- **REST**：`GET /api/notifications?limit=&unread_only=`（默认 50 条，倒序）、`GET /api/notifications/unread_count`、`POST /api/notifications/{id}/read`（仅本人，他人 404）、`POST /api/notifications/read_all`。
+- **前端**：顶栏铃铛 + 未读红点徽标（20s 轮询未读数）；点开面板列出消息（未读高亮、点击标记已读、全部已读）。

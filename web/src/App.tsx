@@ -17,6 +17,7 @@ import {
   type TeamInvitations,
   type DiscoveredTeam,
   type SharedWorkspace,
+  type Notification,
 } from "./api"
 import { copyText } from "./copy"
 import { AdminPage } from "./AdminPage"
@@ -228,6 +229,90 @@ function Confirm({ text, onOk, onClose }: { text: string; onOk: () => void; onCl
   )
 }
 
+// ---------------- 站内信 ----------------
+
+function NotificationBell() {
+  const [count, setCount] = useState(0)
+  const [open, setOpen] = useState(false)
+  const [list, setList] = useState<Notification[]>([])
+  const [loading, setLoading] = useState(false)
+
+  const refreshCount = useCallback(() => {
+    api.notificationUnreadCount().then((r) => setCount(r.count)).catch(() => {})
+  }, [])
+  useEffect(() => {
+    refreshCount()
+    const t = setInterval(refreshCount, 20_000)
+    return () => clearInterval(t)
+  }, [refreshCount])
+
+  const toggle = async () => {
+    const next = !open
+    setOpen(next)
+    if (next) {
+      setLoading(true)
+      try { setList((await api.notifications()).notifications) } catch { /* ignore */ } finally { setLoading(false) }
+      refreshCount()
+    }
+  }
+
+  const readOne = async (n: Notification) => {
+    if (n.read) return
+    try {
+      await api.markNotificationRead(n.id)
+      setList((prev) => prev.map((x) => (x.id === n.id ? { ...x, read: true } : x)))
+      setCount((c) => Math.max(0, c - 1))
+    } catch { /* ignore */ }
+  }
+
+  const readAll = async () => {
+    try {
+      await api.markAllNotificationsRead()
+      setList((prev) => prev.map((x) => ({ ...x, read: true })))
+      setCount(0)
+    } catch { /* ignore */ }
+  }
+
+  return (
+    <span className="notif-wrap">
+      <a className={`user notif-bell${open ? " active" : ""}`} title="站内信" onClick={toggle}>
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+          <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" />
+          <path d="M13.7 21a2 2 0 0 1-3.4 0" />
+        </svg>
+        {count > 0 && <span className="notif-badge">{count > 99 ? "99+" : count}</span>}
+      </a>
+      {open && (
+        <>
+          <div className="notif-backdrop" onClick={() => setOpen(false)} />
+          <div className="notif-panel">
+            <div className="notif-head">
+              <b>站内信</b>
+              <Btn size="sm" variant="ghost" disabled={count === 0} onClick={readAll}>全部已读</Btn>
+            </div>
+            {loading ? (
+              <p className="notif-empty">加载中…</p>
+            ) : list.length ? (
+              <div className="notif-list">
+                {list.map((n) => (
+                  <div key={n.id} className={`notif-item${n.read ? "" : " unread"}`} onClick={() => readOne(n)}>
+                    <div className="notif-title">{n.title}</div>
+                    {n.body && <div className="notif-body">{n.body}</div>}
+                    <div className="notif-time">{fmtTime(n.created_at, "datetime")}</div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="notif-empty">暂无消息</p>
+            )}
+          </div>
+        </>
+      )}
+    </span>
+  )
+}
+
 // ---------------- 应用骨架 ----------------
 
 export type Page = "home" | "docs" | "workspaces" | "calls" | "artifacts" | "account" | "nexus" | "teams" | "login"
@@ -280,6 +365,7 @@ export default function App() {
               <a className={effectivePage === "artifacts" ? "active" : ""} onClick={() => goto("artifacts")}>产物</a>
             </>
           )}
+          {loggedIn && <NotificationBell />}
           {loggedIn ? (
             <a
               className={`user${effectivePage === "account" ? " active" : ""}`}
@@ -1769,6 +1855,10 @@ agent: (a2a_call) → 对方 TUI 实时出现任务 → 执行 → 结果自动�
             但看不到它的监控流、思考 / 工具调用、产物详情、简报与调用细节——权限请求也只推给工作区属主。
             被共享的工作区不会出现在队友的中枢 / 工作区列表里；调用记录里双方各自只看得到该条「指令 + 答复」，
             不会暴露监控细节。队友通过 MCP <code>list_workspaces</code>（<code>shared:true</code>）发现共享工作区并调用。
+          </p>
+          <p>
+            团队动态——被邀请、申请/审批结果、有人加入、被移出、移交队长、团队解散——都会记一条<b>站内信</b>；
+            顶栏的铃铛显示未读数，点开可查看列表并标记已读。
           </p>
         </section>
 

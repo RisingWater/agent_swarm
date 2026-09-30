@@ -192,6 +192,8 @@ Create teams on the **Teams** page, invite members by username, or let users app
 
 Per-user limits (configurable): create up to 3 teams, join up to 8, 50 members per team, 10 pending invites/requests.
 
+Team activity — invites, join requests/approvals, members joining, being removed, leadership transfers and team disbanding — is recorded as **in-app messages**; the bell in the header shows the unread count and the full list.
+
 ## MCP Tools (`/mcp/`, Bearer apikey auth)
 
 | Tool | Description |

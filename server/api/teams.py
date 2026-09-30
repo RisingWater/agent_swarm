@@ -9,7 +9,7 @@ import shortuuid
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
 
-from server import models, teams_service
+from server import models, notifications as notif, teams_service
 from server.auth import get_user_either
 from server.db import get_session
 
@@ -91,6 +91,20 @@ def _cleanup_user_shares(session: Session, team_id: str, user_id: str) -> None:
         .where(models.TeamWorkspace.shared_by == user_id)
     ).all():
         session.delete(sh)
+
+
+def _active_member_ids(session: Session, team_id: str, exclude: set[str] | None = None) -> list[str]:
+    """团队当前活跃成员 user_id（可排除若干）。"""
+    ex = exclude or set()
+    return [
+        m.user_id
+        for m in session.exec(
+            select(models.TeamMember)
+            .where(models.TeamMember.team_id == team_id)
+            .where(models.TeamMember.status == "active")
+        ).all()
+        if m.user_id not in ex
+    ]
 
 
 # ---------------------------------------------------------------- 团队
@@ -292,6 +306,7 @@ def delete_team(
     """队长解散团队：级联删除成员关系与共享关系。"""
     team = _get_team(session, team_id)
     _require_leader(team, user)
+    member_ids = _active_member_ids(session, team.id)
     for m in session.exec(
         select(models.TeamMember).where(models.TeamMember.team_id == team.id)
     ).all():
@@ -300,6 +315,12 @@ def delete_team(
         select(models.TeamWorkspace).where(models.TeamWorkspace.team_id == team.id)
     ).all():
         session.delete(sh)
+    notif.add_many(
+        session, member_ids, kind="team_disbanded",
+        title=f"团队「{team.name}」已解散",
+        team_id=team.id, team_name=team.name,
+        actor_id=user.id, actor_username=user.username,
+    )
     session.delete(team)
     session.commit()
     return {"ok": True}
@@ -339,6 +360,17 @@ def invite_member(
             team_id=team.id, user_id=target.id, status="pending", kind="invite", initiated_by=user.id
         )
     )
+    notif.add(
+        session,
+        user_id=target.id,
+        kind="team_invite",
+        title=f"{user.username} 邀请你加入团队「{team.name}」",
+        body="到「团队」页可接受或拒绝。",
+        team_id=team.id,
+        team_name=team.name,
+        actor_id=user.id,
+        actor_username=user.username,
+    )
     session.commit()
     return {"ok": True}
 
@@ -368,6 +400,19 @@ def join_team(
                 team_id=team.id, user_id=user.id, status="active", kind="request", initiated_by=user.id
             )
         )
+        notif.add(
+            session, user_id=user.id, kind="team_joined",
+            title=f"你已加入团队「{team.name}」",
+            team_id=team.id, team_name=team.name,
+            actor_id=user.id, actor_username=user.username,
+        )
+        notif.add_many(
+            session, _active_member_ids(session, team.id, exclude={user.id}),
+            kind="team_member_joined",
+            title=f"{user.username} 加入了团队「{team.name}」",
+            team_id=team.id, team_name=team.name,
+            actor_id=user.id, actor_username=user.username,
+        )
         session.commit()
         return {"ok": True, "status": "active"}
     # approval
@@ -376,6 +421,13 @@ def join_team(
         models.TeamMember(
             team_id=team.id, user_id=user.id, status="pending", kind="request", initiated_by=user.id
         )
+    )
+    notif.add(
+        session, user_id=team.owner_id, kind="team_join_request",
+        title=f"{user.username} 申请加入团队「{team.name}」",
+        body="到「团队」页可审批。",
+        team_id=team.id, team_name=team.name,
+        actor_id=user.id, actor_username=user.username,
     )
     session.commit()
     return {"ok": True, "status": "pending"}
@@ -414,7 +466,36 @@ def decide_membership(
         teams_service.assert_can_join(session, m.user_id)
         m.status = "active"
         session.add(m)
+        joined_name = _username(session, m.user_id)
+        notif.add(
+            session, user_id=m.user_id, kind="team_joined",
+            title=f"你已加入团队「{team.name}」",
+            team_id=team.id, team_name=team.name,
+            actor_id=user.id, actor_username=user.username,
+        )
+        notif.add_many(
+            session, _active_member_ids(session, team.id, exclude={m.user_id}),
+            kind="team_member_joined",
+            title=f"{joined_name} 加入了团队「{team.name}」",
+            team_id=team.id, team_name=team.name,
+            actor_id=m.user_id, actor_username=joined_name,
+        )
     else:
+        if m.kind == "request":
+            notif.add(
+                session, user_id=m.user_id, kind="team_join_rejected",
+                title=f"你加入团队「{team.name}」的申请被拒绝",
+                team_id=team.id, team_name=team.name,
+                actor_id=user.id, actor_username=user.username,
+            )
+        else:  # invite 被拒 → 通知队长
+            declined_name = _username(session, m.user_id)
+            notif.add(
+                session, user_id=team.owner_id, kind="team_invite_declined",
+                title=f"{declined_name} 拒绝了加入团队「{team.name}」的邀请",
+                team_id=team.id, team_name=team.name,
+                actor_id=m.user_id, actor_username=declined_name,
+            )
         session.delete(m)
     session.commit()
     return {"ok": True, "status": "active" if action == "accept" else "removed"}
@@ -440,6 +521,12 @@ def remove_member(
         raise HTTPException(404, "该用户不是团队成员")
     session.delete(m)
     _cleanup_user_shares(session, team.id, target_id)
+    notif.add(
+        session, user_id=target_id, kind="team_removed",
+        title=f"你被移出团队「{team.name}」",
+        team_id=team.id, team_name=team.name,
+        actor_id=user.id, actor_username=user.username,
+    )
     session.commit()
     return {"ok": True}
 
@@ -459,6 +546,12 @@ def leave_team(
         raise HTTPException(404, "你不是该团队成员")
     session.delete(m)
     _cleanup_user_shares(session, team.id, user.id)
+    notif.add(
+        session, user_id=team.owner_id, kind="team_left",
+        title=f"{user.username} 退出了团队「{team.name}」",
+        team_id=team.id, team_name=team.name,
+        actor_id=user.id, actor_username=user.username,
+    )
     session.commit()
     return {"ok": True}
 
@@ -480,5 +573,17 @@ def transfer_leadership(
         raise HTTPException(404, "只能移交给活跃成员")
     team.owner_id = target_id
     session.add(team)
+    notif.add(
+        session, user_id=target_id, kind="team_leader",
+        title=f"你已成为团队「{team.name}」的队长",
+        team_id=team.id, team_name=team.name,
+        actor_id=user.id, actor_username=user.username,
+    )
+    notif.add(
+        session, user_id=user.id, kind="team_leader",
+        title=f"你把团队「{team.name}」的队长移交给了 {_username(session, target_id)}",
+        team_id=team.id, team_name=team.name,
+        actor_id=target_id, actor_username=_username(session, target_id),
+    )
     session.commit()
     return {"ok": True}

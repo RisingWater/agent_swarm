@@ -8,7 +8,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from server.db import init_db
-from server.api import auth, me, workspaces, calls, chat_binds, admin, teams
+from server.api import auth, me, workspaces, calls, chat_binds, admin, teams, notifications
 from server.teams_service import TeamError
 from server.api_artifacts import routes as artifact_routes
 from server.download import routes as download_routes
@@ -102,6 +102,7 @@ def create_app() -> FastAPI:
     app.include_router(chat_binds.router)
     app.include_router(admin.router)
     app.include_router(teams.router)
+    app.include_router(notifications.router)
     app.include_router(nexus_a2a_router)
 
     @app.exception_handler(TeamError)
