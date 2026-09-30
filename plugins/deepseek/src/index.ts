@@ -637,13 +637,18 @@ function applyInner(ctx: any): void {
           // 上报最近活跃会话（前台注入目标 = 同一个，中枢所见即所得）。
           // 标题 = 首个 user 消息首行（对齐 dsh session-title 的 fallback 逻辑）。
           const agents = (ctx as any).agents?.list?.() ?? []
+          const norm = (p: unknown) => String(p ?? "").replace(/[\\/]+/g, "/").replace(/\/$/, "").toLowerCase()
+          const targetDir = norm(entry.directory)
           let best: { id: string; title: string; score: number } | null = null
+          let candidateCount = 0
           for (const agent of agents) {
             const session = agent?.session
             if (!session?.header?.id) continue
-            // 只上报属于该项目目录的会话（cwd 匹配；任务会话创建时 cwd=entry.directory）
-            const cwd = String(session.header.cwd ?? "")
-            if (cwd && cwd.replace(/[\\/]+$/, "") !== entry.directory.replace(/[\\/]+$/, "")) continue
+            candidateCount++
+            // 只上报属于该项目目录的会话（cwd 归一化后匹配；无 cwd 的会话也算候选，
+            // dsh 手开会话 header.cwd 理论上总有值）
+            const cwd = norm(session.header.cwd)
+            if (cwd && targetDir && cwd !== targetDir) continue
             let title = ""
             try {
               const msgs = session.deriveMessages?.() ?? []
@@ -661,7 +666,7 @@ function applyInner(ctx: any): void {
           const sessionId = best?.id ?? ""
           const title = best?.title ?? ""
           if (sessionId !== lastReport.get(entry.workspaceId)) {
-            log(`heartbeat ${entry.workspaceId.slice(0, 8)}: session=${sessionId.slice(0, 20)} title=${title.slice(0, 30)}`)
+            log(`heartbeat ${entry.workspaceId.slice(0, 8)}: agents=${agents.length} candidates=${candidateCount} session=${sessionId.slice(0, 20)} title=${title.slice(0, 30)}`)
             lastReport.set(entry.workspaceId, sessionId)
           }
           await swarm.heartbeat(entry.workspaceId, sessionId, title)
