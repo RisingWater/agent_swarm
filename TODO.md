@@ -64,6 +64,16 @@
 - ✅ **install-deepseek.ps1 双 BOM 修复**（2410351）：叠加 BOM 被 PS 当 token 报「无法识别 ﻿#」——含中文的 ps1 必须 UTF-8 **单 BOM**
 - ✅ **文档同步**（6bd9ea3/9a93d29/88a118b/eefbc80）：web 首页/文档页 dsh 点亮 + FAQ；README/README_CN/requirements.md/TODO.md 全量补齐（dsh 接入、提醒机制、监控常开）
 
+### 桌宠（dsh-pet）对接批次：双鉴权 + 派发可靠化 + 通配订阅（2026-09-25，已配合桌宠测试 OK）
+
+> 桌宠等外部桌面客户端作为中枢消费方接入（详见 `docs/desktop-client-nexus-integration.md`）。**2026-10-01 用户确认：配合桌宠已测试 OK**。
+
+- ✅ **双鉴权**：WS `/ws/nexus` hello 支持 apikey（与 JWT 二选一，长效免 24h 重登录）；reply/history/rounds/workspaces/calls 等端点换 `get_user_either`（JWT 或 apikey 任一）
+- ✅ **派发链路可靠化**：`dispatch_queued_for` 密文任务解密读回（ENC_KEY 下读明文列会派空指令——nmj9ZdVL 卡死事故根因之一）；顺序反转为**发送 + 插件 ack（30s）成功才置 working**，失败/拒单/无 ack 回退 queued 等重试；插件接单即回 ack（V1/V2 `onAccepted`，长前台任务不再拖满 30s）
+- ✅ **WS 通配订阅 `"*"`**：订阅本用户全部工作区，推送逐事件 `_owns` 属主过滤（跨用户泄漏教训必须保留）；通配不做历史回放（历史走 REST）
+- ✅ **测试从零建起**：tests/ 26 例起步（MCP 12 工具全覆盖 + 四 annotation hint、派发回归、双鉴权四态、通配隔离）
+- ✅ **终态 brief 帧**：completed/failed 事件在 web 推送出口附带简报摘要（artifact 截 1600 / error 截 700），桌宠等 WS 订阅者无需解密任务行即可展示同级简报卡（2026-09-25 桌宠派单）
+
 ### opencode V1/V2 双版本插件支持（2026-09-23，核心链路实测；仅 dev 未合并 master）
 
 > 背景：本机 opencode 已升级 **v2.0.15**，V1 插件实现在 V2 **完全不运行**（官方明确）→ 全部工作区掉线。用户拍板「同时支持 V1+V2，安装脚本按版本分流」，并"先搞定心跳上线"。
