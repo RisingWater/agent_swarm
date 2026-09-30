@@ -22,6 +22,34 @@ export function readWorkspaceId(dir: string): string {
   }
 }
 
+export function workspaceFilePath(dir: string): string {
+  return workspaceFile(dir)
+}
+
+/** 写/更新 WORKSPACE_ID 行；id 为空串 = 删除该行（注销用） */
+export function writeWorkspaceId(dir: string, id: string): void {
+  const d = join(dir, DIR)
+  if (!existsSync(d)) mkdirSync(d, { recursive: true })
+  const file = workspaceFile(dir)
+  if (!id) {
+    if (!existsSync(file)) return
+    const text = readFileSync(file, "utf-8")
+    writeFileSync(file, text.replace(/^\s*(?:#+\s*)?WORKSPACE_ID[:：]\s*[A-Za-z0-9_-]+.*\n?/im, ""), "utf-8")
+    return
+  }
+  const line = `WORKSPACE_ID: ${id}`
+  if (!existsSync(file)) {
+    writeFileSync(file, `# agent_swarm\n\nPURPOSE: \nCAPABILITIES: \n${line}\n`, "utf-8")
+    return
+  }
+  const text = readFileSync(file, "utf-8")
+  if (/^\s*(?:#+\s*)?WORKSPACE_ID[:：]\s*[A-Za-z0-9_-]+/im.test(text)) {
+    writeFileSync(file, text.replace(/^\s*(?:#+\s*)?WORKSPACE_ID[:：]\s*[A-Za-z0-9_-]+.*$/im, line), "utf-8")
+  } else {
+    writeFileSync(file, `${text.replace(/\s*$/, "")}\n${line}\n`, "utf-8")
+  }
+}
+
 // ---------------- per-caller 会话映射表 ----------------
 
 function sessionsFilePath(dir: string): string {

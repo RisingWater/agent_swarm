@@ -37,6 +37,7 @@ import {
   toolStatus,
   streamStatus,
 } from "./ws.ts"
+import { swarmCommands } from "./commands.ts"
 
 const LOG_DIR = join(homedir(), ".config", "dsh", "agent-swarm")
 const LOG_FILE = join(LOG_DIR, "plugin.log")
@@ -460,6 +461,10 @@ export function apply(ctx: any): void {
     },
     log,
   })
+
+  // ---------------- /swarm-* 命令（dsh commands 注册表） ----------------
+
+  swarmCommands(ctx, { directory, log })
 
   // ---------------- 心跳（MCP heartbeat，服务端在线判定 = last_heartbeat 90s 超时） ----------------
 
