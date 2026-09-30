@@ -66,10 +66,11 @@ Copy-Item -Path (Join-Path $Src "cordis.patch.yml") -Destination $bundleDir -For
 Copy-Item -Path (Join-Path $Src "register.mjs") -Destination $bundleDir -Force
 Copy-Item -Path (Join-Path $Src "src\*.ts") -Destination (Join-Path $bundleDir "src") -Force
 
-# dsh 以 tsx 加载源码（源码运行形态），bundle main 指向 js 转发器即可
+# dsh 以 tsx 加载源码（源码运行形态），bundle main 指向 js 转发器即可。
+# 必须 export *：Loader 读 name/inject/apply 全部具名导出（漏 inject = 服务注入声明失效）。
 $forwarder = @"
 // 由 install 脚本生成：转发到 TypeScript 源码（dsh 运行时自带 tsx 加载）
-export { apply, name } from "./src/index.ts"
+export * from "./src/index.ts"
 "@
 [IO.File]::WriteAllText((Join-Path $bundleDir "index.js"), $forwarder, $utf8NoBom)
 $addArgs = @("plugin")

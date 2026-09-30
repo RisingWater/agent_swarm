@@ -59,8 +59,9 @@ mkdir -p "$BUNDLE_DIR/src"
 cp "$SRC/package.json" "$SRC/cordis.patch.yml" "$SRC/register.mjs" "$BUNDLE_DIR/"
 cp "$SRC"/src/*.ts "$BUNDLE_DIR/src/"
 cat > "$BUNDLE_DIR/index.js" <<'EOF'
-// 由 install 脚本生成：转发到 TypeScript 源码（dsh 运行时自带 tsx 加载）
-export { apply, name } from "./src/index.ts"
+// 由 install 脚本生成：转发到 TypeScript 源码（dsh 运行时自带 tsx 加载）。
+// 必须 export *：Loader 读 name/inject/apply 全部具名导出（漏 inject = 服务注入声明失效）。
+export * from "./src/index.ts"
 EOF
 
 ADD_ARGS=(plugin)
