@@ -1458,14 +1458,14 @@ agent: (a2a_call) → 对方 TUI 实时出现任务 → 执行 → 结果自动�
           </p>
           <h3>监控模式（前台会话实时同步）</h3>
           <p>
-            开启后（默认开启），你在 opencode TUI 里与 agent 的<b>日常对话</b>会按轮次实时同步到网页中枢：
+            开启后，你在 agent 里与它的<b>日常对话</b>会按轮次实时同步到网页中枢：
             每一次提问、agent 的思考、工具调用、最终回答，以及权限请求/AI 提问，都会以独立「轮次」出现在
             中枢时间线里，与 A2A 任务轮混排显示。你可以在网页上远程围观同事屏幕上的对话过程、回溯任意一轮历史
             （中枢时间线上滚逐轮加载），监控轮次的权限请求同样可以在网页上远程应答。
           </p>
           <ul>
             <li><b>只监控前台会话</b>——后台任务会话不经过此通道，不会重复上报；中枢下发的任务轮也自动去重</li>
-            <li><b>开关</b>：TUI 内执行 <code>/swarm-monitor</code> 即时切换；默认开启</li>
+            <li><b>开关</b>——在飞书/微信渠道侧关闭监控转发即可；不想让某个项目被围观就不在该项目注册工作区</li>
             <li><b>归档</b>：每轮对话作为一条 <code>[monitor]</code> 记录进入「调用记录」页（按工作区筛选查看），与 A2A 任务记录并列</li>
           </ul>
           <h3>心跳与在线状态</h3>
@@ -1502,20 +1502,20 @@ agent: (a2a_call) → 对方 TUI 实时出现任务 → 执行 → 结果自动�
               </tr>
               <tr>
                 <td><code>/swarm-mode</code></td>
-                <td>切换任务执行模式：前台注入（foreground）或后台会话（background），即时生效（仅 opencode）</td>
-              </tr>
-              <tr>
-                <td><code>/swarm-monitor</code></td>
-                <td>切换前台会话实时监控：开启后你在 TUI 里的日常对话（提问/思考/工具/回答）会实时同步到网页中枢，即时生效（仅 opencode）</td>
+                <td>切换任务执行模式：前台注入（foreground）或后台会话（background），即时生效（opencode / deepseek harness）</td>
               </tr>
             </tbody>
           </table>
+          <p>
+            前台会话实时监控在 opencode 与 deepseek harness 上均可用：你在 agent 里的日常对话
+            （提问/思考/工具/回答）会实时同步到网页中枢；不想同步时在飞书/微信渠道侧关闭监控转发即可。
+          </p>
           <h3>各 agent 支持情况</h3>
           <table>
             <thead><tr><th>能力</th><th>opencode</th><th>claude code</th><th>deepseek harness</th></tr></thead>
             <tbody>
               <tr><td>注册 / 保活 / 启停管理</td><td>✅</td><td>✅</td><td>✅</td></tr>
-              <tr><td><code>/swarm-*</code> 命令</td><td>✅</td><td>✅（不含 /swarm-mode、/swarm-monitor）</td><td>✅（含 /swarm-mode，不含 /swarm-monitor）</td></tr>
+              <tr><td><code>/swarm-*</code> 命令</td><td>✅</td><td>✅（不含 /swarm-mode）</td><td>✅</td></tr>
               <tr><td>前台注入（任务进入当前会话）</td><td>✅</td><td>—</td><td>✅（注入最近活跃会话）</td></tr>
               <tr><td>后台会话（独立会话静默执行）</td><td>✅</td><td>✅</td><td>✅</td></tr>
               <tr><td>前台会话监控（TUI 对话同步中枢）</td><td>✅</td><td>—</td><td>✅</td></tr>
@@ -1661,8 +1661,8 @@ agent: (a2a_call) → 对方 TUI 实时出现任务 → 执行 → 结果自动�
             在网页上直接指挥 agent。选择一个在线工作区，输入指令发送，时间线会实时滚动
             agent 的思考过程、工具调用与最终答复。agent 请求权限或向你提问时，直接在时间线里点按钮应答。
             时间线历史持久化保存，刷新页面不丢；点 <code>clear</code> 清空视图，鼠标上滚逐轮加载更早的对话，
-            右下角的悬浮按钮可随时跳回最新消息。开启监控模式（<code>/swarm-monitor</code>，默认开）后，
-            你在 TUI 里的日常对话也会实时出现在这里。
+            右下角的悬浮按钮可随时跳回最新消息。开启监控模式后，
+            你在 agent 里的日常对话也会实时出现在这里。
           </p>
           <h3>工作区</h3>
           <p>

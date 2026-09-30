@@ -359,7 +359,7 @@ const plugin: Plugin = async (input) => {
     return false
   }
 
-  /** 监控开关（每事件重读配置：/swarm-monitor 切换即时生效） */
+  /** 监控常开（/swarm-monitor 命令已移除；如需手动关可改配置文件 monitor:false） */
   function monitorEnabled(): boolean {
     return (loadConfig() ?? config).monitor !== false
   }
