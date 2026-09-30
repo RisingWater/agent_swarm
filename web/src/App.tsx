@@ -3510,7 +3510,9 @@ function TeamsPage({ toast }: { toast: (m: string) => void }) {
             <ul style={{ margin: 0, paddingLeft: 18 }}>
               {detail.workspaces.map((w) => (
                 <li key={w.workspace_id}>
-                  {w.name} <span style={{ color: "var(--text-weak)", fontSize: 12, fontFamily: "var(--font-mono)" }}>{w.workspace_id.slice(0, 8)}</span>
+                  {w.name}
+                  <span style={{ color: "var(--text-weak)", fontSize: 12 }}>（属主 {w.owner || "未知"}）</span>{" "}
+                  <span style={{ color: "var(--text-weak)", fontSize: 12, fontFamily: "var(--font-mono)" }}>{w.workspace_id.slice(0, 8)}</span>
                 </li>
               ))}
             </ul>

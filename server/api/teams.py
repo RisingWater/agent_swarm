@@ -241,6 +241,7 @@ def team_detail(
         {
             "workspace_id": sh.workspace_id,
             "name": (ws.name if (ws := session.get(models.Workspace, sh.workspace_id)) else ""),
+            "owner": _username(session, ws.user_id) if ws else _username(session, sh.shared_by),
             "shared_by": sh.shared_by,
         }
         for sh in session.exec(

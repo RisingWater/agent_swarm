@@ -102,7 +102,7 @@ export interface TeamMemberInfo {
 
 export interface TeamDetail extends TeamSummary {
   members: TeamMemberInfo[]
-  workspaces: { workspace_id: string; name: string; shared_by: string }[]
+  workspaces: { workspace_id: string; name: string; owner?: string; shared_by: string }[]
 }
 
 export interface TeamInvitations {
