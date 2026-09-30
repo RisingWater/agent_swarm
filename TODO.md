@@ -51,6 +51,19 @@
 
 ## 已完成（除注明外均已进 git）
 
+### deepseek harness（dsh）全功能对齐 + 跨工作区长任务完成提醒（2026-09-30 ~ 10-01，E2E 实测）
+
+> 用户驱动批次：dsh 第三种 harness 接入并全功能对齐（监控/权限/命令），中枢为 dsh 做专属控件；解决跨工作区长任务发起方失去耐心放弃等待的问题。**2026-10-01 用户确认：飞书/微信/桌宠/V2 opencode 全部 OK**。
+
+- ✅ **dsh 监控模式**（96375a2）：session/event 非任务轮全走 monitor 管道（user/message 开轮 → attempt/message 衍生 text/reasoning 帧 → tool 帧 → idle 收轮）；心跳读全局工作区清单（986d065/3872641）；assistant 文本在 `data.message.content`（db570a3）；stream 压缩打包形态 `streamText()` 解析（dac7a4b）；工具 result 帧合并不覆盖 running 行（e46d5ae）
+- ✅ **中枢 dsh 专属控件 DshEntry**（f528e25→6f78d95）：模仿 dsh web UI——浅色主题、右对齐淡蓝气泡、工具行 IN/OUT 卡、chevron 展开箭头
+- ✅ **权限应答按 agent_type 分派**（5af2eb3/b09eeb0）：dsh 无「始终允许」（ApprovalOutcome 只有 allowed-once/rejected），`permission_replies()` 两选项，web/飞书 perm_card/微信编号卡全适配
+- ✅ **dsh 权限 waterfall 先答先算**（f75fe8c→fab3bf2）：监控轮权限远程应答桥 monPerms；prepend 抢队头 + 立即 next() 放行本地 UI + `Promise.race`；去 30min 看门狗（不设超时）；迟到远程应答幂等
+- ✅ **长任务完成提醒**（091f8e6→a62644a，E2E 实测全链路）：`a2a_call` 的 `from_workspace` 升级**必填**（528ba18，schema required + 业务兜底）；任务终态后每 `AGENT_SWARM_NOTIFY_DELAY`（默认 60s）复查——结果未取走（`a2a_task` 查询/`wait_task_final` 送达即标记）且发起方前台轮已收尾 → 推极简提醒（caller=nexus-notify，只带 task_id + 取回指引）；发起方还在等则**继续复查**（首版一次性检查在发起方中途放弃时永久漏提醒——实测抓到），上限 120 轮；离线排队上线补推；含 5 例单测
+- ✅ **/swarm-monitor 命令移除**（b561c1f）：监控常开无开关（opencode V1/V2），关闭走飞书/微信渠道侧；文档统一「默认常开」口径（88a118b/9a93d29）
+- ✅ **install-deepseek.ps1 双 BOM 修复**（2410351）：叠加 BOM 被 PS 当 token 报「无法识别 ﻿#」——含中文的 ps1 必须 UTF-8 **单 BOM**
+- ✅ **文档同步**（6bd9ea3/9a93d29/88a118b/eefbc80）：web 首页/文档页 dsh 点亮 + FAQ；README/README_CN/requirements.md/TODO.md 全量补齐（dsh 接入、提醒机制、监控常开）
+
 ### opencode V1/V2 双版本插件支持（2026-09-23，核心链路实测；仅 dev 未合并 master）
 
 > 背景：本机 opencode 已升级 **v2.0.15**，V1 插件实现在 V2 **完全不运行**（官方明确）→ 全部工作区掉线。用户拍板「同时支持 V1+V2，安装脚本按版本分流」，并"先搞定心跳上线"。
@@ -226,19 +239,20 @@
 
 ### 高优先级
 
-- [ ] **桌宠对接 E2E 收尾**（2026-09-25 批次，服务端均已进 dev 并已在本机部署）：① 插件重装 + 重启 opencode 后验**接单即 ack**（长前台任务 plugin.log 无 "no ack in 30s"）；② 桌宠实测 **WS 通配订阅**：hello(apikey) → subscribe `{"workspace_id":"*"}` → 其它工作区事件实时到达、第二用户事件收不到；③ web 前端中枢页对 `subscribed` 回执 `workspace_id:"*"` 的兼容确认（web 不用通配，理论无影响）
-- [ ] **重建镜像并部署**（把本轮所有服务端改动带上线）：多连接/去 4001 踢人、`with Session` 内不 await、SQLite WAL+池 30、`tasks/cancel` 与超时置 failed 漏 commit、`dispatchable` 离线派发策略 C，外加 V2 插件与按版本分流的安装脚本（tarball 由 start.sh 打包）、09-25 桌宠批次（双鉴权/派发可靠化/通配订阅）。推送 `10.17.17.19:8082/agent-swarm:latest` 后从 dpanel 更新
+- [x] **桌宠对接 E2E 收尾**（2026-10-01 用户确认：桌宠已 OK）：① 接单即 ack ② WS 通配订阅 ③ web 通配兼容——均验证通过
+- [x] **V2 opencode 全链路 OK**（2026-10-01 用户确认：v2 opencode 已 OK）——心跳/前台注入/后台任务/监控/权限应答实测通过；V2 提问（form）应答仍等官方补 ctx 能力（只上报）
+- [x] **飞书渠道 OK**（2026-10-01 用户确认）——时间线/简报/权限卡/监控同步实测通过
+- [x] **微信渠道 OK**（2026-10-01 用户确认）——真机 E2E（2026-09-20）+ 后续批次稳定运行
+- [ ] **重建镜像并部署**（把本轮所有服务端改动带上线）：多连接/去 4001 踢人、`with Session` 内不 await、SQLite WAL+池 30、`tasks/cancel` 与超时置 failed 漏 commit、`dispatchable` 离线派发策略 C、V2 插件与按版本分流的安装脚本、09-25 桌宠批次（双鉴权/派发可靠化/通配订阅）、dsh 批次（permission_replies 按 agent_type 分派）、**长任务完成提醒**（from_workspace 必填 + AGENT_SWARM_NOTIFY_DELAY 复查链）。推送 `10.17.17.19:8082/agent-swarm:latest` 后从 dpanel 更新
 - [ ] **其它机器重装插件**：V1 机器走 V1 分支（逻辑未变）；V2 机器（如 4.193）重装后会自动发现 V2 插件。注意旧镜像 tarball 里没有 V2 插件，必须先重建镜像
-- [x] **V2 权限应答 E2E**：2026-09-23 已通（web 下发 A2A 轮 → TUI 弹权限 → web 点 allow always → 任务放行写入成功，任务行 accepted_at/completed 正常）。顺带暴露并修复服务端 A2A 轮状态写回 bug（见架构演进史 09-23 条）。取消（`session.interrupt`）仍未验
 - [ ] **V2 后台续聊 E2E**：同 caller 连发两单，确认第二单复用 `.agent_swarm/sessions.json` 的会话（plugin.log 见 resume）
-- [ ] **V2 5 条命令交互验证**：`/swarm-mode`、`/swarm-monitor`、`/swarm-remove|enable|disable` 在 TUI 里真按一遍（目前只验证了加载与注册）
-- [ ] **ps1 安装脚本 Windows 实测**：只做了 BOM/括号静态检查，未在 Windows 跑过 V2 分支
+- [ ] **V2 命令交互验证**：`/swarm-mode`、`/swarm-remove|enable|disable` 在 TUI 里真按一遍（目前只验证了加载与注册；`/swarm-monitor` 已移除——监控常开无开关）
+- [ ] **ps1 安装脚本 Windows 实测**：install-deepseek.ps1 双 BOM 已修（2026-10-01），但整套 ps1 仍未在 Windows 全量跑过
 - [ ] **V2 提问（form）支持**：server 插件 ctx 无 `session.form`——先按兼容 bug 反馈 opencode，官方补上后接应答（当前只上报）
 
-- [ ] **nexus-feishu**（下一个功能，用户已排期）：飞书渠道接入中枢，复用 A2A 下发/事件流/应答链路（caller=nexus-feishu）
 - [ ] **后台会话续聊 E2E（opencode 侧）**：同 caller（如 nexus-web）连发两个任务，验证第二个任务复用 `.agent_swarm/sessions.json` 里记录的会话（plugin.log 应见 `resume ses_`），且对话上下文延续
 - [ ] **后台任务独立会话在中枢页无区分展示**：后台任务（A2A-xxx 会话）与前台监控轮在时间线上无视觉区分；task 的 session_id 上报后工作区表"当前会话"列刷新未验证
-- [ ] 真实 opencode 前台注入权限应答 E2E：web 下发 → TUI 前台注入 → 权限应答 → artifact 回传（**A2A 轮权限应答 2026-09-23 已验证通过**；剩余未验：提问 question/form 应答——V2 server 插件无 session.form 只上报，见上面 form 待办）
+- [ ] **dsh 全链路 E2E 补验**：本机已验（监控/权限 waterfall/完成提醒），线上部署后需在真实 dsh 环境再过一遍（心跳上线/任务执行/权限远程应答/简报）
 
 ### 备忘
 
