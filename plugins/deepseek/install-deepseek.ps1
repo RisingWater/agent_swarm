@@ -3,7 +3,9 @@
 #   1. 检查 dsh 命令可用
 #   2. 写全局配置 ~/.config/dsh/agent-swarm.json
 #   3. dsh plugin add 安装 bundle（默认 profile；-Profile 指定其它）
-#   4. 注册工作区：对当前目录调 MCP workspace_add（agent_type=deepseek），写 .agent_swarm/workspace.md
+#   4. skill 复制到 ~/.dsh/skills；MCP 挂载条目写入 profile 用户 patch 层
+#
+#   工作区注册不在本脚本：装好后 dsh 会话里 /swarm-add 即可
 #
 # 也支持环境变量 AGENT_SWARM_SERVER / AGENT_SWARM_API_KEY
 # 注意：含中文的 ps1 必须存 UTF-8 带 BOM（PS 5.1 本地执行读 BOM）。
@@ -13,9 +15,7 @@ param(
     [string]$ApiKey,
     [string]$Src,
     # 缺省自动探测：桌面版 → desktop profile；CLI 版 → 空（default profile）
-    [string]$Profile = "",
-    # 工作区注册目录：必须显式指定项目目录；缺省跳过（分发器安装时 cwd 不是用户项目）
-    [string]$Path = ""
+    [string]$Profile = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -144,24 +144,7 @@ if (Test-Path $profilePatch) {
     Write-Host "==> 已创建 $profilePatch（含 MCP 挂载）"
 }
 
-# 3. 注册工作区：调 MCP workspace_add（agent_type=deepseek）并写 .agent_swarm/workspace.md
-# -Path 可选：指定项目目录时自动注册；缺省跳过（之后在 dsh 会话里 /swarm-add 即可）
-if ($Path) {
-$wsMd = Join-Path $Path ".agent_swarm\workspace.md"
-$existingId = ""
-if (Test-Path $wsMd) {
-    $m = Select-String -Path $wsMd -Pattern "^\s*(?:#\+\s*)?WORKSPACE_ID[:：]\s*([A-Za-z0-9_-]+)" | Select-Object -First 1
-    if ($m) { $existingId = $m.Matches[0].Groups[1].Value }
-}
-if ($existingId) {
-    Write-Host "==> 工作区已注册：$existingId（$wsMd）"
-} else {
-    Write-Host "==> 注册工作区（$Path）..."
-    $regScript = Join-Path $bundleDir "register.mjs"
-    & node $regScript --server $Server --api-key $ApiKey --path $Path --agent-type deepseek
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host "警告: 工作区注册失败（服务端不可达？）。稍后在 $Path 目录用 dsh 里的 agent 手动注册也可。" -ForegroundColor Yellow
-    }
-}
-}
+# 工作区注册不在安装脚本做：装好插件后，在 dsh 会话里对目标项目执行 /swarm-add 即可
+# （dsh 命令天然绑定当前项目目录；register.mjs 仅保留给 /swarm-add 之外的脚本化场景）。
+Write-Host "==> 下一步：在 dsh 里打开目标项目的会话，让 agent 执行 /swarm-add 注册工作区"
 Write-Host "✅ [deepseek] 安装完成！重启 dsh（dsh web）后插件自动加载：心跳在线、任务落 per-caller 会话。"

@@ -8,8 +8,6 @@ SERVER=""
 API_KEY=""
 SRC=""
 PROFILE=""
-PATH_ARG="$(pwd)"
-PATH_ARG_EXPLICIT="0"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -17,7 +15,6 @@ while [[ $# -gt 0 ]]; do
     --api-key) API_KEY="$2"; shift 2;;
     --src) SRC="$2"; shift 2;;
     --profile) PROFILE="$2"; shift 2;;
-    --path) PATH_ARG="$2"; PATH_ARG_EXPLICIT="1"; shift 2;;
     *) shift;;
   esac
 done
@@ -123,18 +120,6 @@ else
   echo "==> 已追加 MCP 挂载到 $PROFILE_PATCH"
 fi
 
-# 3. 注册工作区（--path 可选：指定项目目录时自动注册；缺省跳过，之后 /swarm-add 即可）
-if [ "$PATH_ARG_EXPLICIT" = "1" ]; then
-  WS_MD="$PATH_ARG/.agent_swarm/workspace.md"
-  if [ -f "$WS_MD" ] && grep -qE "^\s*WORKSPACE_ID[:：]\s*[A-Za-z0-9_-]+" "$WS_MD"; then
-    echo "==> 工作区已注册（$WS_MD）"
-  else
-    echo "==> 注册工作区（$PATH_ARG）..."
-    node "$BUNDLE_DIR/register.mjs" --server "$SERVER" --api-key "$API_KEY" --path "$PATH_ARG" --agent-type deepseek \
-      || echo "警告: 工作区注册失败（服务端不可达？），可稍后手动注册" >&2
-  fi
-else
-  echo "==> 跳过工作区注册（未指定 --path；之后在 dsh 会话里 /swarm-add 即可）"
-fi
-
+# 工作区注册不在安装脚本做：装好插件后，在 dsh 会话里对目标项目执行 /swarm-add 即可。
+echo "==> 下一步：在 dsh 里打开目标项目的会话，让 agent 执行 /swarm-add 注册工作区"
 echo "✅ [deepseek] 安装完成！重启 dsh（dsh web）后插件自动加载。"
