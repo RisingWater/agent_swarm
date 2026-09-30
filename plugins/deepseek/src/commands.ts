@@ -174,7 +174,7 @@ export function swarmCommands(ctx: any, opts: { directory: string; log: (msg: st
         log(`/swarm-add followup failed: ${e}`)
       }
     }
-    return { kind: "success", text: `✅ 已注册工作区 ${id}（${directory}）${rsp.data?.need_summary ? "\n已让 agent 分析项目，稍后自动回填用途/能力。" : ""}\n${workspaceFilePath(directory)}` }
+    return { kind: "success", text: `✅ 已注册工作区 ${id}（${directory}）${rsp.data?.need_summary ? "\n已让 agent 读项目目录总结用途，稍后自动回填。" : ""}` }
   })
 
   // /swarm-remove —— 注销（仅离线可删）
