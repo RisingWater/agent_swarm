@@ -366,12 +366,19 @@ def notify_delay_seconds() -> int:
     return int(os.getenv("AGENT_SWARM_NOTIFY_DELAY", "60"))
 
 
-def _schedule_result_check(task_id: str) -> None:
-    """终态任务挂延时检查（fire-and-forget）。"""
+def _schedule_result_check(task_id: str, attempt: int = 0) -> None:
+    """终态任务挂延时检查（fire-and-forget）。
+
+    发起方前台轮还开着（working）≠ 永远不打扰——发起方很可能中途失去耐心收轮
+    （2026-10-01 实测：检查时发起方还在等 → 跳过 → 随后放弃 → 永远没人提醒）。
+    所以"还在等"改为重新排定下一轮检查，直到取走/已提醒或超过上限。
+    """
     async def _check() -> None:
         await asyncio.sleep(notify_delay_seconds())
         try:
-            await _notify_caller_if_abandoned(task_id)
+            again = await _notify_caller_if_abandoned(task_id)
+            if again and attempt < 120:  # 上限 120 轮（默认延迟下 ≈2h），防无限循环
+                _schedule_result_check(task_id, attempt + 1)
         except Exception:  # noqa: BLE001
             log.exception("notify check %s failed", task_id[:8])
     try:
@@ -380,27 +387,31 @@ def _schedule_result_check(task_id: str) -> None:
         pass  # 无运行中事件循环（如导入期），跳过
 
 
-async def _notify_caller_if_abandoned(task_id: str) -> None:
-    """结果没人取 → 推极简提醒给发起方工作区（只内部工作区；外部 URL 本期不做）。"""
+async def _notify_caller_if_abandoned(task_id: str) -> bool:
+    """结果没人取 → 推极简提醒给发起方工作区（只内部工作区；外部 URL 本期不做）。
+
+    返回 True = 发起方还在等，需要排定下一轮检查；False = 已了结（取走/已提醒/无需提醒）。
+    """
     if task_id in _results_delivered or task_id in _notified_tasks:
-        return
+        return False
     caller_ws = ""
     status = ""
     brief_status = ""
     with Session(engine) as session:
         task = session.get(models.A2aTask, task_id)
         if task is None or task.status not in ("completed", "failed"):
-            return
+            return False
         caller_ws = task.from_workspace_id or ""
         status = task.status
         if not caller_ws:
-            return  # 外部调用方 / web / 飞书自发：无工作区可提醒
+            return False  # 外部调用方 / web / 飞书自发：无工作区可提醒
         # 发起方工作区必须属于虫群成员（有属主）
         ws = session.get(models.Workspace, caller_ws)
         if ws is None:
             return
         brief_status = "已完成" if status == "completed" else "已失败（需要处理）"
-    # 发起方前台轮还开着（working）= agent1 还在耐心等待/查状态 → 不打扰
+    # 发起方前台轮还开着（working）= agent1 可能还在耐心等待/查状态 → 暂不打扰，
+    # 返回 True 让调用方排定下一轮检查（agent1 中途放弃的场景靠重查兜住）
     with Session(engine) as session:
         active = session.exec(
             select(models.A2aTask)
@@ -409,8 +420,8 @@ async def _notify_caller_if_abandoned(task_id: str) -> None:
             .where(models.A2aTask.status == "working")
         ).first()
         if active is not None:
-            log.info("notify %s: caller %s still working (monitor round), skip", task_id[:8], caller_ws[:8])
-            return
+            log.info("notify %s: caller %s still working (monitor round), retry later", task_id[:8], caller_ws[:8])
+            return True
     _notified_tasks.add(task_id)
     text = (
         f"[agent_swarm 提醒] 你之前发起的跨工作区任务（task_id={task_id}）{brief_status}。\n"
@@ -437,6 +448,7 @@ async def _notify_caller_if_abandoned(task_id: str) -> None:
     if dispatchable(caller_ws):
         await dispatch_queued_for(caller_ws)
     log.info("notify %s: caller %s reminded of %s task %s", notify_id[:8], caller_ws[:8], status, task_id[:8])
+    return False
 
 
 def _task_subscribe(task_id: str) -> asyncio.Queue:
