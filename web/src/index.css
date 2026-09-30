@@ -156,6 +156,19 @@ body {
   border: 1px solid var(--border);
   border-radius: 8px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  /* CJK 字体显式排在 generic monospace 之前：等宽字体不含中文字形时，
+     避免回退到度量不一致的字体导致小字号下汉字字身重叠 */
+  font-family: "IBM Plex Mono", "Berkeley Mono", ui-monospace, SFMono-Regular, Menlo,
+    Monaco, Consolas, "Liberation Mono", "Courier New", "Microsoft YaHei", "微软雅黑",
+    "PingFang SC", "Hiragino Sans GB", "Noto Sans CJK SC", "Source Han Sans SC", monospace;
+  letter-spacing: normal;
+  word-spacing: normal;
+}
+
+/* 面板内标题/按钮强制继承面板字体（覆盖 .topnav-links button 的等宽规则） */
+.notif-head b,
+.notif-head button {
+  font-family: inherit;
 }
 
 .notif-head {
@@ -195,7 +208,6 @@ body {
   line-height: 1.5;
   color: var(--text-strong);
   overflow-wrap: anywhere;
-  word-break: break-word;
 }
 
 .notif-body {
@@ -204,7 +216,6 @@ body {
   color: var(--text-weak);
   margin-top: 2px;
   overflow-wrap: anywhere;
-  word-break: break-word;
 }
 
 .notif-time {
