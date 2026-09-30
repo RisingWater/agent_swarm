@@ -1536,12 +1536,20 @@ agent: (a2a_call) → 对方 TUI 实时出现任务 → 执行 → 结果自动�
             <thead><tr><th>聊天工具</th><th>绑定方式</th><th>能力</th></tr></thead>
             <tbody>
               <tr>
-                <td>飞书</td>
+                <td>
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>
+                    <FeishuIcon size={18} /> 飞书
+                  </span>
+                </td>
                 <td>给机器人发 <code>/swarm bind as_你的密钥</code>（密钥在「API Key」页复制）</td>
                 <td>派任务 / 时间线直播 / 完成简报 / 监控同步 / 权限应答</td>
               </tr>
               <tr>
-                <td>微信 ClawBot</td>
+                <td>
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>
+                    <WeixinIcon size={18} /> 微信 ClawBot
+                  </span>
+                </td>
                 <td>网页「账号 → 聊天工具绑定 → 微信 ClawBot」扫码登录（用自己的微信号，无需 API Key）</td>
                 <td>派任务 / 任务详细流 / 完成简报 / 监控同步 / 权限编号应答</td>
               </tr>
