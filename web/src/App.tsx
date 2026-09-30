@@ -1005,7 +1005,7 @@ function HomePage({ toast, loggedIn, onGoAccount, onOpenLogin, onGoDocs }: { toa
               <FeatureIcon kind="eye" />
               <h3>监控模式</h3>
             </div>
-            <p>开启后（默认开），你在 opencode TUI 里的日常对话会按轮次实时同步到网页中枢：提问、思考、工具调用、回答全程可见，权限请求远程应答，历史随时回溯——像给 agent 开了一扇观察窗。</p>
+            <p>你在 agent 里的日常对话会按轮次实时同步到网页中枢：提问、思考、工具调用、回答全程可见，权限请求远程应答，历史随时回溯——像给 agent 开了一扇观察窗。</p>
           </div>
           <div className="home-card">
             <div className="home-card-head">
