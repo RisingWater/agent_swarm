@@ -373,6 +373,9 @@ function applyInner(ctx: any): void {
   }
   const monRounds = new Map<string, MonRound>()
 
+  /** 监控轮待应答权限：session id → {requestId, resolve}（roundKey 可从 monRounds 反查） */
+  const monPerms = new Map<string, { requestId: string; resolve: (outcome: string) => void }>()
+
   function monEmit(roundKey: string, sid: string, payload: Record<string, unknown>): void {
     a2a?.sendMonitor({ roundKey, sessionId: sid, ...payload })
   }
@@ -448,16 +451,36 @@ function applyInner(ctx: any): void {
         break
       }
       case "approval/asked": {
+        const requestId = String(data.id ?? "")
+        if (requestId) {
+          // 监控轮权限：挂 pending（远程应答桥用），turn/end / decided 时撤下
+          monPerms.set(sid, { requestId, resolve: () => {} })
+        }
         monEmit(round.roundKey, sid, {
-          type: "permission", requestId: String(data.id ?? ""),
+          type: "permission", requestId,
           permission: String(data.toolName ?? ""), title: String(data.reason ?? ""),
           patterns: [],
         })
         break
       }
+      case "approval/decided": {
+        // 本地 UI 先答了：撤下监控轮的远程等待
+        const mp = monPerms.get(sid)
+        if (mp && String(data.id ?? "") === mp.requestId) {
+          monPerms.delete(sid)
+          monEmit(round.roundKey, sid, { type: "replied" })
+        }
+        break
+      }
       case "turn/end": {
         const reason = String(data?.reason?.kind ?? "")
         if (reason === "completed" || reason === "max-tokens" || reason === "aborted" || reason === "error") {
+          const mp = monPerms.get(sid)
+          if (mp && mp.requestId) {
+            // 未应答即收轮：撤下等待（对齐 opencode idle 收轮语义）
+            mp.resolve("cancelled")
+            monPerms.delete(sid)
+          }
           log(`monitor ${round.roundKey}: idle (${reason}) finalText=${round.finalText.length} chars`)
           monEmit(round.roundKey, sid, {
             type: "idle", reason,
@@ -589,11 +612,22 @@ function applyInner(ctx: any): void {
   // ---------------- 远程权限应答 ----------------
 
   function replyPermission(taskId: string, requestId: string, reply: string): void {
+    const outcome = reply === "always" || reply === "once" ? "allowed-once" : "rejected"
+    // 监控轮应答（taskId = roundKey）：按 requestId 反查 monPerms（roundKey 不含完整 sid）
+    for (const [sid, mp] of monPerms) {
+      if (mp.requestId === requestId) {
+        monPerms.delete(sid)
+        mp.resolve(outcome)
+        const round = monRounds.get(sid)
+        if (round) monEmit(round.roundKey, sid, { type: "replied" })
+        log(`monitor ${round?.roundKey.slice(0, 16) ?? sid.slice(0, 8)}: permission ${requestId.slice(0, 12)} → ${reply} (remote)`)
+        return
+      }
+    }
     const run = a2aRuns.get(taskId)
     if (!run || !run.permission || run.permission.requestId !== requestId) {
       throw new Error("permission request not pending (already answered?)")
     }
-    const outcome = reply === "always" || reply === "once" ? "allowed-once" : "rejected"
     settlePermission(run, outcome)
     a2aEmit(
       statusUpdate({ taskId, contextId: taskId }, "working", {
@@ -614,16 +648,33 @@ function applyInner(ctx: any): void {
     const sid = req?.agent?.session?.header?.id
     const taskId = sid ? sessionTasks.get(sid) : undefined
     const run = taskId ? a2aRuns.get(taskId) : undefined
-    // 非本插件任务轮的权限：交给下游（dsh 内建 UI answerer）
-    if (!run || !run.permission) return next()
-    // approval/asked 事件可能略晚于 waterfall 派发：等它把 permission 挂上
-    for (let i = 0; i < 50 && !run.permission; i++) {
+    // 任务轮权限：等远程应答
+    if (run) {
+      // approval/asked 事件可能略晚于 waterfall 派发：等它把 permission 挂上
+      for (let i = 0; i < 50 && !run.permission; i++) {
+        await new Promise((r) => setTimeout(r, 100))
+      }
+      if (run.permission) {
+        log(`approval/request: wait remote answer ${run.permission.requestId.slice(0, 12)}`)
+        const outcome = await new Promise<string>((resolve) => {
+          ;(run as any)._waterfallResolve = resolve
+        })
+        return outcome
+      }
+      return next()
+    }
+    // 监控轮权限（用户日常对话触发的 approval）：同样等远程应答
+    if (sid && monPerms.has(sid)) return next() // asked 已挂，直接等下面
+    if (!sid) return next()
+    // asked 事件可能略晚于 waterfall 派发：等它把 monPerms 挂上
+    for (let i = 0; i < 50 && !monPerms.has(sid); i++) {
       await new Promise((r) => setTimeout(r, 100))
     }
-    if (!run.permission) return next()
-    log(`approval/request: wait remote answer ${run.permission.requestId.slice(0, 12)}`)
+    const mp = monPerms.get(sid)
+    if (!mp) return next()
+    log(`approval/request: wait remote answer (monitor) ${mp.requestId.slice(0, 12)}`)
     const outcome = await new Promise<string>((resolve) => {
-      ;(run as any)._waterfallResolve = resolve
+      mp.resolve = resolve
     })
     return outcome
   })
