@@ -83,7 +83,8 @@ interface A2aRun {
   } | null
 }
 
-export function apply(ctx: any): void {
+/** apply 主体（applyInner）：任何抛错都被 apply 包装记日志后重抛 */
+function applyInner(ctx: any): void {
   const cfg = loadConfig()
   if (!cfg) {
     log("no apiKey config; plugin disabled")
@@ -305,7 +306,22 @@ export function apply(ctx: any): void {
 
   // ---------------- 单一 session/event 总线 ----------------
 
-  ;(ctx as any).on("session/event", (session: any, ev: any) => {
+  /** 防御性事件注册：ctx.on 缺失/抛错只降级不拖死插件 */
+  function safeOn(event: string, handler: (...args: any[]) => any): boolean {
+    try {
+      if (typeof ctx.on !== "function") {
+        log(`ctx.on unavailable; ${event} listener skipped`)
+        return false
+      }
+      ctx.on(event, handler)
+      return true
+    } catch (e) {
+      log(`${event} listener register failed: ${e}`)
+      return false
+    }
+  }
+
+  safeOn("session/event", (session: any, ev: any) => {
     const sid = session?.header?.id
     if (!sid) return
     const taskId = sessionTasks.get(sid)
@@ -318,7 +334,7 @@ export function apply(ctx: any): void {
       log(`session/event handler error: ${e}`)
     }
   })
-  ;(ctx as any).on("agent/error", (payload: any) => {
+  safeOn("agent/error", (payload: any) => {
     const sid = payload?.agent?.session?.header?.id
     if (!sid) return
     const taskId = sessionTasks.get(sid)
@@ -414,7 +430,7 @@ export function apply(ctx: any): void {
   // 回复 → settlePermission → 这里把 outcome 返回给 dsh。
   // 本地 UI 先答：dsh 内建 answerer 在 waterfall 里先返回，本监听器不会被问到；
   // 之后 approval/decided 事件到达，handleEvent 撤下远程等待。
-  ;(ctx as any).on("approval/request", async (req: any, next: () => Promise<string>) => {
+  safeOn("approval/request", async (req: any, next: () => Promise<string>) => {
     const sid = req?.agent?.session?.header?.id
     const taskId = sid ? sessionTasks.get(sid) : undefined
     const run = taskId ? a2aRuns.get(taskId) : undefined
@@ -451,7 +467,7 @@ export function apply(ctx: any): void {
   // 回答」接进 waterfall：远程（web/飞书/微信/桌宠）回答 → settleQuestion →
   // 把 AskUserQuestionAnswer 返回给 dsh。本地 UI 先答：内建 answerer 先返回，
   // 之后 question 状态由 askUserQuestion 的 settle 清理。
-  ;(ctx as any).on("user-questions/request", async (req: any, next: () => Promise<any>) => {
+  safeOn("user-questions/request", async (req: any, next: () => Promise<any>) => {
     const sid = req?.agent?.session?.header?.id
     const taskId = sid ? sessionTasks.get(sid) : undefined
     const run = taskId ? a2aRuns.get(taskId) : undefined
@@ -551,7 +567,11 @@ export function apply(ctx: any): void {
 
   // ---------------- /swarm-* 命令（dsh commands 注册表） ----------------
 
-  swarmCommands(ctx, { directory, log })
+  try {
+    swarmCommands(ctx, { directory, log })
+  } catch (e) {
+    log(`swarmCommands setup failed: ${e}`)
+  }
 
   // ---------------- 心跳（MCP heartbeat，服务端在线判定 = last_heartbeat 90s 超时） ----------------
 
@@ -588,4 +608,14 @@ export function apply(ctx: any): void {
   void heartbeatLoop()
 
   log("agent-swarm deepseek plugin ready")
+}
+
+/** 导出入口：包一层崩溃日志（dsh UI 只显示"启动失败"，原因只有这里能落） */
+export function apply(ctx: any): void {
+  try {
+    applyInner(ctx)
+  } catch (e) {
+    log(`apply CRASHED: ${e}\n${(e as Error)?.stack ?? ""}`)
+    throw e
+  }
 }
