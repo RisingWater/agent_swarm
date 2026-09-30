@@ -58,6 +58,9 @@ function log(msg: string) {
 }
 
 export const name = "agent-swarm"
+/** Cordis 注入声明：commands（/swarm-* 注册）、agents（会话锚定）。
+ * 没有声明就不能访问 ctx.commands/ctx.agents（"cannot get property without inject"）。 */
+export const inject = ["commands", "agents"]
 
 /** 一个进行中的 A2A 任务轮（键 = taskId） */
 interface A2aRun {
