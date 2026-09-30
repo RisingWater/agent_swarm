@@ -138,13 +138,17 @@ export function swarmCommands(ctx: any, opts: { directory: string; log: (msg: st
     const client = mcpClient(cfg)
     let purposeText = purpose
     if (!purposeText) {
-      const agentsFile = join(directory, "AGENTS.md")
-      if (existsSync(agentsFile)) {
-        try {
-          const first = readFileSync(agentsFile, "utf-8").split("\n").find((l) => l.startsWith("# "))
-          if (first) purposeText = first.replace(/^#\s*/, "").slice(0, 120)
-        } catch { /* ignore */ }
+      // 兜底链：AGENTS.md 首行 → README.md 首行 → 目录名占位（保证中枢列表不显示全空）
+      for (const f of ["AGENTS.md", "README.md"]) {
+        const file = join(directory, f)
+        if (existsSync(file)) {
+          try {
+            const first = readFileSync(file, "utf-8").split("\n").find((l) => l.startsWith("# "))
+            if (first) { purposeText = first.replace(/^#\s*/, "").slice(0, 120); break }
+          } catch { /* ignore */ }
+        }
       }
+      if (!purposeText) purposeText = `${basename(directory)}（dsh 工作区）`
     }
     const rsp = await client.callTool("workspace_add", {
       path: directory.replace(/\\/g, "/"),
