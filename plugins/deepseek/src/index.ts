@@ -373,6 +373,7 @@ function applyInner(ctx: any): void {
       monRounds.set(sid, { roundKey, finalText: "" })
       monEmit(roundKey, sid, { type: "user", text: "", seq })
       if (text.trim()) monEmit(roundKey, sid, { type: "user-text", text })
+      log(`monitor ${roundKey}: opened (${text.length} chars)`)
       return
     }
 
@@ -429,6 +430,7 @@ function applyInner(ctx: any): void {
       case "turn/end": {
         const reason = String(data?.reason?.kind ?? "")
         if (reason === "completed" || reason === "max-tokens" || reason === "aborted" || reason === "error") {
+          log(`monitor ${round.roundKey}: idle (${reason}) finalText=${round.finalText.length} chars`)
           monEmit(round.roundKey, sid, {
             type: "idle", reason,
             text: round.finalText,
