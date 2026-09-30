@@ -334,6 +334,16 @@ _task_queues: dict[str, set[asyncio.Queue]] = {}
 TERMINAL_STATES = ("completed", "failed", "canceled")
 
 
+def permission_replies(agent_type: str | None) -> tuple[str, ...]:
+    """工作区 agent 类型对应的合法权限应答集合。
+
+    dsh 的 ApprovalOutcome 只有 allowed-once/rejected（无持久授权语义），
+    opencode/claude 支持 once/always/reject。channel 卡片（web/飞书/微信）
+    据此决定渲染两个还是三个选项。
+    """
+    return ("once", "reject") if str(agent_type or "").strip().lower().startswith("deepseek") else ("once", "always", "reject")
+
+
 def _task_subscribe(task_id: str) -> asyncio.Queue:
     q: asyncio.Queue = asyncio.Queue()
     _task_queues.setdefault(task_id, set()).add(q)

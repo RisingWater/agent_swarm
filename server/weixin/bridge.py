@@ -238,6 +238,8 @@ async def _push_input_required(workspace_id: str, task_id: str, event: dict) -> 
         uid = task.user_id or _owner_of(s, task.workspace_id)
         if not uid:
             return
+        ws_row = s.get(models.Workspace, task.workspace_id) if task.workspace_id else None
+        agent_type = (ws_row.agent_type if ws_row else "") or ""
         row = s.get(models.WeixinLogin, uid)
     if row is None:
         return
@@ -250,8 +252,10 @@ async def _push_input_required(workspace_id: str, task_id: str, event: dict) -> 
     opts = [str(o if isinstance(o, str) else (o.get("label") or o.get("value") or ""))
             for o in (data.get("options") or [])[:6]]
     opts = [o for o in opts if o]
-    state.set_pending(uid, task_id, kind, q, opts, request_id=str(data.get("requestId") or ""))
-    await _send(sess, render.permission_text(task_id, kind, q, opts))
+    from server.nexus_a2a import permission_replies
+    state.set_pending(uid, task_id, kind, q, opts, request_id=str(data.get("requestId") or ""),
+                      replies=list(permission_replies(agent_type)))
+    await _send(sess, render.permission_text(task_id, kind, q, opts, agent_type))
 
 
 def _input_data_of(event: dict) -> dict:
@@ -274,6 +278,7 @@ async def _push_monitor_input_required(workspace_id: str, round_key: str, event:
         uid = (ws.user_id if ws else "") or ""
         if not uid:
             return
+        agent_type = (ws.agent_type or "") if ws else ""
         row = s.get(models.WeixinLogin, uid)
         u = s.get(models.User, uid)
         key = (u.api_key or "") if u else ""
@@ -296,8 +301,10 @@ async def _push_monitor_input_required(workspace_id: str, round_key: str, event:
         q = instr[:120] if instr else "AI 需要确认"
     opts = [str(o if isinstance(o, str) else (o.get("label") or o.get("value") or ""))
             for o in (event.get("options") or [])[:6]]
-    state.set_pending(uid, round_key, itype, q, [o for o in opts if o], request_id=req_id)
-    await _send(sess, render.permission_text(round_key, itype, q, opts))
+    from server.nexus_a2a import permission_replies
+    state.set_pending(uid, round_key, itype, q, [o for o in opts if o], request_id=req_id,
+                      replies=list(permission_replies(agent_type)))
+    await _send(sess, render.permission_text(round_key, itype, q, opts, agent_type))
     log.info("wx-monitor input-required round=%s itype=%s req=%s", round_key[:16], itype, req_id[:16])
 
 

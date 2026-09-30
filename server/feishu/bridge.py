@@ -105,7 +105,15 @@ def _apply_task_event(rc: RoundCards, event: dict) -> None:
         return  # 最终答复卡由 completed 终态一次性写入（artifact 与终态 text 重复）
 
     if state_ == "input-required":
-        rc.set_round_buttons(_input_required_actions(event, task_id))
+        # 权限按钮按工作区 agent 类型决定（dsh 无"始终允许"）
+        from server.db import engine
+        from sqlmodel import Session
+        from server import models
+        with Session(engine) as s:
+            at = s.get(models.A2aTask, task_id)
+            ws_row = s.get(models.Workspace, at.workspace_id) if at and at.workspace_id else None
+            agent_type = (ws_row.agent_type if ws_row else "") or ""
+        rc.set_round_buttons(_input_required_actions(event, task_id, agent_type))
         return
     if state_ in ("completed", "failed", "canceled"):
         detail = ""
@@ -147,8 +155,8 @@ def _conclusion_of(rc: RoundCards, event: dict) -> str:
     return text or (rc.pending_final_text or "")
 
 
-def _input_required_actions(event: dict, task_id: str) -> list[dict]:
-    """input-required → 按钮组（permission 三选 / question 选项+自由回答提示）。"""
+def _input_required_actions(event: dict, task_id: str, agent_type: str = "") -> list[dict]:
+    """input-required → 按钮组（permission 按类型二选/三选 / question 选项+自由回答提示）。"""
     msg = (event.get("status") or {}).get("message") or {}
     data = {}
     for p in msg.get("parts") or []:
@@ -177,24 +185,19 @@ def _input_required_actions(event: dict, task_id: str) -> list[dict]:
             "value": {"action": "reply_hint", "taskId": task_id},
         })
     else:
-        actions.append({
-            "tag": "button",
-            "text": {"tag": "plain_text", "content": "✅ 允许"},
-            "type": "primary",
-            "value": {"action": "feishu_reply", "taskId": task_id, "reply": "allow", "requestId": request_id},
-        })
-        actions.append({
-            "tag": "button",
-            "text": {"tag": "plain_text", "content": "✅ 本会话允许"},
-            "type": "default",
-            "value": {"action": "feishu_reply", "taskId": task_id, "reply": "always", "requestId": request_id},
-        })
-        actions.append({
-            "tag": "button",
-            "text": {"tag": "plain_text", "content": "❌ 拒绝"},
-            "type": "danger",
-            "value": {"action": "feishu_reply", "taskId": task_id, "reply": "reject", "requestId": request_id},
-        })
+        # 权限按钮按工作区 agent 类型决定：dsh 只有允许一次/拒绝
+        from server.nexus_a2a import permission_replies
+        replies = permission_replies(agent_type)
+        for label, reply, btn_type in (
+            ("✅ 允许", "once", "primary"), ("✅ 本会话允许", "always", "default"), ("❌ 拒绝", "reject", "danger"),
+        ):
+            if reply in replies:
+                actions.append({
+                    "tag": "button",
+                    "text": {"tag": "plain_text", "content": label},
+                    "type": btn_type,
+                    "value": {"action": "feishu_reply", "taskId": task_id, "reply": reply, "requestId": request_id},
+                })
     return actions
 
 
@@ -246,7 +249,14 @@ def _apply_monitor_event(rc: RoundCards, round_key: str, mtype: str, payload: di
         if t:
             rc.pending_final_text = t
     elif mtype in ("permission", "question"):
-        rc.set_round_buttons(_monitor_actions(round_key, mtype, payload))
+        # 权限按钮按工作区 agent 类型决定（dsh 无"始终允许"）
+        from server.db import engine
+        from sqlmodel import Session
+        from server import models
+        with Session(engine) as s:
+            ws_row = s.get(models.Workspace, workspace_id) if workspace_id else None
+            agent_type = (ws_row.agent_type if ws_row else "") or ""
+        rc.set_round_buttons(_monitor_actions(round_key, mtype, payload, agent_type))
     elif mtype == "replied":
         rc.set_round_buttons([])
     elif mtype == "idle":
@@ -254,7 +264,7 @@ def _apply_monitor_event(rc: RoundCards, round_key: str, mtype: str, payload: di
         asyncio.get_running_loop().call_later(600, lambda: manager().drop(round_key))
 
 
-def _monitor_actions(round_key: str, itype: str, payload: dict) -> list[dict]:
+def _monitor_actions(round_key: str, itype: str, payload: dict, agent_type: str = "") -> list[dict]:
     request_id = str(payload.get("requestId", "") or round_key)
     actions: list[dict] = []
     if itype == "question":
@@ -268,16 +278,17 @@ def _monitor_actions(round_key: str, itype: str, payload: dict) -> list[dict]:
                     "value": {"action": "feishu_reply", "taskId": round_key, "reply": label, "requestId": request_id},
                 })
     else:
-        actions.append({
-            "tag": "button",
-            "text": {"tag": "plain_text", "content": "✅ 允许"},
-            "type": "primary",
-            "value": {"action": "feishu_reply", "taskId": round_key, "reply": "allow", "requestId": request_id},
-        })
-        actions.append({
-            "tag": "button",
-            "text": {"tag": "plain_text", "content": "❌ 拒绝"},
-            "type": "danger",
-            "value": {"action": "feishu_reply", "taskId": round_key, "reply": "reject", "requestId": request_id},
-        })
+        # 权限按钮按工作区 agent 类型决定：dsh 只有允许一次/拒绝
+        from server.nexus_a2a import permission_replies
+        replies = permission_replies(agent_type)
+        for label, reply, btn_type in (
+            ("✅ 允许", "once", "primary"), ("✅ 本会话允许", "always", "default"), ("❌ 拒绝", "reject", "danger"),
+        ):
+            if reply in replies:
+                actions.append({
+                    "tag": "button",
+                    "text": {"tag": "plain_text", "content": label},
+                    "type": btn_type,
+                    "value": {"action": "feishu_reply", "taskId": round_key, "reply": reply, "requestId": request_id},
+                })
     return actions

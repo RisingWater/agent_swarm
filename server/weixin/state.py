@@ -75,13 +75,15 @@ _PENDING_TTL = 3600.0
 
 
 def set_pending(user_id: str, task_id: str, kind: str, question: str, options: list[str],
-                request_id: str = "") -> None:
+                request_id: str = "", replies: list[str] | None = None) -> None:
     _pending[user_id] = {
         "task_id": task_id,
         "kind": kind,
         "question": question,
         "options": options,
         "request_id": request_id,
+        # 权限合法应答集（按工作区 agent 类型：dsh 无 always）——应答编号解析用
+        "replies": replies or ["once", "always", "reject"],
         "ts": time.time(),
     }
     _gc_pending()
