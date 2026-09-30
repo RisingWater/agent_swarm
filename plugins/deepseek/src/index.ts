@@ -651,12 +651,23 @@ function applyInner(ctx: any): void {
             if (cwd && targetDir && cwd !== targetDir) continue
             let title = ""
             try {
-              const msgs = session.deriveMessages?.() ?? []
-              for (const m of msgs) {
-                if ((m as any).role !== "user") continue
-                const block = Array.isArray((m as any).content) ? (m as any).content : []
-                const t = block.filter((b: any) => b?.type === "text").map((b: any) => String(b.text ?? "")).join(" ")
-                if (t.trim()) { title = t.trim().split("\n")[0].slice(0, 60); break }
+              // 优先取重命名标题（session/title 事件，dsh session-title 插件落库）；
+              // 没有再回退首条 user 消息首行（对齐 dsh session-title 的 fallback 逻辑）
+              for (let seq = Number(session.seq ?? 0) - 1; seq >= 0; seq--) {
+                const ev = session.eventAt?.(seq)
+                if (ev?.type === "session/title" && typeof ev.data?.title === "string" && ev.data.title.trim()) {
+                  title = ev.data.title.trim().slice(0, 60)
+                  break
+                }
+              }
+              if (!title) {
+                const msgs = session.deriveMessages?.() ?? []
+                for (const m of msgs) {
+                  if ((m as any).role !== "user") continue
+                  const block = Array.isArray((m as any).content) ? (m as any).content : []
+                  const t = block.filter((b: any) => b?.type === "text").map((b: any) => String(b.text ?? "")).join(" ")
+                  if (t.trim()) { title = t.trim().split("\n")[0].slice(0, 60); break }
+                }
               }
             } catch { /* 投影读失败不阻塞心跳 */ }
             const running = sessionTasks.get(session.header.id)
