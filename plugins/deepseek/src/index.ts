@@ -391,7 +391,10 @@ function applyInner(ctx: any): void {
     a2aRuns.set(task.taskId, run)
     sessionTasks.set(sessionId, task.taskId)
 
+    // 手构 UserMessage 必须带稳定 id（dsh Session.append 校验 identified message；
+    // createUserMessage 的话就是 randomUUID + deepFreeze）
     const message = {
+      id: randomUUID(),
       role: "user",
       content: [{ type: "text", text: buildTaskPrompt(text, caller, task.taskId) }],
       source: { kind: "user" },

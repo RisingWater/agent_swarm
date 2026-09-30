@@ -14,6 +14,7 @@
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
+import { randomUUID } from "node:crypto"
 import { basename, join } from "node:path"
 import { loadConfig, type SwarmConfig } from "./config.ts"
 import { readWorkspaceId, writeWorkspaceId, workspaceFilePath } from "./workspace.ts"
@@ -156,6 +157,7 @@ export function swarmCommands(ctx: any, opts: { directory: string; log: (msg: st
       if (typeof agent?.followup === "function") {
         try {
           agent.followup({
+            id: randomUUID(),
             role: "user",
             content: [{ type: "text", text: `本项目刚注册到 agent_swarm（工作区 ID: ${id}），当前用途描述是占位文本。请读取项目目录下的文件（README/AGENTS.md/源码结构，没有说明文件就直接浏览目录归纳），然后调用 mcp__agent-swarm__update_info 工具：purpose 填一句话说明这个项目/工作区是干什么的，capabilities 填它能帮别的 agent 做什么（逗号分隔）。保持简短，不要做其它事。` }],
             source: { kind: "user" },
