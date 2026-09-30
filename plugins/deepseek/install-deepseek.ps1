@@ -145,11 +145,8 @@ if (Test-Path $profilePatch) {
 }
 
 # 3. 注册工作区：调 MCP workspace_add（agent_type=deepseek）并写 .agent_swarm/workspace.md
-if (-not $Path) {
-    Write-Host "==> 跳过工作区注册（未指定 -Path）。请在你的项目目录里跑：" -ForegroundColor Yellow
-    Write-Host "    install-deepseek.ps1 ... -Path <项目目录>" -ForegroundColor Yellow
-    Write-Host "    或在 dsh 会话里让 agent 执行 /swarm-add" -ForegroundColor Yellow
-} else {
+# -Path 可选：指定项目目录时自动注册；缺省跳过（之后在 dsh 会话里 /swarm-add 即可）
+if ($Path) {
 $wsMd = Join-Path $Path ".agent_swarm\workspace.md"
 $existingId = ""
 if (Test-Path $wsMd) {

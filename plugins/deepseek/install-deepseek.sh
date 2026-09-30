@@ -123,7 +123,7 @@ else
   echo "==> 已追加 MCP 挂载到 $PROFILE_PATCH"
 fi
 
-# 3. 注册工作区（--path 必须显式指定项目目录；缺省跳过——分发器安装时 cwd 不是用户项目）
+# 3. 注册工作区（--path 可选：指定项目目录时自动注册；缺省跳过，之后 /swarm-add 即可）
 if [ "$PATH_ARG_EXPLICIT" = "1" ]; then
   WS_MD="$PATH_ARG/.agent_swarm/workspace.md"
   if [ -f "$WS_MD" ] && grep -qE "^\s*WORKSPACE_ID[:：]\s*[A-Za-z0-9_-]+" "$WS_MD"; then
@@ -134,9 +134,7 @@ if [ "$PATH_ARG_EXPLICIT" = "1" ]; then
       || echo "警告: 工作区注册失败（服务端不可达？），可稍后手动注册" >&2
   fi
 else
-  echo "==> 跳过工作区注册（未指定 --path）。请在你的项目目录里跑："
-  echo "    install-deepseek.sh ... --path <项目目录>"
-  echo "    或在 dsh 会话里让 agent 执行 /swarm-add"
+  echo "==> 跳过工作区注册（未指定 --path；之后在 dsh 会话里 /swarm-add 即可）"
 fi
 
 echo "✅ [deepseek] 安装完成！重启 dsh（dsh web）后插件自动加载。"
