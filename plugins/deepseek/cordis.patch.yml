@@ -1,0 +1,7 @@
+# agent_swarm 插件 patch 层：把本 bundle 的插件插进 profile。
+# 安装：dsh plugin --profile <name> add <本目录>（bundle 路径安装，免构建）
+# 插件入口 main = index.js（由 src/*.ts 编译或直接以 tsx 运行均可）。
+
+- insert:
+    - id: agent-swarm
+      name: dsh-agent-swarm-plugin
