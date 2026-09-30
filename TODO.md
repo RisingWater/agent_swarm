@@ -243,11 +243,11 @@
 - [x] **V2 opencode 全链路 OK**（2026-10-01 用户确认：v2 opencode 已 OK）——心跳/前台注入/后台任务/监控/权限应答实测通过；V2 提问（form）应答仍等官方补 ctx 能力（只上报）
 - [x] **飞书渠道 OK**（2026-10-01 用户确认）——时间线/简报/权限卡/监控同步实测通过
 - [x] **微信渠道 OK**（2026-10-01 用户确认）——真机 E2E（2026-09-20）+ 后续批次稳定运行
-- [ ] **重建镜像并部署**（把本轮所有服务端改动带上线）：多连接/去 4001 踢人、`with Session` 内不 await、SQLite WAL+池 30、`tasks/cancel` 与超时置 failed 漏 commit、`dispatchable` 离线派发策略 C、V2 插件与按版本分流的安装脚本、09-25 桌宠批次（双鉴权/派发可靠化/通配订阅）、dsh 批次（permission_replies 按 agent_type 分派）、**长任务完成提醒**（from_workspace 必填 + AGENT_SWARM_NOTIFY_DELAY 复查链）。推送 `10.17.17.19:8082/agent-swarm:latest` 后从 dpanel 更新
-- [ ] **其它机器重装插件**：V1 机器走 V1 分支（逻辑未变）；V2 机器（如 4.193）重装后会自动发现 V2 插件。注意旧镜像 tarball 里没有 V2 插件，必须先重建镜像
+- [ ] **重建镜像并部署**（把本轮所有服务端改动带上线）：多连接/去 4001 踢人、`with Session` 内不 await、SQLite WAL+池 30、`tasks/cancel` 与超时置 failed 漏 commit、`dispatchable` 离线派发策略 C、V2 插件与按版本分流的安装脚本、09-25 桌宠批次（双鉴权/派发可靠化/通配订阅，**已配合桌宠测试 OK**）、dsh 批次（permission_replies 按 agent_type 分派）、**长任务完成提醒**（from_workspace 必填 + AGENT_SWARM_NOTIFY_DELAY 复查链）。推送 `10.17.17.19:8082/agent-swarm:latest` 后从 dpanel 更新
+- [x] **其它机器重装插件**（2026-10-01 用户确认）：V2 插件 Windows/Linux 均已实测 OK
 - [ ] **V2 后台续聊 E2E**：同 caller 连发两单，确认第二单复用 `.agent_swarm/sessions.json` 的会话（plugin.log 见 resume）
 - [ ] **V2 命令交互验证**：`/swarm-mode`、`/swarm-remove|enable|disable` 在 TUI 里真按一遍（目前只验证了加载与注册；`/swarm-monitor` 已移除——监控常开无开关）
-- [ ] **ps1 安装脚本 Windows 实测**：install-deepseek.ps1 双 BOM 已修（2026-10-01），但整套 ps1 仍未在 Windows 全量跑过
+- [x] **ps1 安装脚本 Windows 实测**（2026-10-01 用户确认已跑过；install-deepseek.ps1 双 BOM 已修）
 - [ ] **V2 提问（form）支持**：server 插件 ctx 无 `session.form`——先按兼容 bug 反馈 opencode，官方补上后接应答（当前只上报）
 
 - [ ] **后台会话续聊 E2E（opencode 侧）**：同 caller（如 nexus-web）连发两个任务，验证第二个任务复用 `.agent_swarm/sessions.json` 里记录的会话（plugin.log 应见 `resume ses_`），且对话上下文延续
