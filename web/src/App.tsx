@@ -132,16 +132,21 @@ export function Modal({
   onClose,
   children,
   wide,
+  headerAction,
 }: {
   title: string
   onClose: () => void
   children: ReactNode
   wide?: boolean
+  headerAction?: ReactNode
 }) {
   return (
     <div className="dialog-overlay" onClick={onClose}>
       <div className={`dialog${wide ? " dialog-wide" : ""}`} onClick={(e) => e.stopPropagation()}>
-        <h3>{title}</h3>
+        <div className="dialog-head">
+          <h3>{title}</h3>
+          {headerAction}
+        </div>
         {children}
       </div>
     </div>
@@ -3434,7 +3439,22 @@ function TeamsPage({ toast }: { toast: (m: string) => void }) {
       )}
 
       {detail && (
-        <Modal wide title={`团队：${detail.name}`} onClose={() => { setDetail(null); setConfirmDelete(false) }}>
+        <Modal
+          wide
+          title={`团队：${detail.name}`}
+          onClose={() => { setDetail(null); setConfirmDelete(false) }}
+          headerAction={detail.is_leader ? (
+            confirmDelete ? (
+              <span style={{ display: "inline-flex", gap: 8, alignItems: "center", whiteSpace: "nowrap" }}>
+                <span style={{ color: "var(--text-weak)", fontSize: 13 }}>解散团队？</span>
+                <Btn size="sm" variant="danger" disabled={busy} onClick={() => act(() => api.deleteTeam(detail.id), "团队已解散", true)}>确认</Btn>
+                <Btn size="sm" variant="ghost" onClick={() => setConfirmDelete(false)}>取消</Btn>
+              </span>
+            ) : (
+              <Btn size="sm" variant="danger" onClick={() => setConfirmDelete(true)}>解散团队</Btn>
+            )
+          ) : undefined}
+        >
           <dl className="dl">
             <dt>队长</dt><dd>{detail.leader.username}{detail.is_leader && "（你）"}</dd>
             <dt>加入方式</dt><dd>{policyLabel(detail.join_policy)}</dd>
@@ -3505,15 +3525,7 @@ function TeamsPage({ toast }: { toast: (m: string) => void }) {
               )}
             </div>
             <div>
-              {detail.is_leader && (confirmDelete ? (
-                <span style={{ display: "inline-flex", gap: 8, alignItems: "center" }}>
-                  解散团队？
-                  <Btn size="sm" variant="danger" disabled={busy} onClick={() => act(() => api.deleteTeam(detail.id), "团队已解散", true)}>确认</Btn>
-                  <Btn size="sm" variant="ghost" onClick={() => setConfirmDelete(false)}>取消</Btn>
-                </span>
-              ) : (
-                <Btn variant="danger" onClick={() => setConfirmDelete(true)}>解散团队</Btn>
-              ))}
+              <Btn onClick={() => { setDetail(null); setConfirmDelete(false) }}>关闭</Btn>
             </div>
           </div>
         </Modal>

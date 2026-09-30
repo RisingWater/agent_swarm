@@ -527,6 +527,19 @@ a.link:hover {
   color: var(--text-strong);
 }
 
+/* 弹窗头部行：标题 + 右上角操作（如「解散团队」） */
+.dialog-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.dialog-head h3 {
+  margin: 0;
+}
+
 /* ---------- 提示条 ---------- */
 
 .toast {
