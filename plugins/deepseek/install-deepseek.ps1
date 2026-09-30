@@ -1,4 +1,4 @@
-﻿﻿# agent_swarm deepseek harness 插件安装子脚本（由 deploy/install.ps1 分发器调用）。
+﻿# agent_swarm deepseek harness 插件安装子脚本（由 deploy/install.ps1 分发器调用）。
 # 做四件事：
 #   1. 检查 dsh 命令可用
 #   2. 写全局配置 ~/.config/dsh/agent-swarm.json
