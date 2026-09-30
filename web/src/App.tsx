@@ -1197,7 +1197,7 @@ function SupportedAgents() {
   const tools: { tool: "opencode" | "claude" | "deepseek" | "pi" | "more"; name: string; supported: boolean }[] = [
     { tool: "opencode", name: "opencode", supported: true },
     { tool: "claude", name: "claude code", supported: true },
-    { tool: "deepseek", name: "deepseek harness", supported: false },
+    { tool: "deepseek", name: "deepseek harness", supported: true },
     { tool: "pi", name: "pi", supported: false },
     { tool: "more", name: "更多 MCP 客户端", supported: false },
   ]
@@ -1375,12 +1375,20 @@ function DocsPage() {
               <b>重启 claude 后生效</b>。claude 工作区支持注册管理、在线状态与后台会话任务执行；
               前台注入暂不支持（见「命令」章节的支持情况表）。
             </li>
+            <li>
+              <b>deepseek harness</b>：安装 cordis bundle 插件（<code>dsh plugin add</code>，按 profile 安装）
+              → 写入 MCP 配置（agent-swarm-mcp）→ 拷贝 <code>/swarm-*</code> 命令。
+              <b>重启 dsh 后生效</b>。注册工作区走会话内 <code>/swarm-add</code>（安装脚本不注册）。
+              支持前台注入（最近活跃会话）、后台 per-caller 会话、监控同步与权限/提问应答
+              （详见「命令」章节的支持情况表）。
+            </li>
           </ul>
           <h3>验证安装</h3>
           <p>
             重启后打开「工作区」页，约 30 秒内应看到该机器的工作区状态点变绿（online）。
             opencode 可查看 <code>~/.config/opencode/plugins/agent-swarm/plugin.log</code>；
-            claude 可查看 <code>~/.claude/agent-swarm/keepalive.log</code>。
+            claude 可查看 <code>~/.claude/agent-swarm/keepalive.log</code>；
+            deepseek harness 可查看 <code>~/.config/dsh/agent-swarm/plugin.log</code>。
           </p>
         </section>
 
@@ -1393,7 +1401,7 @@ function DocsPage() {
           <h3>注册方式</h3>
           <p>任选其一：</p>
           <ul>
-            <li>在该项目的 agent 对话里使用 <code>/swarm-add</code> 命令（opencode 与 claude 均可用）</li>
+            <li>在该项目的 agent 对话里使用 <code>/swarm-add</code> 命令（opencode、claude 与 deepseek harness 均可用）</li>
             <li>直接让 agent：「帮我把当前目录注册到虫群」（它会调用 <code>workspace_add</code> 工具）</li>
           </ul>
           <p>
@@ -1504,14 +1512,14 @@ agent: (a2a_call) → 对方 TUI 实时出现任务 → 执行 → 结果自动�
           </table>
           <h3>各 agent 支持情况</h3>
           <table>
-            <thead><tr><th>能力</th><th>opencode</th><th>claude code</th></tr></thead>
+            <thead><tr><th>能力</th><th>opencode</th><th>claude code</th><th>deepseek harness</th></tr></thead>
             <tbody>
-              <tr><td>注册 / 保活 / 启停管理</td><td>✅</td><td>✅</td></tr>
-              <tr><td><code>/swarm-*</code> 命令</td><td>✅</td><td>✅（不含 /swarm-mode、/swarm-monitor）</td></tr>
-              <tr><td>前台注入（任务进入当前会话）</td><td>✅</td><td>—</td></tr>
-              <tr><td>后台会话（独立会话静默执行）</td><td>✅</td><td>✅</td></tr>
-              <tr><td>前台会话监控（TUI 对话同步中枢）</td><td>✅</td><td>—</td></tr>
-              <tr><td>权限 / 提问实时应答（input-required）</td><td>✅</td><td>—</td></tr>
+              <tr><td>注册 / 保活 / 启停管理</td><td>✅</td><td>✅</td><td>✅</td></tr>
+              <tr><td><code>/swarm-*</code> 命令</td><td>✅</td><td>✅（不含 /swarm-mode、/swarm-monitor）</td><td>✅（含 /swarm-mode，不含 /swarm-monitor）</td></tr>
+              <tr><td>前台注入（任务进入当前会话）</td><td>✅</td><td>—</td><td>✅（注入最近活跃会话）</td></tr>
+              <tr><td>后台会话（独立会话静默执行）</td><td>✅</td><td>✅</td><td>✅</td></tr>
+              <tr><td>前台会话监控（TUI 对话同步中枢）</td><td>✅</td><td>—</td><td>✅</td></tr>
+              <tr><td>权限 / 提问实时应答（input-required）</td><td>✅</td><td>—</td><td>✅（先答先算，无"始终允许"）</td></tr>
             </tbody>
           </table>
         </section>
@@ -1688,8 +1696,8 @@ agent: (a2a_call) → 对方 TUI 实时出现任务 → 执行 → 结果自动�
           <h3>支持哪些 AI 工具？</h3>
           <p>
             我们基于开放协议（MCP + A2A）设计，目标是让<b>所有兼容的 agent 客户端</b>都能加入虫群。
-            目前 opencode 全功能支持；claude code 支持注册管理与后台会话任务执行，前台注入暂不支持
-            （见「命令」章节的支持情况表）。其它客户端会逐步支持。
+            目前 opencode 与 deepseek harness 全功能支持；claude code 支持注册管理与后台会话任务执行，
+            前台注入暂不支持（见「命令」章节的支持情况表）。其它客户端会逐步支持。
           </p>
           <h3>claude 工作区能执行任务吗？</h3>
           <p>
