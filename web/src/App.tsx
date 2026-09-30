@@ -3411,7 +3411,7 @@ function TeamsPage({ toast }: { toast: (m: string) => void }) {
       )}
 
       {showBrowse && (
-        <Modal title="申请加入团队" onClose={() => setShowBrowse(false)}>
+        <Modal wide title="申请加入团队" onClose={() => setShowBrowse(false)}>
           <SearchBox value={dq} onChange={setDq} placeholder="搜索团队名…" />
           <div style={{ maxHeight: 320, overflow: "auto", marginTop: 8 }}>
             <table className="grid">
