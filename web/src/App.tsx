@@ -3713,7 +3713,14 @@ function WorkspacesPage({ toast }: { toast: (m: string) => void }) {
                 </td>
                 <td>{w.owner?.username ?? "-"}</td>
                 <td style={{ fontSize: 12, color: "var(--text-weak)" }}>{w.teams.join("、")}</td>
-                <td style={{ fontSize: 12, color: "var(--text-weak)" }}>{w.purpose || "-"}</td>
+                <td className="purpose-td">
+                  <div className={`purpose-cell ${expanded.has(w.id) ? "open" : ""}`}>
+                    <span className="purpose-text">{w.purpose}</span>
+                    <span className="expander" title={expanded.has(w.id) ? "收起" : "展开"} onClick={() => toggleExpand(w.id)}>
+                      <ChevronIcon up={expanded.has(w.id)} />
+                    </span>
+                  </div>
+                </td>
               </tr>
             ))}
           </tbody>
