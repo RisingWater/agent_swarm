@@ -25,6 +25,7 @@ import { join, resolve } from "node:path"
 import { randomUUID } from "node:crypto"
 import { loadConfig } from "./config.ts"
 import { readWorkspaceId, readSessionMap, writeSessionEntry } from "./workspace.ts"
+import { readWorkspaceList } from "./workspaces.ts"
 import { SwarmHeartbeat } from "./heartbeat.ts"
 import {
   startNexusA2AClient,
@@ -621,19 +622,28 @@ function applyInner(ctx: any): void {
 
   async function heartbeatLoop() {
     log(`heartbeat loop start (${HEARTBEAT_MS}ms)`)
-    let lastReportSession = ""
+    const lastReport = new Map<string, string>()
     while (!disposed) {
-      // 每轮重读文件：重新注册/换 ID 后无需重启
-      const wid = readWorkspaceId(directory)
-      if (wid) {
-        // 上报最近活跃会话（前台注入目标 = 同一个，中枢所见即所得）。
-        // 标题 = 首个 user 消息首行（对齐 dsh session-title 的 fallback 逻辑）。
+      // 每轮重读清单：/swarm-add|remove 后无需重启（dsh 宿主 cwd 是 profile 目录，
+      // 工作区靠全局清单 agent-swarm-workspaces.json 记账，逐个心跳上报）
+      const entries = readWorkspaceList()
+      if (entries.length === 0) {
+        // 没有任何注册工作区：心跳 profile 目录自己的 workspace.md（兼容手写场景）
+        const legacy = readWorkspaceId(directory)
+        if (legacy) entries.push({ workspaceId: legacy, directory })
+      }
+      for (const entry of entries) {
         try {
+          // 上报最近活跃会话（前台注入目标 = 同一个，中枢所见即所得）。
+          // 标题 = 首个 user 消息首行（对齐 dsh session-title 的 fallback 逻辑）。
           const agents = (ctx as any).agents?.list?.() ?? []
           let best: { id: string; title: string; score: number } | null = null
           for (const agent of agents) {
             const session = agent?.session
             if (!session?.header?.id) continue
+            // 只上报属于该项目目录的会话（cwd 匹配；任务会话创建时 cwd=entry.directory）
+            const cwd = String(session.header.cwd ?? "")
+            if (cwd && cwd.replace(/[\\/]+$/, "") !== entry.directory.replace(/[\\/]+$/, "")) continue
             let title = ""
             try {
               const msgs = session.deriveMessages?.() ?? []
@@ -650,13 +660,13 @@ function applyInner(ctx: any): void {
           }
           const sessionId = best?.id ?? ""
           const title = best?.title ?? ""
-          if (sessionId !== lastReportSession) {
-            log(`heartbeat: session=${sessionId.slice(0, 20)} title=${title.slice(0, 30)}`)
-            lastReportSession = sessionId
+          if (sessionId !== lastReport.get(entry.workspaceId)) {
+            log(`heartbeat ${entry.workspaceId.slice(0, 8)}: session=${sessionId.slice(0, 20)} title=${title.slice(0, 30)}`)
+            lastReport.set(entry.workspaceId, sessionId)
           }
-          await swarm.heartbeat(wid, sessionId, title)
+          await swarm.heartbeat(entry.workspaceId, sessionId, title)
         } catch (e) {
-          log(`heartbeat failed: ${e}`)
+          log(`heartbeat ${entry.workspaceId.slice(0, 8)} failed: ${e}`)
         }
       }
       await new Promise((r) => setTimeout(r, HEARTBEAT_MS))

@@ -19,6 +19,7 @@ import { randomUUID } from "node:crypto"
 import { basename, join } from "node:path"
 import { loadConfig, saveExecutionMode, type SwarmConfig } from "./config.ts"
 import { readWorkspaceId, writeWorkspaceId, workspaceFilePath } from "./workspace.ts"
+import { updateWorkspaceList } from "./workspaces.ts"
 
 interface McpResult {
   ok: boolean
@@ -150,6 +151,8 @@ export function swarmCommands(ctx: any, opts: { directory: string; log: (msg: st
     const id = String(rsp.data?.workspace_id ?? "")
     if (!id) return { kind: "error", text: `注册返回无 workspace_id: ${rsp.text.slice(0, 300)}` }
     writeWorkspaceIdFile(directory, id)
+    // 记入全局清单（dsh 宿主 cwd 是 profile 目录，心跳靠这个清单知道要上报哪些工作区）
+    updateWorkspaceList({ workspaceId: id, directory })
     // need_summary=true：让当前会话的 agent 读目录/文件总结项目并调 update_info 回填
     // （agent 有文件系统工具——没有 AGENTS.md/README 它自己浏览目录归纳，比正则首行准）。
     const agent = invocation?.agent
@@ -187,6 +190,7 @@ export function swarmCommands(ctx: any, opts: { directory: string; log: (msg: st
     const rsp = await client.callTool("workspace_remove", { workspace_id: wid.id })
     if (!rsp.ok) return { kind: "error", text: rsp.text }
     writeWorkspaceIdFile(directory, "")
+    updateWorkspaceList({ workspaceId: "", directory }, wid.id)
     return { kind: "success", text: `✅ 已注销工作区 ${wid.id}` }
   })
 
