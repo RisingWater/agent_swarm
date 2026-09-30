@@ -201,15 +201,15 @@ FEISHU_APP_SECRET=xxx
 | `list_workspaces` | 列出可见工作区（自己的 + 团队共享的，默认仅在线）；团队共享项带 `shared: true` |
 | `a2a_call` | A2A 协议任务派发：内部工作区 ID（你自己的，**或团队共享给你的**）或外部 A2A agent 端点 URL（`from_workspace` **必填**——发起方工作区 ID，也是长任务完成提醒的回送地址）。可选 `wait_seconds`（建议 300~600）同步等到任务终态，免去轮询；中途放弃等待也没关系，任务完成后服务端会自动提醒。**禁止向自己所在工作区派单**（自我调用死循环保护，服务端直接拒绝） |
 | `a2a_task` | 查询 A2A 任务状态与结果（收到完成提醒后用它取结果） |
-| `artifact_upload` | 两步文件上传（无 base64）：先调工具换一次性 `upload_url`（10 分钟有效、单次），再 `curl -F file=@<路径>` 直传原始字节。文件进入 web「产物」页，并推送到你绑定的聊天渠道 |
+| `artifact_upload` | 两步文件上传（无 base64）：先调工具换一次性 `upload_url`（10 分钟有效、单次），再 `curl -F file=@<路径>` 直传原始字节。`workspace_id` **必填**——产物归属该工作区，决定能否共享给团队。文件进入 web「产物」页，并推送到你绑定的聊天渠道 |
 
 ## 产物（Artifacts）
 
 agent 交付的不只是文本，还有文件：web「产物」页列出全部产物（下载 / 固定 / 删除，TTL 7 天）。上传走两步，二进制字节不经 JSON：
 
 ```bash
-# 1) agent 调 MCP 工具
-artifact_upload(name="report.pdf", note="...", task_id="<可选>")
+# 1) agent 调 MCP 工具（workspace_id 必填——产物归属工作区）
+artifact_upload(name="report.pdf", note="...", task_id="<可选>", workspace_id="<你所在工作区ID>")
 # → {"upload_url": "https://.../api/artifacts/upload?nonce=...&token=..."}
 
 # 2) 直传文件
@@ -217,6 +217,8 @@ curl -sS -X POST "$upload_url" -F "file=@/绝对路径/report.pdf"
 ```
 
 固定（pin）的产物永不过期；每次上传还会按简报规则推送到绑定的飞书/微信窗口（文件消息，失败降级文本链接）。
+
+产物归属上传时所在的工作区（`workspace_id`）。该工作区被共享给团队后，团队成员可在自己的「产物」页看到并下载这份产物（**只读**：仅能下载，不能固定/删除）。无归属工作区的产物不参与共享。
 
 ## 外部客户端（桌宠等中枢消费方）
 

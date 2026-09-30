@@ -6,6 +6,7 @@
 """
 import json
 import re
+from datetime import datetime, timezone
 
 from fastapi import HTTPException, Request
 from sqlmodel import Session, select
@@ -29,9 +30,33 @@ async def _require_jwt(request: Request) -> models.User:
     return user
 
 
-def _out(row: models.Artifact, base: str = "") -> dict:
-    from datetime import datetime, timezone
+def visible_artifacts(session: Session, user: models.User) -> list[tuple[models.Artifact, bool]]:
+    """(row, shared) 列表：自己上传的 + **归属工作区被共享给我所在活跃团队**的（他人上传）。
 
+    shared=True 表示这是别人共享工作区里的产物——只读（可下载），不能 pin/删除。
+    共享判定与工作区调用权一致（teams_service.shared_workspace_ids）。
+    """
+    from server import teams_service
+
+    out: list[tuple[models.Artifact, bool]] = [
+        (r, False)
+        for r in session.exec(
+            select(models.Artifact).where(models.Artifact.user_id == user.id)
+        ).all()
+    ]
+    shared_ids = teams_service.shared_workspace_ids(session, user.id)
+    if shared_ids:
+        for r in session.exec(
+            select(models.Artifact)
+            .where(models.Artifact.workspace_id.in_(shared_ids))  # type: ignore[attr-defined]
+            .where(models.Artifact.user_id != user.id)
+        ).all():
+            out.append((r, True))
+    out.sort(key=lambda x: x[0].created_at or datetime.min, reverse=True)
+    return out
+
+
+def _out(row: models.Artifact, base: str = "", *, shared: bool = False, owner: str = "", workspace_name: str = "") -> dict:
     exp = row.expires_at.replace(tzinfo=timezone.utc) if row.expires_at and row.expires_at.tzinfo is None else row.expires_at
     remain_days = max(0, (exp - datetime.now(timezone.utc)).days) if exp else 0
     return {
@@ -42,6 +67,9 @@ def _out(row: models.Artifact, base: str = "") -> dict:
         "note": row.note,
         "task_id": row.task_id,
         "workspace_id": row.workspace_id,
+        "workspace_name": workspace_name,
+        "owner": owner,
+        "shared": shared,
         "pinned": row.pinned,
         "created_at": row.created_at.isoformat() if row.created_at else "",
         "expires_at": row.expires_at.isoformat() if row.expires_at else "",
@@ -125,14 +153,23 @@ async def _push_to_channels(row: models.Artifact, base: str = "") -> None:
 
 async def list_artifacts(request: Request):
     user = await _require_jwt(request)
-    with Session(engine) as session:
-        rows = list(session.exec(
-            select(models.Artifact)
-            .where(models.Artifact.user_id == user.id)
-            .order_by(models.Artifact.created_at.desc())  # type: ignore[attr-defined]
-        ).all())
     base = artifacts.base_url_from_request(request)
-    return JSONResponse([_out(r, base) for r in rows])
+    with Session(engine) as session:
+        pairs = visible_artifacts(session, user)
+        owners: dict[str, str] = {}
+        wnames: dict[str, str] = {}
+        for row, _ in pairs:
+            if row.user_id and row.user_id not in owners:
+                u = session.get(models.User, row.user_id)
+                owners[row.user_id] = u.username if u else ""
+            if row.workspace_id and row.workspace_id not in wnames:
+                w = session.get(models.Workspace, row.workspace_id)
+                wnames[row.workspace_id] = w.name if w else ""
+        out = [
+            _out(r, base, shared=sh, owner=owners.get(r.user_id, ""), workspace_name=wnames.get(r.workspace_id, ""))
+            for r, sh in pairs
+        ]
+    return JSONResponse(out)
 
 
 async def delete_artifact(request: Request):

@@ -114,6 +114,9 @@ export interface Artifact {
   note: string
   task_id: string
   workspace_id: string
+  workspace_name?: string
+  owner?: string
+  shared?: boolean
   pinned: boolean
   created_at: string
   expires_at: string

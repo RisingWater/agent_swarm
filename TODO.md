@@ -49,7 +49,7 @@
 - ~~视频走 git lfs~~（放弃：mp4 39MB 普通 blob 已推送成功，用户接受仓库变大）
 - ~~e2e 测试脚本~~（用户 2026-09-12 决定放弃，scripts/test_plugin_smoke.ts 是死代码可删可留）
 
-- **2026-10-01 团队与工作区共享（feat/team，用户驱动）**：把工作区作为"工具"共享给团队。**核心原则：共享只授予调用权，不授予可见权**——共享**不**并入 `visible_workspace_ids`/`_owns`，团队成员看不到对方工作区的监控/Nexus/产物/简报/调用细节。① **组织**：`Team.owner_id`=队长唯一真源；邀请(kind=invite)/申请(kind=request)共用 `team_members`+status；`join_policy`=approval/open/closed；踢人/移交/退出（队长须先移交或解散）；数量限制 env 优先（创建 3/加入 8/单团队 50/待处理 10）。② **共享**：新增 `team_workspaces` 多对多（仅属主、只能共享到自己已加入的团队、一个工作区可共享多团队）。③ **跨用户调用**：`a2a_call` 目标可见性=`can_invoke`（自有 or 共享给我所在活跃团队）；内部任务 `user_id`=**执行方属主**（加密与简报/权限路由归属）、新增 `from_user_id`=调用方（取件授权）；`a2a_task` 双授权、解密用任务属主 key；微信/飞书简报与权限卡天然只到属主（渠道零改动）。④ **调用记录**：`list_calls`/`delete_call` 加 `from_workspace_id` 维度，A/B 双方各见"指令+答复"。⑤ **前端**：顶栏「团队」页（创建/发现加入/审批/邀请/踢人/移交/退出/解散）+ 工作区页共享多选；不做网页端共享工作区调用入口。⑥ 访问控制集中在 `server/teams_service.py`；测试 `test_teams.py`/`test_team_calls.py`/`test_team_isolation.py` 共 29 例（全套 66）。需求见 `docs/team_requirement.md`。
+- **2026-10-01 团队与工作区共享（feat/team，用户驱动）**：把工作区作为"工具"共享给团队。**核心原则：共享只授予调用权，不授予可见权**——共享**不**并入 `visible_workspace_ids`/`_owns`，团队成员看不到对方工作区的监控/Nexus/产物/简报/调用细节。① **组织**：`Team.owner_id`=队长唯一真源；邀请(kind=invite)/申请(kind=request)共用 `team_members`+status；`join_policy`=approval/open/closed；踢人/移交/退出（队长须先移交或解散）；数量限制 env 优先（创建 3/加入 8/单团队 50/待处理 10）。② **共享**：新增 `team_workspaces` 多对多（仅属主、只能共享到自己已加入的团队、一个工作区可共享多团队）。③ **跨用户调用**：`a2a_call` 目标可见性=`can_invoke`（自有 or 共享给我所在活跃团队）；内部任务 `user_id`=**执行方属主**（加密与简报/权限路由归属）、新增 `from_user_id`=调用方（取件授权）；`a2a_task` 双授权、解密用任务属主 key；微信/飞书简报与权限卡天然只到属主（渠道零改动）。④ **调用记录**：`list_calls`/`delete_call` 加 `from_workspace_id` 维度，A/B 双方各见"指令+答复"。⑤ **前端**：顶栏「团队」页（创建/发现加入/审批/邀请/踢人/移交/退出/解散）+ 工作区页共享多选；不做网页端共享工作区调用入口。⑥ 访问控制集中在 `server/teams_service.py`；测试 `test_teams.py`/`test_team_calls.py`/`test_team_isolation.py` 共 29 例（全套 66）。需求见 `docs/team_requirement.md`。⑦ **产物随工作区共享**：`artifact_upload` 的 `workspace_id` 升为**必填**（产物归属工作区）；归属工作区被共享给团队后，团队成员在该页可见/可下载（只读、不可 pin/delete）；存量产物按 `task_id` 回填（`test_artifact_share.py` 3 例，全套 69）。
 
 ## ✅ 已完成：团队功能（分支 feat/team，2026-10-01）
 
@@ -83,6 +83,14 @@
 - [x] 隔离红线回归 `tests/test_team_isolation.py`：`_owns` 属主独占 / `visible_workspace_ids` 不含共享 / 通配订阅推送不泄漏
 - [x] 文档：`docs/requirements.md` §13 团队与共享、`docs/team_requirement.md` 状态回填、README/README_CN（功能摘要 + 团队章节 + MCP 表 + 配置表）、web 文档页（概念 + FAQ）
 - [x] 全套 66 例通过；web build + lint 通过
+
+### P5 产物随工作区共享（追加，2026-10-01）
+- [x] `artifact_upload` 的 `workspace_id` 升级为**必填**（schema keyword-only required + 业务兜底；产物归属工作区）
+- [x] 产物列表纳入"归属工作区被共享给我所在团队"的他人产物（`shared=true`，只读、不可 pin/delete）
+- [x] 迁移回填：存量产物按 `task_id` 关联任务补归属工作区（下次启动生效）
+- [x] 前端「产物」页：来源列（工作区/属主 + 团队共享标注）、共享产物隐藏 pin/delete
+- [x] 文档/skill 同步（requirements §3/§8、README/README_CN、web 文档页、deepseek SKILL、AGENTS）
+- [x] 测试 `test_artifact_share.py` 3 例 + `artifact_upload` 必填/归属校验；全套 69 例通过
 
 ## 已完成（除注明外均已进 git）
 

@@ -659,7 +659,7 @@ def a2a_task(task_id: str) -> dict:
 
 
 @mcp.tool(annotations=_ann(readonly=True))
-def artifact_upload(name: str, note: str = "", task_id: str = "") -> dict:
+def artifact_upload(name: str, note: str = "", task_id: str = "", *, workspace_id: str) -> dict:
     """把本地文件作为产物上传到 agent_swarm（两步，无需 base64）。
 
     第 1 步（本工具）：换取一次性上传凭证 upload_url（10 分钟有效，单次）。
@@ -671,7 +671,11 @@ def artifact_upload(name: str, note: str = "", task_id: str = "") -> dict:
     Args:
         name: 展示文件名（含扩展名，如 report.pdf / build.zip）
         note: 备注（可选，说明这份产物是什么）
-        task_id: 关联的任务 ID（可选）
+        task_id: 关联的任务 ID（可选，填了必须是自己的任务）
+        workspace_id: **必填**——这份产物的**归属工作区 ID**（你上传时所在的工作区，
+            读项目根 `.agent_swarm/workspace.md` 的 `WORKSPACE_ID`，或用 `list_workspaces` 查）。
+            产物按归属工作区决定可共享性：该工作区被共享给某个团队后，团队成员就能在
+            「产物」页看到并下载它（只读）。传了不属于自己的工作区会被直接拒绝。
     """
     import secrets as _secrets
 
@@ -680,13 +684,27 @@ def artifact_upload(name: str, note: str = "", task_id: str = "") -> dict:
     try:
         if not name or not name.strip():
             raise ValueError("name is required")
+        # 归属工作区（必填）：schema 已 required，这里兜底直接调用方；必须是自己的工作区
+        if not (workspace_id or "").strip():
+            raise ValueError(
+                "workspace_id is required: pass YOUR workspace id "
+                "(read WORKSPACE_ID from .agent_swarm/workspace.md, or list_workspaces)"
+            )
+        ws = session.get(models.Workspace, workspace_id)
+        if ws is None or ws.user_id != user.id:
+            raise ValueError(f"workspace {workspace_id!r} not found or not owned by you")
+        ws_id = ws.id
         # task_id 归属校验（可选字段，填了必须是自己的任务）
         if task_id:
             task = session.get(models.A2aTask, task_id)
-            if task is None or task.workspace_id:
-                ws = session.get(models.Workspace, task.workspace_id) if task else None
-                if task is None or (ws and ws.user_id != user.id):
+            if task is None:
+                raise ValueError(f"task {task_id!r} not found or not yours")
+            if task.workspace_id:
+                tws = session.get(models.Workspace, task.workspace_id)
+                if tws is None or tws.user_id != user.id:
                     raise ValueError(f"task {task_id!r} not found or not yours")
+            elif task.user_id and task.user_id != user.id:
+                raise ValueError(f"task {task_id!r} not found or not yours")
         from server import artifacts as _art
 
         nonce = f"{user.id}.{_secrets.token_hex(8)}"
@@ -702,10 +720,12 @@ def artifact_upload(name: str, note: str = "", task_id: str = "") -> dict:
             upload_url += f"&note={quote(note, safe='')}"
         if task_id:
             upload_url += f"&task_id={quote(task_id, safe='')}"
+        upload_url += f"&workspace_id={quote(ws_id, safe='')}"
         return {
             "upload_url": upload_url,
             "max_mb": _art.MAX_MB,
             "expires_in_seconds": 600,
+            "workspace_id": ws_id,
             "next_step": (
                 'curl -sS -X POST "$upload_url" -F "file=@<绝对路径>" '
                 '（响应 JSON 含 id/download_url；一次有效，10 分钟内完成）'

@@ -113,6 +113,18 @@ def _migrate() -> None:
                 con.execute("ALTER TABLE team_members ADD COLUMN created_at TEXT")
                 con.execute("UPDATE team_members SET created_at = ? WHERE created_at IS NULL",
                             (datetime.now(timezone.utc).replace(tzinfo=None).isoformat(sep=" "),))
+        # 产物归属工作区回填（2026-10-01）：历史产物 workspace_id 为空但有关联任务时，
+        # 用任务执行方工作区补上（之后才能按"工作区是否共享"判断产物可共享性）
+        tables = {r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        if "artifacts" in tables and "a2a_tasks" in tables:
+            art_cols = {r[1] for r in con.execute("PRAGMA table_info(artifacts)")}
+            if "workspace_id" in art_cols:
+                con.execute(
+                    "UPDATE artifacts SET workspace_id = ("
+                    "  SELECT t.workspace_id FROM a2a_tasks t"
+                    "  WHERE t.id = artifacts.task_id AND t.workspace_id != ''"
+                    ") WHERE (workspace_id IS NULL OR workspace_id = '') AND task_id != ''"
+                )
         # 旧用户没有明文（哈希不可逆）：补发新 key，旧 key 立即失效
         from server import models
 

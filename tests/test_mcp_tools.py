@@ -296,11 +296,13 @@ def test_a2a_task_timeout_marks_failed(as_user, ws):
 # ---------------------------------------------------------------- artifact_upload
 
 def test_artifact_upload_signs_one_time_url(as_user, ws):
-    r = mcp_endpoint.artifact_upload(name="report.pdf", note="周报", task_id="t-owner")
+    r = mcp_endpoint.artifact_upload(name="report.pdf", note="周报", task_id="t-owner", workspace_id=ws.id)
     # 测试环境没有请求中间件，base_url 为空 → 相对路径；生产环境为绝对 URL。
     # 两种形态都要带一次性凭证参数。
     url = r["upload_url"]
     assert "nonce=" in url and "token=" in url and "name=report.pdf" in url
+    assert f"workspace_id={ws.id}" in url          # 归属工作区写进上传 URL
+    assert r["workspace_id"] == ws.id
     assert r["expires_in_seconds"] == 600
     # 凭证可被校验（一次性语义由上传端点负责，这里只验签名链路）
     from urllib.parse import urlparse, parse_qs
@@ -311,12 +313,18 @@ def test_artifact_upload_signs_one_time_url(as_user, ws):
     assert not art.verify_upload_token("u-test", q["nonce"][0], q["token"][0])  # 第二次 = 已用
     # 无效名
     with pytest.raises(ValueError, match="name is required"):
-        mcp_endpoint.artifact_upload(name="  ")
+        mcp_endpoint.artifact_upload(name="  ", workspace_id=ws.id)
+    # 归属工作区必填（schema required，这里测业务层兜底）
+    with pytest.raises(ValueError, match="workspace_id is required"):
+        mcp_endpoint.artifact_upload(name="a.txt", workspace_id="")
+    # 归属工作区必须属于自己
+    with pytest.raises(ValueError, match="not owned by you"):
+        mcp_endpoint.artifact_upload(name="a.txt", workspace_id="w-evil-ws")
 
 
 def test_artifact_upload_task_ownership(as_user, ws):
     with pytest.raises(ValueError, match="not found or not yours"):
-        mcp_endpoint.artifact_upload(name="a.txt", task_id="t-not-mine")
+        mcp_endpoint.artifact_upload(name="a.txt", task_id="t-not-mine", workspace_id=ws.id)
 
 
 # ---------------------------------------------------------------- 未鉴权兜底

@@ -1046,7 +1046,7 @@ function HomePage({ toast, loggedIn, onGoAccount, onOpenLogin, onGoDocs }: { toa
               <FeatureIcon kind="package" />
               <h3>产物管理</h3>
             </div>
-            <p>agent 通过 MCP 把产出文件（构建包、报告、数据集…）上传到中枢：飞书/微信<b>直接收到文件</b>，网页「产物」页集中管理、随时下载，默认保留 7 天，重要产物可一键固定永不清理。</p>
+            <p>agent 通过 MCP 把产出文件（构建包、报告、数据集…）上传到中枢：飞书/微信<b>直接收到文件</b>，网页「产物」页集中管理、随时下载，默认保留 7 天，重要产物可一键固定永不清理。产物归属上传时所在的工作区，该工作区共享给团队后，队友也能看到并下载（只读）。</p>
           </div>
           <div className="home-card">
             <div className="home-card-head">
@@ -1690,15 +1690,16 @@ agent: (a2a_call) → 对方 TUI 实时出现任务 → 执行 → 结果自动�
               <tr><td><code>workspace_enable</code> / <code>workspace_disable</code></td><td>启用 / 禁用工作区</td></tr>
               <tr><td><code>heartbeat</code></td><td>心跳保活，上报当前会话信息（插件自动调用）</td></tr>
               <tr><td><code>update_info</code> / <code>update_notes</code></td><td>更新用途/能力描述、备注</td></tr>
-              <tr><td><code>list_workspaces</code></td><td>列出可见工作区（默认仅在线）</td></tr>
-              <tr><td><code>a2a_call</code></td><td>A2A 协议给其他 agent 发任务（支持内部工作区与外部 A2A agent 端点）</td></tr>
+              <tr><td><code>list_workspaces</code></td><td>列出可见工作区（自己的 + 团队共享给你的，默认仅在线；共享项带 <code>shared:true</code>）</td></tr>
+              <tr><td><code>a2a_call</code></td><td>A2A 协议给其他 agent 发任务（内部工作区——自己的或团队共享给你的，或外部 A2A agent 端点）</td></tr>
               <tr><td><code>a2a_task</code></td><td>查询 A2A 任务状态与结果</td></tr>
               <tr>
                 <td><code>artifact_upload</code></td>
                 <td>
                   上传产物文件（两步）：先调本工具换取一次性上传地址（10 分钟有效），
-                  再用 <code>curl -F file=@路径</code> 直传原始字节。成功后进入「产物」页并按简报规则推送飞书/微信。
-                  单文件上限 20MB，默认保留 7 天
+                  再用 <code>curl -F file=@路径</code> 直传原始字节。<code>workspace_id</code> <b>必填</b>——
+                  产物归属该工作区，被共享给团队后团队成员可见（只读）。
+                  成功后进入「产物」页并按简报规则推送飞书/微信。单文件上限 20MB，默认保留 7 天
                 </td>
               </tr>
             </tbody>
@@ -1740,6 +1741,10 @@ agent: (a2a_call) → 对方 TUI 实时出现任务 → 执行 → 结果自动�
             支持搜索。产物默认保留 <b>7 天</b>（过期自动清理）；点📌图钉可<b>固定</b>重要产物，
             固定后不再参与自动清理（仍可手动删除）。上传时也会按简报规则把文件推送到
             你绑定的飞书 / 微信窗口（详见「即时聊天工具 → 产物推送」）。
+          </p>
+          <p>
+            产物<b>归属上传时所在的工作区</b>。该工作区被共享给某个团队后，团队成员可在自己的
+            「产物」页看到并下载这份产物（只读：只能下载，不能固定 / 删除）；无归属工作区的产物不参与共享。
           </p>
         </section>
 
@@ -3769,12 +3774,14 @@ function ArtifactsPage({ toast }: { toast: (m: string) => void }) {
       <h1 className="page-title">产物</h1>
       <p className="page-sub">
         agent 通过 MCP 上传的产出文件（默认保留 7 天，固定后不自动清理；上传后也会按简报规则推送到飞书/微信窗口）。
+        产物归属上传时所在的工作区——该工作区被共享给团队后，团队成员也能在这里看到并下载（只读）。
       </p>
       <SearchBox value={query} onChange={setQuery} placeholder="搜索文件名 / 备注 / 类型…" />
       <table className="grid">
         <thead>
           <tr>
             <th>文件</th>
+            <th style={{ width: 160 }}>来源</th>
             <th style={{ width: 90 }}>大小</th>
             <th style={{ width: 150 }}>上传时间</th>
             <th style={{ width: 130 }}>保留</th>
@@ -3787,6 +3794,10 @@ function ArtifactsPage({ toast }: { toast: (m: string) => void }) {
               <td>
                 <a className="link" href={a.download_url} download={a.name}>{a.name}</a>
                 {a.note && <div style={{ fontSize: 12, color: "var(--text-weak)", marginTop: 2 }}>{a.note}</div>}
+              </td>
+              <td style={{ fontSize: 12, color: "var(--text-weak)" }}>
+                {a.workspace_name || "-"}
+                {a.shared && <div title="来自团队共享工作区">来自 {a.owner || "队友"}（团队共享）</div>}
               </td>
               <td style={{ color: "var(--text-weak)", fontSize: 12 }}>{fmtSize(a.size)}</td>
               <td style={{ color: "var(--text-weak)", fontSize: 12 }}>{fmtTime(a.created_at, "datetime")}</td>
@@ -3801,14 +3812,16 @@ function ArtifactsPage({ toast }: { toast: (m: string) => void }) {
               </td>
               <td>
                 <div style={{ display: "flex", gap: 4, justifyContent: "flex-end" }}>
-                  <Btn variant="icon" size="sm" title={a.pinned ? "取消固定（恢复自动清理）" : "固定（不自动清理）"}
-                    disabled={busy === a.id} onClick={() => togglePin(a)}>
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill={a.pinned ? "currentColor" : "none"}
-                      stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                      <path d="M12 17v5" />
-                      <path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z" />
-                    </svg>
-                  </Btn>
+                  {!a.shared && (
+                    <Btn variant="icon" size="sm" title={a.pinned ? "取消固定（恢复自动清理）" : "固定（不自动清理）"}
+                      disabled={busy === a.id} onClick={() => togglePin(a)}>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill={a.pinned ? "currentColor" : "none"}
+                        stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                        <path d="M12 17v5" />
+                        <path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z" />
+                      </svg>
+                    </Btn>
+                  )}
                   <a className="btn-icon" href={a.download_url} download={a.name} title="下载"
                     style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 28, height: 28 }}>
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
@@ -3818,22 +3831,24 @@ function ArtifactsPage({ toast }: { toast: (m: string) => void }) {
                       <path d="M12 15V3" />
                     </svg>
                   </a>
-                  <Btn variant="icon" size="sm" className="btn-danger-hover" title="删除该产物"
-                    disabled={busy === a.id} onClick={() => setConfirmDel(a)}>
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
-                      strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                      <path d="M3 6h18" />
-                      <path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2" />
-                      <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
-                      <path d="M10 11v6M14 11v6" />
-                    </svg>
-                  </Btn>
+                  {!a.shared && (
+                    <Btn variant="icon" size="sm" className="btn-danger-hover" title="删除该产物"
+                      disabled={busy === a.id} onClick={() => setConfirmDel(a)}>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
+                        strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                        <path d="M3 6h18" />
+                        <path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2" />
+                        <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+                        <path d="M10 11v6M14 11v6" />
+                      </svg>
+                    </Btn>
+                  )}
                 </div>
               </td>
             </tr>
           ))}
           {loaded && !shown.length && (
-            <tr><td colSpan={5} style={{ color: "var(--text-weak)", textAlign: "center", padding: 32 }}>
+            <tr><td colSpan={6} style={{ color: "var(--text-weak)", textAlign: "center", padding: 32 }}>
               {list.length ? `[*] 没有匹配「${query.trim()}」的产物` : "[*] 暂无产物——让 agent 调用 artifact_upload 工具上传文件"}
             </td></tr>
           )}

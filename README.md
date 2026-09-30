@@ -203,15 +203,15 @@ Per-user limits (configurable): create up to 3 teams, join up to 8, 50 members p
 | `list_workspaces` | List visible workspaces (own + team-shared, online only by default); team-shared entries are flagged `shared: true` |
 | `a2a_call` | Dispatch tasks via the A2A protocol: internal workspace ID (your own **or one shared to a team you belong to**) or external A2A agent endpoint URL (`from_workspace` **required** — your own workspace ID; also the return address for long-task completion reminders). Optional `wait_seconds` (e.g. 300–600) blocks until the task reaches a terminal state so no polling is needed; if you give up waiting early, the server will remind you when the task finishes. **Dispatching to your own workspace is refused** (self-call loop protection) |
 | `a2a_task` | Query A2A task status and result (use this to fetch the result after a completion reminder) |
-| `artifact_upload` | Two-step file upload (no base64): call the tool to get a one-time `upload_url` (10 min, single-use), then `curl -F file=@<path>` to push raw bytes. Files show up on the web "Artifacts" page and are pushed to your bound chat channels |
+| `artifact_upload` | Two-step file upload (no base64): call the tool to get a one-time `upload_url` (10 min, single-use), then `curl -F file=@<path>` to push raw bytes. `workspace_id` is **required** — the artifact is owned by that workspace, which decides team shareability. Files show up on the web "Artifacts" page and are pushed to your bound chat channels |
 
 ## Artifacts
 
 Agents can hand back files, not just text: on the web hub, finished artifacts are listed on the **Artifacts** page (download / pin / delete, 7-day TTL). Upload is two steps so binary bytes never travel through JSON:
 
 ```bash
-# 1) the agent calls the MCP tool
-artifact_upload(name="report.pdf", note="...", task_id="<optional>")
+# 1) the agent calls the MCP tool (workspace_id is REQUIRED — the artifact's owning workspace)
+artifact_upload(name="report.pdf", note="...", task_id="<optional>", workspace_id="<your workspace id>")
 # → {"upload_url": "https://.../api/artifacts/upload?nonce=...&token=..."}
 
 # 2) push the raw file
@@ -219,6 +219,8 @@ curl -sS -X POST "$upload_url" -F "file=@/abs/path/report.pdf"
 ```
 
 Pinned artifacts never expire. Every upload is also pushed to your bound Feishu/WeChat chats (file message, falling back to a link).
+
+An artifact is owned by the workspace it was uploaded from (`workspace_id`). If that workspace is shared into a team, team members can see and download it on their **Artifacts** page (read-only: download only, no pin/delete). Artifacts with no owning workspace are never shared.
 
 ## External clients (desktop pets & other hub consumers)
 

@@ -43,7 +43,7 @@ agent_swarm 是一个多 agent 协作平台（虫群）：
 | `list_workspaces` | 列出当前用户可见工作区 |
 | `a2a_call` | 派发任务：内部工作区 ID 或外部 A2A 端点 URL。`from_workspace` **必填**（schema required + 业务校验）——发起方工作区 ID，任务归属与完成提醒回送地址；缺省/非法直接拒绝。可选 `wait_seconds`（≤3600）同步等终态。**禁止 target=自己**（服务端拒绝 "self-call loop"）；外部任务落同一张任务表（`external_url` 标记）经 `a2a_task` 轮询 |
 | `a2a_task` | 查任务状态与结果 |
-| `artifact_upload` | 两步上传（无 base64）：工具签发一次性 `upload_url`（10min/单次）→ `curl -F file=@路径` 直传原始字节 |
+| `artifact_upload` | 两步上传（无 base64）：工具签发一次性 `upload_url`（10min/单次）→ `curl -F file=@路径` 直传原始字节。`workspace_id` **必填**（产物归属工作区，决定团队可共享性） |
 
 工程约定：每个工具必须用 `_ann()` 声明全部四个 annotation hint（readOnly/destructive/idempotent/openWorld），按真实行为赋值；新增/修改工具同步更新 `tests/test_mcp_tools.py`。
 
@@ -106,10 +106,11 @@ queued ──(发送+ack 成功)──> working ──> completed | failed
 
 ## 8. 产物（Artifacts）
 
-- 上传两步（二进制不经 JSON）：MCP `artifact_upload` 签发一次性签名 `upload_url`（10min/单次/防重放）→ `curl -F file=@` 直传。
+- 上传两步（二进制不经 JSON）：MCP `artifact_upload` 签发一次性签名 `upload_url`（10min/单次/防重放）→ `curl -F file=@` 直传。`artifact_upload` 的 `workspace_id` **必填**（产物归属工作区）。
 - 落盘 `data/artifacts/<id>_<name>`；TTL 7 天（`AGENT_SWARM_ARTIFACT_TTL_DAYS`），单文件上限 20MB（`AGENT_SWARM_ARTIFACT_MAX_MB`），每小时 GC；**pin 的产物永不过期**。
 - REST：列表/固定/删除（JWT 或 apikey）、一次性凭证上传（免 JWT）、HMAC 签名下载链接（30 天有效，供 IM/浏览器免 header 点击）。
-- 上传后按简报规则推属主绑定渠道（飞书文件消息 / 微信文件 item，失败降级文本链接）。
+- 上传后按简报规则推属主绑定渠道（飞书文件消息 / 微信文件 item，失败降级文本链接）——只推属主，不推团队成员。
+- **归属工作区与团队共享（2026-10-01）**：产物归属其上传时所在的工作区（`workspace_id`）。产物列表 = 自己上传的 + **归属工作区被共享给我所在活跃团队**的他人产物（`shared=true`，展示 `workspace_name`/`owner`）。共享产物**只读**（可下载、不可 pin/删除）；无归属工作区的产物不可共享。存量产物在下次启动迁移时按 `task_id` 关联任务回填归属工作区。
 
 ## 9. 监控模式（前台会话实时上报）
 

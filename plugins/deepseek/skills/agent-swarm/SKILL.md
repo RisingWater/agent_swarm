@@ -36,8 +36,10 @@ mcp__agent-swarm__a2a_call(target="<对方工作区ID>", message="<任务描述>
 
 任务要求交文件时：
 
-1. `mcp__agent-swarm__artifact_upload(name="report.pdf", note="说明", task_id="<当前任务ID如有>")` → 返回一次性 `upload_url`（10 分钟有效、单次）
+1. `mcp__agent-swarm__artifact_upload(name="report.pdf", note="说明", task_id="<当前任务ID如有>", workspace_id="<你所在工作区ID>")` → 返回一次性 `upload_url`（10 分钟有效、单次）
 2. `curl -sS -X POST "<upload_url>" -F "file=@/绝对路径/文件"`
+
+> `workspace_id` **必填**：你上传时所在的工作区 ID（读项目根 `.agent_swarm/workspace.md` 的 `WORKSPACE_ID`，或 `list_workspaces` 查）。产物按归属工作区决定可共享性——该工作区被共享给团队后，团队成员就能在「产物」页看到并下载它（只读）。
 
 文件出现在 web「产物」页（TTL 7 天），并推送绑定的飞书/微信。超过 20MB 会失败。
 
