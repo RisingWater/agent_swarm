@@ -155,7 +155,21 @@ export function swarmCommands(ctx: any, opts: { directory: string; log: (msg: st
     const id = String(rsp.data?.workspace_id ?? "")
     if (!id) return { kind: "error", text: `注册返回无 workspace_id: ${rsp.text.slice(0, 300)}` }
     writeWorkspaceIdFile(directory, id)
-    return { kind: "success", text: `✅ 已注册工作区 ${id}（${directory}）\n${workspaceFilePath(directory)}` }
+    // need_summary=true：让当前会话的 agent 分析项目并调 update_info 回填用途/能力
+    // （agent 会话里已挂载 mcp__agent-swarm__* 工具）。命令先返回成功提示，分析在后台跑。
+    const agent = invocation?.agent
+    if (rsp.data?.need_summary && typeof agent?.followup === "function") {
+      try {
+        agent.followup({
+          role: "user",
+          content: [{ type: "text", text: `本项目刚注册到 agent_swarm（工作区 ID: ${id}）。请快速浏览项目结构和 README/AGENTS.md，然后调用 mcp__agent-swarm__update_info 工具，purpose 填一句话说明这个项目/工作区是干什么的，capabilities 填它能帮别的 agent 做什么（逗号分隔）。保持简短，不要做其它事。` }],
+          source: { kind: "user" },
+        })
+      } catch (e) {
+        log(`/swarm-add followup failed: ${e}`)
+      }
+    }
+    return { kind: "success", text: `✅ 已注册工作区 ${id}（${directory}）${rsp.data?.need_summary ? "\n已让 agent 分析项目，稍后自动回填用途/能力。" : ""}\n${workspaceFilePath(directory)}` }
   })
 
   // /swarm-remove —— 注销（仅离线可删）
