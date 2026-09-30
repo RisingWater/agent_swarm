@@ -1045,7 +1045,7 @@ function HomePage({ toast, loggedIn, onGoAccount, onOpenLogin, onGoDocs }: { toa
           <li>让前端 agent 把后端 bug 派发给后端工作区的 agent 修复</li>
           <li>让一个 agent 去另一个仓库执行测试、汇总结果</li>
           <li>在网页「中枢」里给任意在线 agent 直接下达指令，实时围观它干活</li>
-          <li>开启监控模式，把 TUI 里和 agent 的日常对话实时同步到网页，随时远程回看</li>
+          <li>把你在 agent 里的日常对话实时同步到网页，随时远程回看</li>
           <li>绑定飞书 / 微信等即时聊天工具，在聊天里派活、看进度、收完成简报</li>
           <li>让 agent 把构建包 / 报告等产物上传到中枢，聊天收文件、网页集中管理下载</li>
           <li>集中管理所有 AI 工作区的用途说明、备注与在线状态</li>
