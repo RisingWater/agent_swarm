@@ -289,9 +289,10 @@ function applyInner(ctx: any): void {
         break
       }
       case "assistant/message": {
-        // 步骤收尾：最终文本（completed 时作 artifact）；interrupted 前缀也算
+        // 步骤收尾：最终文本（completed 时作 artifact）；interrupted 前缀也算。
+        // payload = { message: AssistantMessage, stream }——文本在 data.message.content
         log(`a2a ${taskId.slice(0, 8)}: message received (turn=${turn})`)
-        const t = blockText(data.content)
+        const t = blockText(data.message?.content) || blockText(data.content)
         if (t) run.finalText = t
         break
       }
@@ -402,7 +403,8 @@ function applyInner(ctx: any): void {
         break
       }
       case "assistant/message": {
-        const t = blockText(data.content)
+        // payload = { message: AssistantMessage, stream }——文本在 data.message.content
+        const t = blockText(data.message?.content) || blockText(data.content)
         if (t) round.finalText = t
         break
       }
