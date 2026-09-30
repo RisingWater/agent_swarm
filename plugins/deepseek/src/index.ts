@@ -337,6 +337,111 @@ function applyInner(ctx: any): void {
     }
   }
 
+  // ---------------- 监控模式（用户日常对话轮次实时上报中枢） ----------------
+
+  /** 监控轮状态（session id → 当前轮）。一个会话同时只有一个前台轮，新一轮自动顶掉旧轮。 */
+  interface MonRound {
+    roundKey: string
+    /** 累计的最终 assistant 文本（turn/end 时作 idle 的回答） */
+    finalText: string
+  }
+  const monRounds = new Map<string, MonRound>()
+
+  function monEmit(roundKey: string, sid: string, payload: Record<string, unknown>): void {
+    a2a?.sendMonitor({ roundKey, sessionId: sid, ...payload })
+  }
+
+  /** 监控事件（用户消息/thinking/工具/回答/权限/提问/轮收尾）。
+   *  轮次边界：user/message 开轮 → turn/end 收轮（对齐 opencode 插件的 monitor 管道）。 */
+  function handleMonitorEvent(session: any, ev: any): void {
+    const sid = session?.header?.id
+    if (!sid) return
+    const type = String(ev?.type ?? "")
+    const data = ev?.data ?? {}
+    const turn = Number(data.turn ?? -1)
+    const seq = Number(ev?.seq ?? 0)
+
+    // 只监控本项目目录的会话（多项目共存时其它项目的会话不属于任何已注册工作区）
+    const cwd = String(session?.header?.cwd ?? "").replace(/[\\/]+/g, "/").replace(/\/$/, "").toLowerCase()
+    const knownDirs = readWorkspaceList().map((e) => e.directory.replace(/[\\/]+/g, "/").replace(/\/$/, "").toLowerCase())
+    if (cwd && !knownDirs.includes(cwd)) return
+
+    if (type === "user/message") {
+      // 用户提问 = 开新轮（旧轮自动被服务端 superseded）
+      const text = blockText(data.content).slice(0, 8000)
+      const roundKey = `mon-${sid.slice(0, 8)}-${String(ev.seq ?? Date.now()).slice(-12)}`
+      monRounds.set(sid, { roundKey, finalText: "" })
+      monEmit(roundKey, sid, { type: "user", text: "", seq })
+      if (text.trim()) monEmit(roundKey, sid, { type: "user-text", text })
+      return
+    }
+
+    const round = monRounds.get(sid)
+    if (!round) return // 轮未开（assistant part 先于 user 的乱序保护）
+
+    switch (type) {
+      case "assistant/attempt": {
+        const stream = Array.isArray(data.stream) ? data.stream : []
+        let text = ""
+        let reasoning = ""
+        for (const rec of stream) {
+          if (rec?.type !== "chunk") continue
+          const c = rec.chunk ?? {}
+          if (c.type === "text-delta") text += String(c.text ?? "")
+          else if (c.type === "reasoning-delta") reasoning += String(c.text ?? "")
+        }
+        if (reasoning.trim()) monEmit(round.roundKey, sid, { type: "reasoning", partId: `mon-${sid.slice(0, 6)}-r`, text: reasoning })
+        if (text.trim()) monEmit(round.roundKey, sid, { type: "text", partId: `mon-${sid.slice(0, 6)}-t`, text })
+        break
+      }
+      case "assistant/message": {
+        const t = blockText(data.content)
+        if (t) round.finalText = t
+        break
+      }
+      case "tool/call": {
+        let input: unknown = data.arguments
+        if (typeof input === "string" && input.length > 500) input = input.slice(0, 500) + "…"
+        monEmit(round.roundKey, sid, {
+          type: "tool", tool: String(data.name ?? ""), toolState: "running",
+          callId: String(data.callId ?? ""), input,
+        })
+        break
+      }
+      case "tool/result": {
+        const msg = data.message ?? {}
+        let output = blockText(msg.content)
+        if (output.length > 500) output = output.slice(0, 500) + "…"
+        monEmit(round.roundKey, sid, {
+          type: "tool", tool: "", toolState: msg.isError ? "error" : "success",
+          callId: String(msg.toolCallId ?? ""), output,
+        })
+        break
+      }
+      case "approval/asked": {
+        monEmit(round.roundKey, sid, {
+          type: "permission", requestId: String(data.id ?? ""),
+          permission: String(data.toolName ?? ""), title: String(data.reason ?? ""),
+          patterns: [],
+        })
+        break
+      }
+      case "turn/end": {
+        const reason = String(data?.reason?.kind ?? "")
+        if (reason === "completed" || reason === "max-tokens" || reason === "aborted" || reason === "error") {
+          monEmit(round.roundKey, sid, {
+            type: "idle", reason,
+            text: round.finalText,
+          })
+          monRounds.delete(sid)
+        }
+        break
+      }
+      default:
+        break
+    }
+  }
+
   // ---------------- 单一 session/event 总线 ----------------
 
   /** 防御性事件注册：ctx.on 缺失/抛错只降级不拖死插件 */
@@ -358,13 +463,22 @@ function applyInner(ctx: any): void {
     const sid = session?.header?.id
     if (!sid) return
     const taskId = sessionTasks.get(sid)
-    if (!taskId) return
-    const run = a2aRuns.get(taskId)
-    if (!run) return
+    if (taskId) {
+      const run = a2aRuns.get(taskId)
+      if (run) {
+        try {
+          handleEvent(taskId, run, ev)
+        } catch (e) {
+          log(`session/event handler error: ${e}`)
+        }
+        return
+      }
+    }
+    // 非任务轮 → 监控层（用户日常对话轮次实时上报中枢）
     try {
-      handleEvent(taskId, run, ev)
+      handleMonitorEvent(session, ev)
     } catch (e) {
-      log(`session/event handler error: ${e}`)
+      log(`monitor handler error: ${e}`)
     }
   })
   safeOn("agent/error", (payload: any) => {

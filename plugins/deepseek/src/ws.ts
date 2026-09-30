@@ -15,6 +15,8 @@ export interface NexusA2AClient {
   send: (obj: Record<string, unknown>) => boolean
   /** A2A 事件上行（断连入缓冲，重连补发） */
   sendEvent: (payload: Record<string, unknown>) => void
+  /** 前台会话监控事件上报（{"type":"monitor",...}；断连入缓冲，重连补发） */
+  sendMonitor: (payload: Record<string, unknown>) => void
 }
 
 export interface A2aTaskRef {
@@ -404,5 +406,6 @@ export function startNexusA2AClient(options: A2aOptions): NexusA2AClient {
     isReady: () => ready,
     send,
     sendEvent: (payload) => sendMessage({ type: "event", payload }),
+    sendMonitor: (payload) => sendMessage({ type: "monitor", payload }),
   }
 }
