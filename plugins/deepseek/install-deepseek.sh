@@ -9,6 +9,7 @@ API_KEY=""
 SRC=""
 PROFILE=""
 PATH_ARG="$(pwd)"
+PATH_ARG_EXPLICIT="0"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -16,7 +17,7 @@ while [[ $# -gt 0 ]]; do
     --api-key) API_KEY="$2"; shift 2;;
     --src) SRC="$2"; shift 2;;
     --profile) PROFILE="$2"; shift 2;;
-    --path) PATH_ARG="$2"; shift 2;;
+    --path) PATH_ARG="$2"; PATH_ARG_EXPLICIT="1"; shift 2;;
     *) shift;;
   esac
 done
@@ -96,14 +97,46 @@ if [ -d "$SRC/skills" ]; then
   echo "==> 已安装 skill 到 $HOME/.dsh/skills/agent-swarm"
 fi
 
-# 3. 注册工作区
-WS_MD="$PATH_ARG/.agent_swarm/workspace.md"
-if [ -f "$WS_MD" ] && grep -qE "^\s*WORKSPACE_ID[:：]\s*[A-Za-z0-9_-]+" "$WS_MD"; then
-  echo "==> 工作区已注册（$WS_MD）"
+# 2.6 MCP 挂载：把解析后的静态条目追加进 profile 用户 patch 层
+# （bundle patch 禁止 !!js——plugin-manager 安装期校验不认；这里写明文值）
+PROFILE_NAME="${PROFILE:-desktop}"
+PROFILE_PATCH="$HOME/.dsh/profiles/$PROFILE_NAME/cordis.patch.yml"
+MCP_ENTRY="
+
+# agent-swarm MCP（由 install-deepseek 写入；删掉本段即卸载 mcp__agent-swarm__* 工具）
+- id: agent-swarm-mcp
+  name: '@deepseek-ai/dsh-mcp-client'
+  config:
+    serverName: agent-swarm
+    transport: streamable-http
+    url: $SERVER/mcp/
+    headers:
+      Authorization: Bearer $API_KEY
+    toolCallTimeoutMs: 120000
+    failOnStartupError: false
+"
+mkdir -p "$(dirname "$PROFILE_PATCH")"
+if [ -f "$PROFILE_PATCH" ] && grep -q "agent-swarm-mcp" "$PROFILE_PATCH"; then
+  echo "==> MCP 条目已存在于 $PROFILE_PATCH（跳过）"
 else
-  echo "==> 注册工作区（$PATH_ARG）..."
-  node "$BUNDLE_DIR/register.mjs" --server "$SERVER" --api-key "$API_KEY" --path "$PATH_ARG" --agent-type deepseek \
-    || echo "警告: 工作区注册失败（服务端不可达？），可稍后手动注册" >&2
+  printf '%s\n' "$MCP_ENTRY" >> "$PROFILE_PATCH"
+  echo "==> 已追加 MCP 挂载到 $PROFILE_PATCH"
+fi
+
+# 3. 注册工作区（--path 必须显式指定项目目录；缺省跳过——分发器安装时 cwd 不是用户项目）
+if [ "$PATH_ARG_EXPLICIT" = "1" ]; then
+  WS_MD="$PATH_ARG/.agent_swarm/workspace.md"
+  if [ -f "$WS_MD" ] && grep -qE "^\s*WORKSPACE_ID[:：]\s*[A-Za-z0-9_-]+" "$WS_MD"; then
+    echo "==> 工作区已注册（$WS_MD）"
+  else
+    echo "==> 注册工作区（$PATH_ARG）..."
+    node "$BUNDLE_DIR/register.mjs" --server "$SERVER" --api-key "$API_KEY" --path "$PATH_ARG" --agent-type deepseek \
+      || echo "警告: 工作区注册失败（服务端不可达？），可稍后手动注册" >&2
+  fi
+else
+  echo "==> 跳过工作区注册（未指定 --path）。请在你的项目目录里跑："
+  echo "    install-deepseek.sh ... --path <项目目录>"
+  echo "    或在 dsh 会话里让 agent 执行 /swarm-add"
 fi
 
 echo "✅ [deepseek] 安装完成！重启 dsh（dsh web）后插件自动加载。"

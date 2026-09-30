@@ -2,21 +2,11 @@
 # 安装：dsh plugin --profile <name> add <本目录>（bundle 路径安装，免构建）
 # 插件入口 main = index.js（由 src/*.ts 编译或直接以 tsx 运行均可）。
 #
-# 附带 dsh-mcp-client 挂载 agent_swarm 服务端 MCP（12 工具直连，mcp__agent-swarm__*）：
-# 凭据从环境变量读（安装脚本写入 ~/.dsh/.env，dsh 启动时加载进 process.env）。
-# failOnStartupError=false：服务端不在线时 harness 正常启动，仅无此组工具。
+# 注意：本文件会被 plugin-manager 安装期校验解析（js-yaml 默认 schema，
+# 桌面版 0.2.0-rc.2 不认 !!js 表达式）——**禁止在本文件使用 !!js**。
+# agent_swarm MCP（mcp__agent-swarm__*，12 工具）由安装脚本把解析后的
+# 静态条目追加进 profile 用户 patch 层（cordis.patch.yml），见 install-deepseek.*。
 
 - insert:
     - id: agent-swarm
       name: dsh-agent-swarm-plugin
-
-    - id: agent-swarm-mcp
-      name: '@deepseek-ai/dsh-mcp-client'
-      config:
-        serverName: agent-swarm
-        transport: streamable-http
-        url: !!js `${process.env.AGENT_SWARM_SERVER ?? "http://127.0.0.1:8700"}/mcp/`
-        headers:
-          Authorization: !!js `Bearer ${process.env.AGENT_SWARM_API_KEY ?? ""}`
-        toolCallTimeoutMs: 120000
-        failOnStartupError: false

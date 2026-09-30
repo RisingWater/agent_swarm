@@ -14,7 +14,8 @@ param(
     [string]$Src,
     # 缺省自动探测：桌面版 → desktop profile；CLI 版 → 空（default profile）
     [string]$Profile = "",
-    [string]$Path = (Get-Location).Path
+    # 工作区注册目录：必须显式指定项目目录；缺省跳过（分发器安装时 cwd 不是用户项目）
+    [string]$Path = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -109,7 +110,46 @@ if (Test-Path $skillSrc) {
     Write-Host "==> 已安装 skill 到 $skillsDir\agent-swarm"
 }
 
+# 2.6 MCP 挂载：把解析后的静态条目追加进 profile 用户 patch 层。
+# （bundle patch 禁止 !!js——plugin-manager 安装期校验用 js-yaml 默认 schema 不认；
+#  用户 patch 层由启动时 Include 解析，但为统一也不写表达式，直接写明文值。）
+$profileName = if ($Profile) { $Profile } else { "desktop" }
+$profilePatch = Join-Path $HOME ".dsh\profiles\$profileName\cordis.patch.yml"
+$mcpUrl = "$Server/mcp/"
+$mcpHeader = "Bearer $ApiKey"
+$mcpEntry = @"
+
+# agent-swarm MCP（由 install-deepseek 写入；删掉本段即卸载 mcp__agent-swarm__* 工具）
+- id: agent-swarm-mcp
+  name: '@deepseek-ai/dsh-mcp-client'
+  config:
+    serverName: agent-swarm
+    transport: streamable-http
+    url: $mcpUrl
+    headers:
+      Authorization: $mcpHeader
+    toolCallTimeoutMs: 120000
+    failOnStartupError: false
+"@
+if (Test-Path $profilePatch) {
+    $patchText = [IO.File]::ReadAllText($profilePatch)
+    if ($patchText -match "agent-swarm-mcp") {
+        Write-Host "==> MCP 条目已存在于 $profilePatch（跳过）"
+    } else {
+        [IO.File]::WriteAllText($profilePatch, $patchText.TrimEnd() + "`n" + $mcpEntry, $utf8NoBom)
+        Write-Host "==> 已追加 MCP 挂载到 $profilePatch"
+    }
+} else {
+    [IO.File]::WriteAllText($profilePatch, $mcpEntry.TrimStart() + "`n", $utf8NoBom)
+    Write-Host "==> 已创建 $profilePatch（含 MCP 挂载）"
+}
+
 # 3. 注册工作区：调 MCP workspace_add（agent_type=deepseek）并写 .agent_swarm/workspace.md
+if (-not $Path) {
+    Write-Host "==> 跳过工作区注册（未指定 -Path）。请在你的项目目录里跑：" -ForegroundColor Yellow
+    Write-Host "    install-deepseek.ps1 ... -Path <项目目录>" -ForegroundColor Yellow
+    Write-Host "    或在 dsh 会话里让 agent 执行 /swarm-add" -ForegroundColor Yellow
+} else {
 $wsMd = Join-Path $Path ".agent_swarm\workspace.md"
 $existingId = ""
 if (Test-Path $wsMd) {
@@ -126,5 +166,4 @@ if ($existingId) {
         Write-Host "警告: 工作区注册失败（服务端不可达？）。稍后在 $Path 目录用 dsh 里的 agent 手动注册也可。" -ForegroundColor Yellow
     }
 }
-
 Write-Host "✅ [deepseek] 安装完成！重启 dsh（dsh web）后插件自动加载：心跳在线、任务落 per-caller 会话。"
