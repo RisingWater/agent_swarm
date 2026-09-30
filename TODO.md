@@ -135,7 +135,7 @@
 - ⚠️ **待验证**：权限 input-required **应答**全链路（从没真弹过权限框）、取消（`session.interrupt`）、后台续聊 resume、`session.error`→failed、5 条命令的交互行为、ps1 在 Windows 实机（只做了 BOM/括号静态检查）
 - ⚠️ **未部署**：服务端改动（多连接/不阻塞/连接池加固/dispatchable）需**重建镜像**才生效；线上目前仍是旧镜像（且旧镜像里没有 V2 插件——其它机器今天跑安装命令拿到的还是 V1 插件，不受影响）
 
-### 产物功能（2026-09-22，已提交推送；IM 推送真机已验）
+### 产物功能（2026-09-22，已提交推送；IM 推送真机已验；2026-10-01 归属工作区 + 随团队共享）
 
 > Agent 产出文件回传：MCP `artifact_upload` 签一次性上传 URL → agent `curl -F` 直传 → 服务端落盘 + IM 推送（飞书文件消息/微信文件 item，降级文本链接）+ web「产物」页管理。**无 base64**（二进制不出现在 JSON 请求体里）。
 
@@ -148,6 +148,7 @@
 - ✅ **web「产物」页**（顶部导航）：文件名（点击下载）/大小/上传时间/保留倒计时/固定 toggle/删除（二次确认 Modal，30s 自动刷新）；首页与文档页补产物管理说明（e2f4986）
 - ✅ **skill**：opencode + claude 两处 `artifact_upload` 两步用法章节
 - ⚠️ **修复轮（579e57f）**：① 飞书 SDK 响应字段名错误——`CreateFileResponseBody` 是 `file_key` 不是 `file_id`（线上 AttributeError，上传成功但推送崩，走异常分支没发文件）→ 已改；② 产物页删除确认从行内气泡改居**中 Modal**（grid td `overflow:hidden` 气泡被单元格裁剪且相邻行遮挡）
+- ✅ **2026-10-01 归属工作区 + 随团队共享**（feat/team P5，详见上面「团队功能」节）：`artifact_upload` 的 `workspace_id` 升为**必填**（产物归属工作区，schema required + 业务兜底；MCP 描述写清读取处）；`GET /api/artifacts` 返回自有 + **归属工作区被共享给我所在活跃团队**的他人产物（`shared=true`，只读、不可 pin/delete）；无归属工作区不共享；存量产物启动迁移按 `task_id` 回填；产物页加「来源」列（工作区/属主 + 团队共享标注）。`tests/test_artifact_share.py` 3 例
 
 ### 微信 ClawBot 渠道 nexus-weixin-clawbot（2026-09-19 实现 + 2026-09-20 真机 E2E 全过）
 

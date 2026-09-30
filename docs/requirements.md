@@ -14,7 +14,7 @@ agent_swarm 是一个多 agent 协作平台（虫群）：
 - **Web 前端**：React SPA——网页中枢（Nexus）、工作区、调用记录、产物页、账号页、后台管理。
 - **渠道**：飞书（自建应用）与微信 ClawBot（用户扫自己的微信）作为聊天侧入口，能力对齐（下发/监控/简报/权限应答）。
 
-核心模型：**工作区（workspace）** = 一个注册到中枢的 agent 工作目录。任何授权用户可通过 web / MCP / A2A / 聊天渠道向工作区派发任务，并订阅其事件流。
+核心模型：**工作区（workspace）** = 一个注册到中枢的 agent 工作目录。任何授权用户可通过 web / MCP / A2A / 聊天渠道向工作区派发任务，并订阅其事件流。**团队（team）**允许工作区属主把工作区以"调用权"形式共享给他人（见 §13）。
 
 ## 2. 鉴权
 
@@ -40,8 +40,8 @@ agent_swarm 是一个多 agent 协作平台（虫群）：
 | `workspace_remove` / `enable` / `disable` / `offline` | 工作区管理；仅离线可删；disable 后心跳不复活，需 enable |
 | `heartbeat` | 保活 + 上报当前会话（插件每 30s 调；90s 无心跳判离线） |
 | `update_info` / `update_notes` | 更新用途/能力描述、备注 |
-| `list_workspaces` | 列出当前用户可见工作区 |
-| `a2a_call` | 派发任务：内部工作区 ID 或外部 A2A 端点 URL。`from_workspace` **必填**（schema required + 业务校验）——发起方工作区 ID，任务归属与完成提醒回送地址；缺省/非法直接拒绝。可选 `wait_seconds`（≤3600）同步等终态。**禁止 target=自己**（服务端拒绝 "self-call loop"）；外部任务落同一张任务表（`external_url` 标记）经 `a2a_task` 轮询 |
+| `list_workspaces` | 列出当前用户可见工作区（自有 + **团队共享给我的**；共享项带 `shared=true`，只暴露 name/purpose/capabilities/agent_type/status/owner） |
+| `a2a_call` | 派发任务：内部工作区 ID（自有 **或团队共享给我的**）或外部 A2A 端点 URL。`from_workspace` **必填**（schema required + 业务校验）——发起方工作区 ID，任务归属与完成提醒回送地址；缺省/非法直接拒绝。可选 `wait_seconds`（≤3600）同步等终态。**禁止 target=自己**（服务端拒绝 "self-call loop"）；外部任务落同一张任务表（`external_url` 标记）经 `a2a_task` 轮询 |
 | `a2a_task` | 查任务状态与结果 |
 | `artifact_upload` | 两步上传（无 base64）：工具签发一次性 `upload_url`（10min/单次）→ `curl -F file=@路径` 直传原始字节。`workspace_id` **必填**（产物归属工作区，决定团队可共享性） |
 
@@ -128,7 +128,7 @@ queued ──(发送+ack 成功)──> working ──> completed | failed
 
 ## 11. 质量基线
 
-- **测试**：`tests/`（pytest）——MCP 12 工具全覆盖 + annotation hints、派发链路回归（加密读回/ack 门控/回退 queued）、双鉴权四态、通配订阅属主隔离、终态 brief 帧。夹具 session 级（`AGENT_SWARM_DB` 指临时库，绝不触碰生产 DB）。改动服务端行为必须跑：`$env:PYTHONPATH="."; .\.venv\Scripts\python.exe -m pytest tests/ -q`。
+- **测试**：`tests/`（pytest）——MCP 12 工具全覆盖 + annotation hints、派发链路回归（加密读回/ack 门控/回退 queued）、双鉴权四态、通配订阅属主隔离、终态 brief 帧、团队（`test_teams.py` 数量限制/生命周期/共享、`test_team_calls.py` 跨用户调用与调用记录、`test_team_isolation.py` 隔离红线、`test_artifact_share.py` 产物共享）。夹具 session 级（`AGENT_SWARM_DB` 指临时库，绝不触碰生产 DB）。改动服务端行为必须跑：`$env:PYTHONPATH="."; .\.venv\Scripts\python.exe -m pytest tests/ -q`。
 - **稳定性红线**（历史事故换来，违反必炸）：
   1. `with Session(engine)` 块内**一律不 await/yield**（SQLite 连接池同步检出会冻死整个事件循环）；
   2. 任何任务行变更必须显式 `session.commit()`；
@@ -158,4 +158,5 @@ queued ──(发送+ack 成功)──> working ──> completed | failed
 - **通知隔离**：共享工作区的简报 / 权限卡 / 提问只到**执行方属主**（微信按 `task.user_id`、飞书按 `ws.user_id`，均指向属主）；调用方只拿最终答复。
 - **发现**：`list_workspaces` 并入共享项（`shared=true`，暴露 `name/purpose/capabilities/agent_type/status/owner`，**隐藏** path/notes/session）；`GET /api/teams/discover` 按名搜索可申请加入的团队（排除 closed 与已在/待处理）。
 - **调用记录**：`list_calls` 维度含执行（`workspace_id`）与发起（`from_workspace_id`）两侧，A/B 双方均可见"指令 + 答复"，无监控细节；`delete_call` 发起方或执行方均可删。
+- **产物随工作区共享**：产物归属其上传时所在的工作区（`artifact_upload` 的 `workspace_id` **必填**，见 §8）；产物列表 = 自有 + 归属工作区被共享给我所在活跃团队的他人产物（`shared=true`，**只读**、不可 pin/delete）；无归属工作区的产物不共享。
 - **前端**：顶栏「团队」页（创建 / 发现加入 / 成员审批 / 邀请 / 踢人 / 移交 / 退出 / 解散）+ 工作区页「共享到团队」多选；**不做**网页端共享工作区调用入口（成员只走 MCP）。需求详见 `docs/team_requirement.md`。
