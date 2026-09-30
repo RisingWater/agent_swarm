@@ -3344,11 +3344,11 @@ function TeamsPage({ toast }: { toast: (m: string) => void }) {
       {showCreate && (
         <Modal title="创建团队" onClose={() => setShowCreate(false)}>
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            <label>团队名
-              <input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="如：前端组" style={{ width: "100%", marginTop: 4 }} />
+            <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>团队名
+              <input className="field" value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="如：前端组" />
             </label>
-            <label>加入方式
-              <select value={newPolicy} onChange={(e) => setNewPolicy(e.target.value)} style={{ width: "100%", marginTop: 4 }}>
+            <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>加入方式
+              <select className="field" value={newPolicy} onChange={(e) => setNewPolicy(e.target.value)}>
                 <option value="approval">审批加入（我审核申请）</option>
                 <option value="open">开放加入（无需审核）</option>
                 <option value="closed">禁止加入（仅邀请）</option>
@@ -3403,7 +3403,7 @@ function TeamsPage({ toast }: { toast: (m: string) => void }) {
             <div style={{ marginTop: 12 }}>
               <h4 style={{ margin: "8px 0" }}>邀请成员</h4>
               <div style={{ display: "flex", gap: 8 }}>
-                <input value={inviteName} onChange={(e) => setInviteName(e.target.value)} placeholder="输入用户名" style={{ flex: 1 }} />
+                <input className="field" value={inviteName} onChange={(e) => setInviteName(e.target.value)} placeholder="输入用户名" style={{ flex: 1 }} />
                 <Btn size="sm" disabled={busy || !inviteName.trim()} onClick={async () => { const n = inviteName.trim(); await act(() => api.inviteMember(detail.id, n), "邀请已发出"); setInviteName("") }}>邀请</Btn>
               </div>
             </div>
