@@ -166,4 +166,5 @@ if ($existingId) {
         Write-Host "警告: 工作区注册失败（服务端不可达？）。稍后在 $Path 目录用 dsh 里的 agent 手动注册也可。" -ForegroundColor Yellow
     }
 }
+}
 Write-Host "✅ [deepseek] 安装完成！重启 dsh（dsh web）后插件自动加载：心跳在线、任务落 per-caller 会话。"
