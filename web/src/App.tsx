@@ -2449,7 +2449,7 @@ function NexusPage({ toast }: { toast: (m: string) => void }) {
       </div>
 
       {selected && (
-        <div className={`nexus-terminal ${agentToolKind(current?.agent_type) === "opencode" ? "tui" : "claude-tui"}`}>
+        <div className={`nexus-terminal ${agentToolKind(current?.agent_type) === "opencode" ? "tui" : agentToolKind(current?.agent_type) === "deepseek" ? "dsh-ui" : "claude-tui"}`}>
           <div className="nexus-terminal-head">
             <AgentTypeIcon type={current?.agent_type} inherit />
             <span className="nexus-head-title">{current?.name ?? selected}</span>
@@ -2554,6 +2554,8 @@ function NexusPage({ toast }: { toast: (m: string) => void }) {
 
 /** timeline 条目渲染入口：按 agent 类型分发控件
  *  opencode → OpencodeTuiEntry（TUI 黑底终端风格）
+ *  claude → ClaudeTuiEntry（claude code CLI 时间线风格）
+ *  deepseek → DshEntry（dsh web UI 风格：蓝泡用户消息 + think 行 + 工具行/IO 卡）
  *  其他/未知 → TimelineEntry（气泡风格，兜底默认）
  */
 function TimelineEntrySwitch({ item, agentType, onPermissionReply, onQuestionReply }: {
@@ -2566,7 +2568,158 @@ function TimelineEntrySwitch({ item, agentType, onPermissionReply, onQuestionRep
   const props = { item, onPermissionReply, onQuestionReply }
   if (kind === "opencode") return <OpencodeTuiEntry {...props} />
   if (kind === "claude") return <ClaudeTuiEntry {...props} />
+  if (kind === "deepseek") return <DshEntry {...props} />
   return <TimelineEntry {...props} />
+}
+
+// ---------------- dsh 中枢控件（模仿 deepseek harness web UI） ----------------
+
+/** dsh 工具行摘要：工具名 · 摘要（视觉上由 2px 圆点分隔） */
+function dshToolSummary(item: TimelineItem): string {
+  return truncateLine(item.text ?? "", 96)
+}
+
+/** dsh 时间线条目：用户消息右对齐蓝色气泡（dsw-specific-bubble），
+ *  thinking/工具 = DisclosureRow 形态（图标 + 标题 + 点分隔摘要，展开出正文/IO 卡）。 */
+function DshEntry({ item, onPermissionReply, onQuestionReply }: {
+  item: TimelineItem
+  onPermissionReply?: (requestId: string, reply: "once" | "always" | "reject") => void
+  onQuestionReply?: (requestId: string, answers: string[][]) => void
+}) {
+  if (item.kind === "user") {
+    // 用户消息：右对齐蓝色气泡（对齐 dsh MessageItem 的 bubble 形态）
+    return (
+      <div className="dsh-userRow">
+        <div className="dsh-bubble">{item.text}</div>
+      </div>
+    )
+  }
+  if (item.kind === "idle") {
+    return null
+  }
+  if (item.kind === "error") {
+    return (
+      <div className="dsh-turnError">
+        <span className="dsh-turnErrorDot" />
+        <div className="dsh-turnErrorCopy">
+          <span className="dsh-turnErrorTitle">出错了</span>
+          <span className="dsh-turnErrorMessage">{item.text}</span>
+        </div>
+      </div>
+    )
+  }
+  if (item.kind === "reasoning") {
+    // thinking：think 图标 + 标题「思考中/已深度思考」+ 首行摘要，展开全文
+    const running = false
+    const summary = truncateLine((item.text ?? "").replace(/\*\*/g, "").split("\n").find((l) => l.trim()) ?? "", 88)
+    return (
+      <details className="dsh-row">
+        <summary className="dsh-rowHead">
+          <span className="dsh-rowIcon dsh-think">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <path d="M12 3a6 6 0 0 0-3.6 10.8c.6.5.9 1.1 1 1.8l.1.4h5l.1-.4c.1-.7.4-1.3 1-1.8A6 6 0 0 0 12 3Z" />
+              <path d="M10 19h4" />
+              <path d="M10.5 22h3" />
+            </svg>
+          </span>
+          <span className="dsh-rowTitle">{running ? "思考中" : "已深度思考"}</span>
+          <span className="dsh-rowSep" />
+          <span className="dsh-rowSummary">{summary}</span>
+        </summary>
+        <div className="dsh-thinkBody">{item.text}</div>
+      </details>
+    )
+  }
+  if (item.kind === "tool") {
+    const running = item.state === "running"
+    const failed = item.state === "error"
+    const output = item.output?.trim() ?? ""
+    return (
+      <details className="dsh-row" data-error={failed || undefined} open={running || undefined}>
+        <summary className="dsh-rowHead">
+          <span className={`dsh-rowIcon${failed ? " err" : ""}`}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <path d="M14.7 6.3a4.5 4.5 0 0 0-6 6L3 18l3 3 5.7-5.7a4.5 4.5 0 0 0 6-6L15 12l-3-3 2.7-2.7Z" />
+            </svg>
+          </span>
+          <span className="dsh-rowTitle">{item.tool ?? "tool"}</span>
+          <span className="dsh-rowSep" />
+          <span className={`dsh-rowSummary${failed ? " err" : ""}`}>
+            {running ? <span className="dsh-shimmer">{dshToolSummary(item)}</span> : dshToolSummary(item)}
+          </span>
+        </summary>
+        {(output || dshToolSummary(item)) && (
+          <div className={`dsh-ioCard${failed ? " err" : ""}`}>
+            <div className="dsh-ioSection">
+              <span className="dsh-ioLabel">IN</span>
+              <span className="dsh-ioText">{dshToolSummary(item)}</span>
+            </div>
+            {output && (
+              <>
+                <div className="dsh-ioDivider" />
+                <div className="dsh-ioSection">
+                  <span className="dsh-ioLabel">OUT</span>
+                  <span className="dsh-ioText" data-error={failed || undefined}>{output}</span>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+      </details>
+    )
+  }
+  if (item.kind === "permission") {
+    if (item.answered) {
+      return (
+        <div className="dsh-turnError">
+          <span className="dsh-turnErrorDot ok" />
+          <div className="dsh-turnErrorCopy">
+            <span className="dsh-turnErrorMessage">权限已{permAnswerLabel(item.answered!)}：{item.permission}</span>
+          </div>
+        </div>
+      )
+    }
+    return (
+      <div className="dsh-askCard">
+        <div className="dsh-askTitle">权限请求</div>
+        <div className="dsh-askBody">{item.permission}{item.text ? ` — ${item.text}` : ""}</div>
+        <div className="dsh-askActions">
+          <button className="dsh-ask-btn" onClick={() => onPermissionReply?.(item.request_id!, "once")}>允许一次</button>
+          <button className="dsh-ask-btn" onClick={() => onPermissionReply?.(item.request_id!, "always")}>始终允许</button>
+          <button className="dsh-ask-btn danger" onClick={() => onPermissionReply?.(item.request_id!, "reject")}>拒绝</button>
+        </div>
+      </div>
+    )
+  }
+  if (item.kind === "question") {
+    if (item.answered) {
+      return (
+        <div className="dsh-turnError">
+          <span className="dsh-turnErrorDot ok" />
+          <div className="dsh-turnErrorCopy">
+            <span className="dsh-turnErrorMessage">已选择：<b>{item.answered}</b></span>
+          </div>
+        </div>
+      )
+    }
+    return (
+      <div className="dsh-askCard">
+        <div className="dsh-askTitle">需要你的选择</div>
+        <div className="dsh-askBody">{item.text}</div>
+        <div className="dsh-askActions">
+          {(item.options ?? []).map((o) => (
+            <button key={o.value} className="dsh-ask-btn" onClick={() => onQuestionReply?.(item.request_id!, [[o.value]])}>
+              {o.label}
+            </button>
+          ))}
+        </div>
+      </div>
+    )
+  }
+  // agent 回答：markdown 正文（无气泡，dsh 的 assistant 文本是通栏排版）
+  return (
+    <div className="dsh-assistant"><Md text={item.text} /></div>
+  )
 }
 
 /** 兜底默认控件：气泡风格（通用，不依赖具体 agent 工具的视觉习惯） */
