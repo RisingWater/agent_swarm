@@ -645,9 +645,8 @@ function applyInner(ctx: any): void {
   // 排在我们前面——它接到请求会挂给浏览器面板且在本地应答前不 next()，我们永远轮不到。
   // 因此必须 prepend 抢队头；但抢到后不能独占等待（本地 UI 就答不了）：
   // 立刻 next() 放行下游，远程/本地谁先 settle 用谁（先答先算，对齐虫群跨渠道语义）。
-  // 下游返回 unavailable（无 UI 在听）不算应答，继续等远程；30 分钟无任何应答 fail-closed。
-  const REMOTE_ANSWER_TIMEOUT_MS = 30 * 60_000
-
+  // 下游返回 unavailable（无 UI 在听）不算应答，继续等远程。
+  // 不设超时：没人应答就一直等（用户可在本地打断会话，signal abort → cancelled）。
   safeOn(
     "approval/request",
     async (req: any, next: () => Promise<string>) => {
@@ -683,14 +682,11 @@ function applyInner(ctx: any): void {
       const localReal = local.then((o) =>
         o === "unavailable" ? new Promise<never>(() => {}) : o,
       )
-      // 工具调用被中止 → cancelled；看门狗 → unavailable（fail-closed，对齐 dsh 缺省链）
+      // 工具调用被中止（本地打断会话/请求方取消）→ cancelled
       const aborted = new Promise<string>((resolve) => {
         req?.signal?.addEventListener("abort", () => resolve("cancelled"), { once: true })
       })
-      const watchdog = new Promise<string>((resolve) => {
-        setTimeout(() => resolve("unavailable"), REMOTE_ANSWER_TIMEOUT_MS)
-      })
-      const outcome = await Promise.race([remote, localReal, aborted, watchdog])
+      const outcome = await Promise.race([remote, localReal, aborted])
       // 收尾幂等：远程先答时 replyPermission 已清过状态，这里 no-op；本地先答时清残留
       // 并通知中枢撤下等待（replied 帧），web/飞书/微信的待应答卡随之关闭。
       if (run) {
