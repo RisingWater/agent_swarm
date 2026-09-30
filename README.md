@@ -19,10 +19,10 @@
 
 ## Features at a Glance
 
-- **🔗 Standard MCP tools** — All agent-facing operations are standard MCP tools; any MCP-capable client (opencode, claude code, …) can join the swarm
-- **🐝 Cross-agent task dispatch** — Hand a task to another workspace's agent with one instruction: foreground injection (visible in their TUI) or background session (silent execution), results flow back automatically
+- **🔗 Standard MCP tools** — All agent-facing operations are standard MCP tools; any MCP-capable client (opencode, claude code, deepseek harness, …) can join the swarm
+- **🐝 Cross-agent task dispatch** — Hand a task to another workspace's agent with one instruction: foreground injection (visible in their TUI) or background session (silent execution), results flow back automatically. If the requester gives up waiting, the server reminds it to fetch the result when the task finishes
 - **🌐 Web hub (Nexus)** — Dispatch instructions from the browser, watch thinking / tool calls / answers stream in real time, answer permission requests remotely
-- **👀 Monitor mode** — Your everyday TUI conversations sync round-by-round to the web hub, like an observation window into your agent
+- **👀 Monitor mode** — Always on: your everyday TUI conversations sync round-by-round to the web hub, like an observation window into your agent
 - **💬 Chat integrations (Feishu & WeChat)** — Bind Feishu (Lark) or scan your own WeChat as a ClawBot account; dispatch tasks from chat, watch thinking/tool calls stream, receive completion briefs, and answer permission requests remotely across both channels
 - **🛡️ Self-hosted & lightweight** — A single FastAPI service + SQLite, one command to start, your data stays on your machine
 - **🎛️ Admin console** — Separately-authenticated admin UI: users / workspaces / task-volume dashboard
@@ -84,6 +84,7 @@ curl -fsSL http://<server>:8700/download/install.sh | bash -s -- --api-key <your
 
 - **opencode**: detects your opencode version (`opencode --version`) and installs the matching plugin — **V1** (`plugin` array in `opencode.jsonc` + `tui.jsonc`) or **V2** (auto-discovered under `~/.config/opencode/plugins/agent-swarm/`, no config entry / no `node_modules` needed) — writes the service config, registers the MCP endpoint, and copies `/swarm-*` commands. **Takes effect after restarting opencode**
 - **claude code**: registers a remote MCP + local keepalive (heartbeat) → copies `/swarm-*` commands. **Takes effect after restarting claude**; claude supports background sessions only, no foreground injection
+- **deepseek harness (dsh)**: installs a Cordus plugin bundle, writes the service config, and registers the workspace via MCP directly. **Takes effect after restarting dsh**; no foreground/background split — the dsh process is a resident web server (online = process alive), tasks run in per-caller sessions that keep running with the browser closed; monitor / permission / brief all supported
 
 ### Connect Feishu (optional)
 
@@ -117,7 +118,7 @@ Pick an online workspace on the "Nexus" page and type an instruction:
 
 ### Monitor mode
 
-When enabled (on by default for opencode, toggle with `/swarm-monitor` in the TUI), your everyday TUI conversations sync to the web hub round-by-round: question, thinking, tool calls, answer — all visible, permission requests answerable remotely. Each round is archived as a `[monitor]` record on the Calls page.
+Always on (no toggle): your everyday TUI conversations sync to the web hub round-by-round: question, thinking, tool calls, answer — all visible, permission requests answerable remotely. Each round is archived as a `[monitor]` record on the Calls page.
 
 A workspace has at most one foreground round: starting a new round automatically closes the previous one, so entries never get stuck in "running" forever.
 
@@ -175,6 +176,10 @@ Visit `/#/admin` (separate login, credentials in the config table):
 
 All cross-agent calls, hub instructions, monitor rounds, Feishu and WeChat dispatches are archived: sender / target / instruction / status / result, filterable by workspace and deletable.
 
+### Long-task completion reminders
+
+Cross-workspace tasks can take a long time: the requesting agent may give up waiting and move on, leaving the finished result unclaimed. The swarm covers for this — shortly after a task reaches a terminal state (default 60s, `AGENT_SWARM_NOTIFY_DELAY`), if the result has not been picked up, the server pushes a **completion reminder** to the requester's workspace; the agent then calls `a2a_task` to fetch the result and resumes its original work. Tasks whose results were already delivered are never re-notified; if the requester is offline the reminder queues until it comes back online; while the requester is still actively waiting the server stays quiet and re-checks every 60s. Reminders carry only the task ID and fetch instructions — no task content — so the requester continues from its own context.
+
 ## MCP Tools (`/mcp/`, Bearer apikey auth)
 
 | Tool | Description |
@@ -184,8 +189,8 @@ All cross-agent calls, hub instructions, monitor rounds, Feishu and WeChat dispa
 | `heartbeat` | Keep-alive, reports the current session (called by the plugin every 30s) |
 | `update_info` / `update_notes` | Update workspace purpose/capabilities and notes |
 | `list_workspaces` | List visible workspaces (online only by default) |
-| `a2a_call` | Dispatch tasks via the A2A protocol: internal workspace ID or external A2A agent endpoint URL (`from_workspace` identifies the caller). Optional `wait_seconds` (e.g. 300–600) blocks until the task reaches a terminal state so no polling is needed. **Dispatching to your own workspace is refused** (self-call loop protection) |
-| `a2a_task` | Query A2A task status and result |
+| `a2a_call` | Dispatch tasks via the A2A protocol: internal workspace ID or external A2A agent endpoint URL (`from_workspace` **required** — your own workspace ID; also the return address for long-task completion reminders). Optional `wait_seconds` (e.g. 300–600) blocks until the task reaches a terminal state so no polling is needed; if you give up waiting early, the server will remind you when the task finishes. **Dispatching to your own workspace is refused** (self-call loop protection) |
+| `a2a_task` | Query A2A task status and result (use this to fetch the result after a completion reminder) |
 | `artifact_upload` | Two-step file upload (no base64): call the tool to get a one-time `upload_url` (10 min, single-use), then `curl -F file=@<path>` to push raw bytes. Files show up on the web "Artifacts" page and are pushed to your bound chat channels |
 
 ## Artifacts
@@ -218,6 +223,7 @@ Anything that can speak WebSocket + REST can act as a hub client: authenticate w
 | `AGENT_SWARM_ENC_KEY_RECOVERY` | Optional recovery key. Kept separately from the main key, it can still decrypt history after the main key is lost (also enables key rotation: set the new key as `AGENT_SWARM_ENC_KEY` and the old one as recovery) | not set |
 | `AGENT_SWARM_PUBLIC_URL` | Public URL (injected into install scripts when behind a reverse proxy) | inferred from request Host |
 | `AGENT_SWARM_CALL_TIMEOUT` | Cross-agent call timeout | `3600`s |
+| `AGENT_SWARM_NOTIFY_DELAY` | Re-check interval for long-task completion reminders (after a task finishes, the server re-checks every N seconds whether the result has been picked up) | `60`s |
 | `AGENT_SWARM_ARTIFACT_TTL_DAYS` | Artifact retention before the hourly GC deletes it (pinned artifacts are never auto-deleted) | `7` |
 | `AGENT_SWARM_ARTIFACT_MAX_MB` | Max size per uploaded artifact | `20` |
 | `ADMIN_USERNAME` / `ADMIN_PASSWORD` | Admin console login (default `admin` / `Admin123!@#`, **change in production**) | `admin` / `Admin123!@#` |
@@ -237,6 +243,7 @@ Notes on encryption at rest:
 server/            FastAPI service (api/ REST, mcp_endpoint.py MCP tools, feishu/ Feishu gateway, weixin/ WeChat ClawBot gateway, download.py plugin distribution)
 plugins/opencode/  opencode plugin (TS), V1 + V2: V1 = src/index.ts + src/tui.ts; V2 = index.ts + tui.ts + src/v2/* (task execution, monitor reporting, hub connection; in V2 the presence heartbeat runs in the CLI plugin); commands/ hosts the /swarm-add source
 plugins/claude/    claude code integration: keepalive.mjs (local MCP keep-alive) + background tasks + /swarm-* commands
+plugins/deepseek/  deepseek harness (dsh) integration: Cordus plugin bundle (monitor / permissions / task execution), installer + skill
 web/               React admin frontend (home, docs, hub, workspaces, calls, account, admin console)
 deploy/            start/stop scripts + installer dispatchers (sh + ps1)
 docker/            Dockerfile + compose.yaml

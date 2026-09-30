@@ -10,7 +10,7 @@
 agent_swarm 是一个多 agent 协作平台（虫群）：
 
 - **服务端**：FastAPI 单进程（`:8700`），同时承载管理 REST API、MCP 端点、A2A 网关、插件分发、飞书/微信渠道网关。数据库 SQLite（WAL）。
-- **插件**（`plugins/`）：注册工作区到中枢、心跳保活、接收执行 A2A 任务、上报前台会话监控流。支持 opencode（V1/V2 双版本）与 claude code。
+- **插件**（`plugins/`）：注册工作区到中枢、心跳保活、接收执行 A2A 任务、上报前台会话监控流。支持 opencode（V1/V2 双版本）、claude code 与 deepseek harness（dsh，Cordus bundle）。
 - **Web 前端**：React SPA——网页中枢（Nexus）、工作区、调用记录、产物页、账号页、后台管理。
 - **渠道**：飞书（自建应用）与微信 ClawBot（用户扫自己的微信）作为聊天侧入口，能力对齐（下发/监控/简报/权限应答）。
 
@@ -41,7 +41,7 @@ agent_swarm 是一个多 agent 协作平台（虫群）：
 | `heartbeat` | 保活 + 上报当前会话（插件每 30s 调；90s 无心跳判离线） |
 | `update_info` / `update_notes` | 更新用途/能力描述、备注 |
 | `list_workspaces` | 列出当前用户可见工作区 |
-| `a2a_call` | 派发任务：内部工作区 ID 或外部 A2A 端点 URL。可选 `wait_seconds`（≤3600）同步等终态。**禁止 target=自己**（`from_workspace` 注明且相同时服务端拒绝 "self-call loop"）；外部任务落同一张任务表（`external_url` 标记）经 `a2a_task` 轮询 |
+| `a2a_call` | 派发任务：内部工作区 ID 或外部 A2A 端点 URL。`from_workspace` **必填**（schema required + 业务校验）——发起方工作区 ID，任务归属与完成提醒回送地址；缺省/非法直接拒绝。可选 `wait_seconds`（≤3600）同步等终态。**禁止 target=自己**（服务端拒绝 "self-call loop"）；外部任务落同一张任务表（`external_url` 标记）经 `a2a_task` 轮询 |
 | `a2a_task` | 查任务状态与结果 |
 | `artifact_upload` | 两步上传（无 base64）：工具签发一次性 `upload_url`（10min/单次）→ `curl -F file=@路径` 直传原始字节 |
 
@@ -66,6 +66,7 @@ queued ──(发送+ack 成功)──> working ──> completed | failed
 - **终态收尾**：`completed` 时插件发 artifact（最终回答全文）；`failed` 时错误文本入 `error` 列；`canceled`（用户主动中断）同样入档。超时为懒超时（`AGENT_SWARM_CALL_TIMEOUT` 默认 1h，读侧判定）。
 - **input-required**：权限/提问等待态。应答走统一 reply 端点（§6）；**先答先算**——第一个应答生效，任务翻出等待态，其余渠道后续应答干净地 409。
 - **前台唯一轮**：一个工作区同时只有一个前台监控轮，新一轮自动收尾上一轮（superseded）。
+- **长任务完成提醒**（2026-10-01，E2E 实测）：任务终态后每 `AGENT_SWARM_NOTIFY_DELAY`（默认 60s）检查一次——若 `from_workspace` 非空（内部工作区调用）、结果仍未被取走（`a2a_task` 查询或 `wait_task_final` 阻塞送达即标记已取走，内存 set 防重）且发起方前台监控轮已收尾（无 working 的 monitor 轮——发起方还在等就不打扰，但**继续每轮复查**，因为发起方可能中途放弃），就向发起方工作区推一条极简提醒任务（`caller="nexus-notify"`，只带 task_id + `a2a_task` 取回指引，不复述任务内容）。发起方离线时提醒任务排队，上线 `_flush_queued` 补推；复查上限 120 轮（默认配置下 ≈2h）防无限循环；已提醒任务不再重复。前提：`a2a_call` 的 `from_workspace` **必填**（schema required + 业务校验），否则无法定位回送地址直接拒绝。
 
 ## 5. 事件流与订阅（`/ws/nexus`）
 
@@ -112,15 +113,16 @@ queued ──(发送+ack 成功)──> working ──> completed | failed
 
 ## 9. 监控模式（前台会话实时上报）
 
-- opencode 插件把 TUI 日常对话按轮次实时上报（默认开，`/swarm-monitor` 切换，热生效）：用户提问 → 💭 thinking → 工具调用 → 回答，全量进事件流与调用记录（`[monitor]` 标注）。
-- 只监控前台会话；中枢下发的任务轮不重复上报。V1/V2 插件均支持；V2 由 TUI 进程心跳（**在线 = 开着 TUI**），server 插件不心跳。
+- opencode / dsh 插件把 TUI 日常对话按轮次实时上报（**默认常开，无开关**——`/swarm-monitor` 命令已移除；如需手动关可改配置文件 `monitor:false`，渠道侧关闭走飞书/微信 `monitor off`）：用户提问 → 💭 thinking → 工具调用 → 回答，全量进事件流与调用记录（`[monitor]` 标注）。
+- 只监控前台会话；中枢下发的任务轮不重复上报。V1/V2 插件均支持；V2 由 TUI 进程心跳（**在线 = 开着 TUI**），server 插件不心跳。dsh 无前台/后台之分（进程常驻即在线），session/event 非任务轮全走监控管道。
 - 轮次生命周期：`message.updated`（user）开轮 → 流式部件 → idle 收轮；权限/提问置 input-required，`replied` 回 working。
 
 ## 10. 插件与安装
 
 - **opencode**：V1（file:// 入口）与 V2（目录自动发现，`opencode --version` 分流）同时支持，安装脚本单向覆盖。V2 插件零运行时裸依赖；改 `src/` 后需同步安装目录 + `touch index.ts` 热重载。
 - **claude**：keepalive.mjs 本地 stdio MCP 保活 + 后台 headless 执行（无前台注入）。
-- **安装器**：`deploy/install.{sh,ps1}` 分发器 + `plugins/<name>/install-<name>.{sh,ps1}` 各自实现；tarball 含整个 plugins 树。含中文的 ps1 必须存 UTF-8 **带 BOM**。
+- **deepseek harness（dsh）**：Cordus bundle 形态（`package.json` 带 `dsh.bundle.patch` + `cordis.patch.yml`，`dsh plugin [--profile] add <目录>` 安装，换 profile 要重装）。无前台/后台之分——dsh 常驻 web 服务器，**在线 = 进程在跑**；任务按来源（per-caller）分会话执行；权限走 `approval/asked` → input-required + waterfall 应答器（远程/本地先答先算）。零运行时裸依赖。未实测 E2E 全链路。
+- **安装器**：`deploy/install.{sh,ps1}` 分发器 + `plugins/<name>/install-<name>.{sh,ps1}` 各自实现；tarball 含整个 plugins 树。含中文的 ps1 必须存 UTF-8 **带 BOM**（单 BOM——叠加双 BOM 会报"无法识别 ﻿#"）。
 - `/swarm-*` 命令 = markdown 源文件复制到 `~/.config/opencode/commands/`（claude 同理），改命令行为要改源 md 后重装。
 
 ## 11. 质量基线

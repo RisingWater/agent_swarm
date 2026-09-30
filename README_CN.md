@@ -17,10 +17,10 @@
 
 ## 功能摘要
 
-- **🔗 标准 MCP 工具接入** —— 面向 agent 的操作全部是标准 MCP 工具，opencode、claude code 等任何支持 MCP 的客户端都能接入
-- **🐝 跨 agent 任务派发** —— 一条指令把任务交给另一个工作区的 agent；前台注入（对方 TUI 实时可见）或后台会话（静默执行）两种方式，结果自动回传
+- **🔗 标准 MCP 工具接入** —— 面向 agent 的操作全部是标准 MCP 工具，opencode、claude code、deepseek harness 等任何支持 MCP 的客户端都能接入
+- **🐝 跨 agent 任务派发** —— 一条指令把任务交给另一个工作区的 agent；前台注入（对方 TUI 实时可见）或后台会话（静默执行）两种方式，结果自动回传。发起方中途放弃等待也不用怕：任务完成后服务端自动提醒它取结果继续
 - **🌐 Web 中枢（Nexus）** —— 网页上直接给在线工作区下指令，实时围观思考 / 工具调用 / 回答，权限请求远程点选应答
-- **👀 监控模式** —— 你在 TUI 里的日常对话按轮次实时同步到网页，像给 agent 开了一扇观察窗
+- **👀 监控模式** —— 默认开启：你在 TUI 里的日常对话按轮次实时同步到网页，像给 agent 开了一扇观察窗
 - **💬 飞书 & 微信接入** —— 绑定飞书，或把自己的微信扫码接入为 ClawBot 机器人；在聊天里派任务、收时间线直播/详细流与完成简报、远程应答权限请求（两个渠道全支持）
 - **🛡️ 自托管 & 轻量** —— 单个 FastAPI 服务 + SQLite，一条命令启动，数据完全留在自己机器上
 - **🎛️ 后台管理** —— 独立登录的管理控制台：用户 / 工作区 / 调用量面板
@@ -80,8 +80,9 @@ curl -fsSL http://<server>:8700/download/install.sh | bash -s -- --api-key <你�
 & ([scriptblock]::Create((irm http://<server>:8700/download/install.ps1))) -ApiKey <你的key>
 ```
 
-- **opencode**：写入服务配置 → 注册 MCP 端点 → 部署心跳插件 → 拷贝 `/swarm-*` 命令。**重启 opencode 后生效**
+- **opencode**：写入服务配置 → 注册 MCP 端点 → 部署心跳插件 → 拷贝 `/swarm-*` 命令。**重启 opencode 后生效**（V1/V2 双版本自动分流）
 - **claude code**：注册 remote MCP + 本地 keepalive（心跳保活）→ 拷贝 `/swarm-*` 命令。**重启后生效**；claude 仅支持后台会话，不支持前台注入
+- **deepseek harness（dsh）**：安装 Cordus 插件 bundle → 写服务配置 → 直调 MCP 注册工作区。**重启 dsh 后生效**；无前台/后台之分（进程常驻即在线，任务按来源分会话执行，浏览器关了照样跑），监控/权限/简报全支持
 
 ### 接入飞书（可选）
 
@@ -115,7 +116,7 @@ FEISHU_APP_SECRET=xxx
 
 ### 监控模式
 
-开启后（opencode 默认开，TUI 内 `/swarm-monitor` 切换），你在 TUI 里与 agent 的日常对话按轮次实时同步到网页中枢：提问、思考、工具调用、回答全程可见，权限请求远程应答。每轮对话作为 `[monitor]` 记录进入「调用记录」页。
+默认开启（无开关）：你在 TUI 里与 agent 的日常对话按轮次实时同步到网页中枢：提问、思考、工具调用、回答全程可见，权限请求远程应答。每轮对话作为 `[monitor]` 记录进入「调用记录」页。
 
 一个工作区同时只有一个前台轮次：新一轮开始时上一轮自动收尾，不会出现永远卡在执行中的条目。
 
@@ -173,6 +174,10 @@ FEISHU_APP_SECRET=xxx
 
 所有跨 agent 调用、网页中枢指令、监控轮次、飞书与微信派发都归档为记录：发起方 / 目标 / 指令 / 状态 / 结果，可按工作区筛选、可删除。
 
+### 长任务完成提醒
+
+跨工作区的任务有时会跑很久：发起方 agent 等不到结果就收轮去做别的，结果留在任务记录里没人取，工作就停了。虫群会自动补位——任务完成后稍等片刻（默认 60 秒，`AGENT_SWARM_NOTIFY_DELAY` 可调），若结果仍未被发起方取走，服务端会向发起方工作区推送一条**完成提醒**；agent 收到后调用 `a2a_task` 取回结果并继续原本的工作。已取走结果的任务不会重复提醒；发起方离线时提醒会排队，上线即送达；发起方还在等待期间不打扰（每 60 秒复查一次，直到其收轮或取走结果）。提醒只带任务 ID 与取回指引，不重复任务内容，发起方靠自己的上下文继续工作。
+
 ## MCP 工具一览（`/mcp/`，Bearer apikey 鉴权）
 
 | 工具 | 说明 |
@@ -182,8 +187,8 @@ FEISHU_APP_SECRET=xxx
 | `heartbeat` | 心跳保活，上报当前会话（插件每 30s 自动调用） |
 | `update_info` / `update_notes` | 更新工作区用途/能力描述、备注 |
 | `list_workspaces` | 列出可见工作区（默认仅在线） |
-| `a2a_call` | A2A 协议任务派发：内部工作区 ID 或外部 A2A agent 端点 URL（`from_workspace` 注明发起方）。可选 `wait_seconds`（建议 300~600）同步等到任务终态，免去轮询。**禁止向自己所在工作区派单**（自我调用死循环保护，服务端直接拒绝） |
-| `a2a_task` | 查询 A2A 任务状态与结果 |
+| `a2a_call` | A2A 协议任务派发：内部工作区 ID 或外部 A2A agent 端点 URL（`from_workspace` **必填**——发起方工作区 ID，也是长任务完成提醒的回送地址）。可选 `wait_seconds`（建议 300~600）同步等到任务终态，免去轮询；中途放弃等待也没关系，任务完成后服务端会自动提醒。**禁止向自己所在工作区派单**（自我调用死循环保护，服务端直接拒绝） |
+| `a2a_task` | 查询 A2A 任务状态与结果（收到完成提醒后用它取结果） |
 | `artifact_upload` | 两步文件上传（无 base64）：先调工具换一次性 `upload_url`（10 分钟有效、单次），再 `curl -F file=@<路径>` 直传原始字节。文件进入 web「产物」页，并推送到你绑定的聊天渠道 |
 
 ## 产物（Artifacts）
@@ -216,6 +221,7 @@ curl -sS -X POST "$upload_url" -F "file=@/绝对路径/report.pdf"
 | `AGENT_SWARM_ENC_KEY_RECOVERY` | 恢复密钥（可选）：与主密钥分开保存，主密钥丢失时仍可解密历史（也支持轮换：新密钥设为 `AGENT_SWARM_ENC_KEY`，旧密钥设为恢复密钥） | 未配置 |
 | `AGENT_SWARM_PUBLIC_URL` | 公网地址（注入 install 脚本，反代时设） | 从请求 Host 推断 |
 | `AGENT_SWARM_CALL_TIMEOUT` | 跨 agent 调用超时 | `3600`s |
+| `AGENT_SWARM_NOTIFY_DELAY` | 长任务完成提醒的检查间隔（任务终态后每隔该秒数检查一次结果是否被取走） | `60`s |
 | `AGENT_SWARM_ARTIFACT_TTL_DAYS` | 产物保留天数（每小时 GC 清理过期文件；pin 的产物永不清） | `7` |
 | `AGENT_SWARM_ARTIFACT_MAX_MB` | 单个产物大小上限 | `20` |
 | `ADMIN_USERNAME` / `ADMIN_PASSWORD` | 后台管理登录（默认 `admin` / `Admin123!@#`，**生产必改**） | `admin` / `Admin123!@#` |
@@ -235,6 +241,7 @@ curl -sS -X POST "$upload_url" -F "file=@/绝对路径/report.pdf"
 server/            FastAPI 服务端（api/ REST、mcp_endpoint.py MCP 工具、feishu/ 飞书网关、weixin/ 微信 ClawBot 网关、download.py 插件分发）
 plugins/opencode/  opencode 插件（TS）：心跳、任务接收执行、监控上报、中枢直连；commands/ 为 /swarm-* 命令源
 plugins/claude/    claude code 接入：keepalive.mjs（本地 MCP 保活）+ 后台任务执行 + /swarm-* 命令
+plugins/deepseek/  deepseek harness（dsh）接入：Cordus 插件 bundle（监控/权限/任务执行），安装器 + skill
 web/               React 管理前端（首页、文档、中枢、工作区、调用记录、账号、后台管理）
 deploy/            启动/停止脚本 + 安装分发器（sh + ps1）
 docker/            Dockerfile + compose.yaml
