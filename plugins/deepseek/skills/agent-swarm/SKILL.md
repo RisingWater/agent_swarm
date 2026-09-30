@@ -24,6 +24,13 @@ mcp__agent-swarm__a2a_call(target="<对方工作区ID>", message="<任务描述>
 - `wait_seconds`（建议 300~600）：同步等到终态，免去轮询；任务没跑完会阻塞到超时
 - 异步派发（不给 wait_seconds）：返回 task id，用 `mcp__agent-swarm__a2a_task(task_id=...)` 轮询
 
+## 收到"[agent_swarm 提醒]"消息时
+
+你之前发起的跨工作区任务已完成/失败，而你当时没有等到结果。处理方式：
+
+1. 调 `mcp__agent-swarm__a2a_task(task_id="<提醒里的 task_id>")` 获取结果
+2. **继续你原本的工作**——不要把提醒当新任务，也不要重新向对方派单
+
 ## 上传产物文件（两步，无 base64）
 
 任务要求交文件时：

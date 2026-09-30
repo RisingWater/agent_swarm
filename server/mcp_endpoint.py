@@ -440,6 +440,8 @@ async def a2a_call(target: str, message: str, context_id: str = "", from_workspa
         wait_seconds: 同步等待任务终态的秒数（0=立即返回只拿 task_id）。
             >0 时服务端挂事件总线等任务完成（最多等这么久），返回体直接带
             status/result——推荐派任务时传 300~600，免去轮询。
+            长任务若你中途放弃等待也没关系：任务完成后服务端会自动提醒你
+            （收到"[agent_swarm 提醒]"消息时，用 a2a_task 取结果并继续原工作）。
     """
     from server.nexus_a2a import call_external
 
@@ -545,6 +547,9 @@ async def a2a_call(target: str, message: str, context_id: str = "", from_workspa
 def a2a_task(task_id: str) -> dict:
     """查询 A2A 任务的状态与结果（a2a_call 后轮询用）。
 
+    收到"[agent_swarm 提醒]"消息时，用本工具取回之前发起的跨工作区任务结果，
+    然后继续你原本的工作——不要重新发起任务。
+
     Args:
         task_id: a2a_call 返回的任务 ID
     """
@@ -570,6 +575,11 @@ def a2a_task(task_id: str) -> dict:
                 task.done_at = utcnow()
                 session.add(task)
                 session.commit()
+        if task.status in ("completed", "failed", "canceled"):
+            # 调用方查询 = 结果已取走：完成提醒不再触发
+            from server.nexus_a2a import mark_result_delivered
+
+            mark_result_delivered(task.id)
         out = {
             "task_id": task.id,
             "context_id": task.context_id,

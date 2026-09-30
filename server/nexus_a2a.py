@@ -344,6 +344,101 @@ def permission_replies(agent_type: str | None) -> tuple[str, ...]:
     return ("once", "reject") if str(agent_type or "").strip().lower().startswith("deepseek") else ("once", "always", "reject")
 
 
+# ---------------------------------------------------------------- 跨工作区长任务完成提醒（2026-09-30）
+#
+# agent1 派给 agent2 的任务常跑很久：agent1 侧模型等不到结果会失去耐心收轮
+# （前台监控轮 idle），结果留在 a2a_tasks 里没人取，工作就停了。
+# 机制：任务终态后延时检查——结果仍未被调用方取走（a2a_task 查询/阻塞响应送达
+# 都算取走）且发起方工作区当前监控轮已收尾（或离线），就向 agent1 推一条极简
+# 提醒任务：调 a2a_task 取结果并继续。发起方离线则任务排队（_flush_queued 补推）。
+
+# 结果已被调用方取走的任务 ID（内存即可：服务重启后提醒一次也无害）
+_results_delivered: set[str] = set()
+# 已发过提醒的任务 ID（防重复）
+_notified_tasks: set[str] = set()
+
+
+def mark_result_delivered(task_id: str) -> None:
+    _results_delivered.add(task_id)
+
+
+def notify_delay_seconds() -> int:
+    return int(os.getenv("AGENT_SWARM_NOTIFY_DELAY", "60"))
+
+
+def _schedule_result_check(task_id: str) -> None:
+    """终态任务挂延时检查（fire-and-forget）。"""
+    async def _check() -> None:
+        await asyncio.sleep(notify_delay_seconds())
+        try:
+            await _notify_caller_if_abandoned(task_id)
+        except Exception:  # noqa: BLE001
+            log.exception("notify check %s failed", task_id[:8])
+    try:
+        asyncio.ensure_future(_check())
+    except RuntimeError:
+        pass  # 无运行中事件循环（如导入期），跳过
+
+
+async def _notify_caller_if_abandoned(task_id: str) -> None:
+    """结果没人取 → 推极简提醒给发起方工作区（只内部工作区；外部 URL 本期不做）。"""
+    if task_id in _results_delivered or task_id in _notified_tasks:
+        return
+    caller_ws = ""
+    status = ""
+    brief_status = ""
+    with Session(engine) as session:
+        task = session.get(models.A2aTask, task_id)
+        if task is None or task.status not in ("completed", "failed"):
+            return
+        caller_ws = task.from_workspace_id or ""
+        status = task.status
+        if not caller_ws:
+            return  # 外部调用方 / web / 飞书自发：无工作区可提醒
+        # 发起方工作区必须属于虫群成员（有属主）
+        ws = session.get(models.Workspace, caller_ws)
+        if ws is None:
+            return
+        brief_status = "已完成" if status == "completed" else "已失败（需要处理）"
+    # 发起方前台轮还开着（working）= agent1 还在耐心等待/查状态 → 不打扰
+    with Session(engine) as session:
+        active = session.exec(
+            select(models.A2aTask)
+            .where(models.A2aTask.workspace_id == caller_ws)
+            .where(models.A2aTask.caller == "monitor")
+            .where(models.A2aTask.status == "working")
+        ).first()
+        if active is not None:
+            log.info("notify %s: caller %s still working (monitor round), skip", task_id[:8], caller_ws[:8])
+            return
+    _notified_tasks.add(task_id)
+    text = (
+        f"[agent_swarm 提醒] 你之前发起的跨工作区任务（task_id={task_id}）{brief_status}。\n"
+        f"请调用 a2a_task(task_id=\"{task_id}\") 获取结果，然后继续处理你原本的工作。"
+    )
+    notify_id = shortuuid.uuid()
+    with Session(engine) as session:
+        ws = session.get(models.Workspace, caller_ws)
+        task = models.A2aTask(
+            id=notify_id,
+            context_id=notify_id,
+            workspace_id=caller_ws,
+            user_id=ws.user_id if ws else "",
+            caller="nexus-notify",
+            from_workspace_id="",
+            status="queued",
+        )
+        msg_enc = crypto.encrypt(_owner_key(session, task), text)
+        task.message_enc = msg_enc
+        task.message = "" if msg_enc else text
+        session.add(task)
+        session.commit()
+    # 在线即推，离线排队（重连补推现成）
+    if dispatchable(caller_ws):
+        await dispatch_queued_for(caller_ws)
+    log.info("notify %s: caller %s reminded of %s task %s", notify_id[:8], caller_ws[:8], status, task_id[:8])
+
+
 def _task_subscribe(task_id: str) -> asyncio.Queue:
     q: asyncio.Queue = asyncio.Queue()
     _task_queues.setdefault(task_id, set()).add(q)
@@ -517,6 +612,9 @@ async def handle_plugin_event(workspace_id: str, event: dict) -> None:
             select(models.A2aEvent.id).where(models.A2aEvent.task_id == task.id).order_by(models.A2aEvent.id.desc()).limit(1)
         ).first()
         event_id = int(last_row or 0)
+        # 跨工作区长任务：终态后延时检查"结果有没有人取"，没人取提醒发起方继续
+        if task.status in ("completed", "failed") and task.from_workspace_id:
+            _schedule_result_check(task_id)
     # 广播：事件（SSE 流 / 同步等待队列）
     _task_broadcast(task_id, event_id, event)
     # 终态帧附带简报摘要（2026-09-25 桌宠派单）：只拼在 web 推送出口的内存副本上，
@@ -1008,6 +1106,7 @@ async def wait_task_final(task_id: str, owner_apikey: str, timeout: float) -> tu
 
         status, artifact, error = _read()
         if status in TERMINAL_STATES:
+            mark_result_delivered(task_id)
             return status, artifact, error
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
@@ -1019,6 +1118,7 @@ async def wait_task_final(task_id: str, owner_apikey: str, timeout: float) -> tu
             if event.get("kind") == "status-update":
                 state = str((event.get("status") or {}).get("state", ""))
                 if state in TERMINAL_STATES:
+                    mark_result_delivered(task_id)
                     return _read()
         return _read()
     finally:
