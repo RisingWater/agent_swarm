@@ -2686,8 +2686,8 @@ function DshEntry({ item, onPermissionReply, onQuestionReply }: {
         <div className="dsh-askTitle">权限请求</div>
         <div className="dsh-askBody">{item.permission}{item.text ? ` — ${item.text}` : ""}</div>
         <div className="dsh-askActions">
+          {/* dsh 的 ApprovalOutcome 只有 allowed-once/rejected——没有"始终允许" */}
           <button className="dsh-ask-btn" onClick={() => onPermissionReply?.(item.request_id!, "once")}>允许一次</button>
-          <button className="dsh-ask-btn" onClick={() => onPermissionReply?.(item.request_id!, "always")}>始终允许</button>
           <button className="dsh-ask-btn danger" onClick={() => onPermissionReply?.(item.request_id!, "reject")}>拒绝</button>
         </div>
       </div>
