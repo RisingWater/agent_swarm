@@ -103,15 +103,44 @@ function applyInner(ctx: any): void {
   let a2a: NexusA2AClient | null = null
   const a2aEmit = (event: Record<string, unknown>) => a2a?.sendEvent(event)
 
-  // ---------------- dsh 会话锚定（per-caller 复用） ----------------
+  // ---------------- dsh 会话锚定（前台=最近活跃会话；后台=per-caller 专属） ----------------
 
-  /** 取 caller 对应的 live agent；无则新建（cwd = 工作区目录）。 */
+  /** 最近活跃的用户会话：进行中任务优先，其次 seq 最大（事件最多 = 最活跃）。 */
+  function mostActiveSession(): { agent: any; sessionId: string } | null {
+    const agents = (ctx as any).agents?.list?.() ?? []
+    let best: any = null
+    let bestScore = -1
+    for (const agent of agents) {
+      const session = agent?.session
+      if (!session?.header?.id) continue
+      const score = (sessionTasks.has(session.header.id) ? 1e15 : 0) + Number(session.seq ?? 0)
+      if (score > bestScore) {
+        bestScore = score
+        best = agent
+      }
+    }
+    return best ? { agent: best, sessionId: String(best.session.header.id) } : null
+  }
+
+  /** 执行模式（foreground=注入最近活跃会话；background=per-caller 专属会话）。
+   * 每次派任务现读：/swarm-mode 热切换立即生效。 */
+  function currentMode(): "foreground" | "background" {
+    return loadConfig()?.executionMode ?? "foreground"
+  }
+
   async function anchorSession(caller: string, serverSessionId: string): Promise<{ agent: any; sessionId: string } | null> {
+    const agents = (ctx as any).agents
+    // 前台模式：注入最近活跃会话（所见即所得，对齐 opencode 前台注入）
+    if (currentMode() === "foreground") {
+      const active = mostActiveSession()
+      if (active) return active
+      log(`foreground: no live session, falling back to create (caller=${caller})`)
+    }
+    // 后台模式（或前台无活跃会话兜底）：per-caller 专属会话
     const map = readSessionMap(directory)
     const candidates: string[] = []
     if (serverSessionId) candidates.push(serverSessionId)
     if (map[caller]) candidates.push(map[caller])
-    const agents = (ctx as any).agents
     for (const sid of candidates) {
       if (!sid) continue
       const agent = agents?.get?.(sid)
@@ -544,6 +573,7 @@ function applyInner(ctx: any): void {
     url: cfg.serverUrl.replace(/^http/, "ws").replace(/\/+$/, "") + "/ws/plugin",
     apiKey: cfg.apiKey,
     workspaceId: () => readWorkspaceId(directory),
+    executionMode: () => currentMode(),
     onTask: (task, text, caller, serverSessionId, onAccepted) =>
       executeTask(task, text, caller, serverSessionId ?? "", onAccepted),
     onReply: async (task, data) => {
@@ -591,19 +621,40 @@ function applyInner(ctx: any): void {
 
   async function heartbeatLoop() {
     log(`heartbeat loop start (${HEARTBEAT_MS}ms)`)
+    let lastReportSession = ""
     while (!disposed) {
       // 每轮重读文件：重新注册/换 ID 后无需重启
       const wid = readWorkspaceId(directory)
       if (wid) {
-        // 上报 per-caller 会话中最新的一个（web 有会话名可看；多个时上报最近创建的）
-        let sessionId = ""
-        for (const run of a2aRuns.values()) sessionId = run.sessionId
-        if (!sessionId) {
-          const map = readSessionMap(directory)
-          sessionId = Object.values(map).at(-1) ?? ""
-        }
+        // 上报最近活跃会话（前台注入目标 = 同一个，中枢所见即所得）。
+        // 标题 = 首个 user 消息首行（对齐 dsh session-title 的 fallback 逻辑）。
         try {
-          await swarm.heartbeat(wid, sessionId, "")
+          const agents = (ctx as any).agents?.list?.() ?? []
+          let best: { id: string; title: string; score: number } | null = null
+          for (const agent of agents) {
+            const session = agent?.session
+            if (!session?.header?.id) continue
+            let title = ""
+            try {
+              const msgs = session.deriveMessages?.() ?? []
+              for (const m of msgs) {
+                if ((m as any).role !== "user") continue
+                const block = Array.isArray((m as any).content) ? (m as any).content : []
+                const t = block.filter((b: any) => b?.type === "text").map((b: any) => String(b.text ?? "")).join(" ")
+                if (t.trim()) { title = t.trim().split("\n")[0].slice(0, 60); break }
+              }
+            } catch { /* 投影读失败不阻塞心跳 */ }
+            const running = sessionTasks.get(session.header.id)
+            const score = (running ? 1e15 : 0) + Number(session.seq ?? 0)
+            if (!best || score > best.score) best = { id: session.header.id, title, score }
+          }
+          const sessionId = best?.id ?? ""
+          const title = best?.title ?? ""
+          if (sessionId !== lastReportSession) {
+            log(`heartbeat: session=${sessionId.slice(0, 20)} title=${title.slice(0, 30)}`)
+            lastReportSession = sessionId
+          }
+          await swarm.heartbeat(wid, sessionId, title)
         } catch (e) {
           log(`heartbeat failed: ${e}`)
         }

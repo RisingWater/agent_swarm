@@ -27,6 +27,9 @@ export interface A2aOptions {
   url: string
   apiKey: string
   workspaceId: () => string
+  /** 任务执行模式（foreground/background）。服务端 dispatchable 据此判断：心跳过期时
+   * 只有 background 的工作区仍可派任务。hello 与 ping 都带上（热切换即时生效） */
+  executionMode?: () => string
   /** 收到 message/send：执行任务。onAccepted：已锚定会话时立即回 ack（服务端只等 30s） */
   onTask: (
     task: A2aTaskRef,
@@ -193,7 +196,7 @@ export function startNexusA2AClient(options: A2aOptions): NexusA2AClient {
 
   function startPing() {
     stopPing()
-    pingTimer = setInterval(() => send({ type: "ping" }), PING_INTERVAL_MS)
+    pingTimer = setInterval(() => send({ type: "ping", execution_mode: options.executionMode?.() }), PING_INTERVAL_MS)
   }
 
   function stopPing() {
@@ -367,7 +370,7 @@ export function startNexusA2AClient(options: A2aOptions): NexusA2AClient {
     ws = socket
 
     socket.addEventListener("open", () => {
-      send({ type: "hello", apikey: apiKey, workspace_id: wid })
+      send({ type: "hello", apikey: apiKey, workspace_id: wid, execution_mode: options.executionMode?.() ?? "foreground" })
     })
     socket.addEventListener("message", (e: MessageEvent) => handle(String(e.data)))
     socket.addEventListener("close", () => {

@@ -10,13 +10,14 @@
  *   /swarm-disable   禁用当前工作区（禁用后心跳不复活）
  *   /swarm-notes     更新工作区备注
  *   /swarm-list      列出可见工作区
+ *   /swarm-mode      查看/切换任务执行模式（foreground=注入最近活跃会话；background=专属会话）
  * MCP 调用协议与 register.mjs/heartbeat.ts 同款（每次独立 initialize）。
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { randomUUID } from "node:crypto"
 import { basename, join } from "node:path"
-import { loadConfig, type SwarmConfig } from "./config.ts"
+import { loadConfig, saveExecutionMode, type SwarmConfig } from "./config.ts"
 import { readWorkspaceId, writeWorkspaceId, workspaceFilePath } from "./workspace.ts"
 
 interface McpResult {
@@ -238,5 +239,24 @@ export function swarmCommands(ctx: any, opts: { directory: string; log: (msg: st
     } catch {
       return { kind: "success", text: rsp.text }
     }
+  })
+
+  // /swarm-mode —— 查看/切换任务执行模式（foreground=注入最近活跃会话；background=专属会话）
+  register("swarm-mode", "查看或切换任务执行模式：/swarm-mode [foreground|background]", async (rawInput) => {
+    const cfg = loadConfig()
+    if (!cfg) return { kind: "error", text: "插件未配置" }
+    const arg = rawInput.trim().toLowerCase()
+    const label: Record<string, string> = {
+      foreground: "前台（注入最近活跃会话，所见即所得）",
+      background: "后台（per-caller 专属会话）",
+    }
+    if (!arg) {
+      return { kind: "success", text: `当前模式：${cfg.executionMode}（${label[cfg.executionMode]}）\n切换：/swarm-mode foreground | background` }
+    }
+    if (arg !== "foreground" && arg !== "background") {
+      return { kind: "error", text: `未知模式 "${arg}"。可用：foreground / background` }
+    }
+    if (!saveExecutionMode(arg)) return { kind: "error", text: "配置写入失败（~/.config/dsh/agent-swarm.json）" }
+    return { kind: "success", text: `✅ 已切换为 ${arg}（${label[arg]}）\n下一次派任务即生效（WS ping 15s 内同步到服务端）。` }
   })
 }
