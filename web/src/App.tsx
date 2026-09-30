@@ -995,7 +995,8 @@ function HomePage({ toast, loggedIn, onGoAccount, onOpenLogin, onGoDocs }: { toa
         <p>
           agent_swarm 是一个自托管的多 agent 协作平台。每个 AI 编程工具（如 opencode）作为一个
           <b> agent 工作区</b>注册到中枢，虫群中的任何 agent 都可以把任务派发给其他 agent 执行——
-          就像一群工蜂协作：你写代码，它跑测试，另一个整理文档。
+          就像一群工蜂协作：你写代码，它跑测试，另一个整理文档。你还可以<b>组建团队、把工作区共享给团队</b>，
+          让队友的 agent 也能调用它——共享的只是"调用权"，执行过程仍只对你可见。
         </p>
         <div className="home-grid">
           <div className="home-card">
@@ -1011,6 +1012,13 @@ function HomePage({ toast, loggedIn, onGoAccount, onOpenLogin, onGoDocs }: { toa
               <h3>跨 agent 任务派发</h3>
             </div>
             <p>一条指令把任务交给另一个工作区的 agent：支持<b>前台注入</b>（任务直接进入对方当前会话，实时可见）与<b>后台会话</b>（独立会话静默执行，按来源归组）两种方式，结果自动回传。</p>
+          </div>
+          <div className="home-card">
+            <div className="home-card-head">
+              <FeatureIcon kind="team" />
+              <h3>团队与工作区共享</h3>
+            </div>
+            <p>创建团队、邀请成员，把自己的工作区<b>共享</b>给团队当工具调用：队友（或用他们的 agent）只能拿到<b>最终答复</b>，看不到你的监控流、产物与调用细节。共享的是<b>调用权</b>，不是可见权。</p>
           </div>
           <div className="home-card">
             <div className="home-card-head">
@@ -1063,6 +1071,7 @@ function HomePage({ toast, loggedIn, onGoAccount, onOpenLogin, onGoDocs }: { toa
         <ul className="home-list">
           <li>让前端 agent 把后端 bug 派发给后端工作区的 agent 修复</li>
           <li>让一个 agent 去另一个仓库执行测试、汇总结果</li>
+          <li>组建团队、把工作区共享给团队：队友的 agent 像调用工具一样调用它，只回结果、不暴露过程</li>
           <li>在网页「中枢」里给任意在线 agent 直接下达指令，实时围观它干活</li>
           <li>把你在 agent 里的日常对话实时同步到网页，随时远程回看</li>
           <li>绑定飞书 / 微信等即时聊天工具，在聊天里派活、看进度、收完成简报</li>
@@ -1234,7 +1243,7 @@ function SupportedAgents() {
 }
 
 /** 特性卡黑白线性图标（与 SwarmMark 同风格：currentColor 描边） */
-function FeatureIcon({ kind }: { kind: "mcp" | "swarm" | "pulse" | "shield" | "terminal" | "eye" | "chat" | "package" }) {
+function FeatureIcon({ kind }: { kind: "mcp" | "swarm" | "team" | "pulse" | "shield" | "terminal" | "eye" | "chat" | "package" }) {
   const common = {
     width: 22,
     height: 22,
@@ -1278,6 +1287,16 @@ function FeatureIcon({ kind }: { kind: "mcp" | "swarm" | "pulse" | "shield" | "t
       <svg {...common}>
         {/* 心跳脉冲 */}
         <path d="M3 12h4l2-5 4 10 2-5h6" />
+      </svg>
+    )
+
+  if (kind === "team")
+    return (
+      <svg {...common}>
+        {/* 几个人 = 团队协作 / 工作区共享 */}
+        <circle cx="9" cy="8" r="3" />
+        <path d="M3.5 20c0-3 2.5-5 5.5-5s5.5 2 5.5 5" />
+        <path d="M16 6.3a3 3 0 0 1 0 5.4M17.5 20c0-2.3-.9-4-2.4-5" />
       </svg>
     )
 
