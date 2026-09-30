@@ -497,14 +497,14 @@ function applyInner(ctx: any): void {
 
   // ---------------- 单一 session/event 总线 ----------------
 
-  /** 防御性事件注册：ctx.on 缺失/抛错只降级不拖死插件 */
-  function safeOn(event: string, handler: (...args: any[]) => any): boolean {
+  /** 防御性事件注册：ctx.on 缺失/抛错只降级不拖死插件（options 透传，如 { prepend: true }） */
+  function safeOn(event: string, handler: (...args: any[]) => any, options?: Record<string, unknown>): boolean {
     try {
       if (typeof ctx.on !== "function") {
         log(`ctx.on unavailable; ${event} listener skipped`)
         return false
       }
-      ctx.on(event, handler)
+      ctx.on(event, handler, options)
       return true
     } catch (e) {
       log(`${event} listener register failed: ${e}`)
@@ -613,7 +613,8 @@ function applyInner(ctx: any): void {
 
   function replyPermission(taskId: string, requestId: string, reply: string): void {
     const outcome = reply === "always" || reply === "once" ? "allowed-once" : "rejected"
-    // 监控轮应答（taskId = roundKey）：按 requestId 反查 monPerms（roundKey 不含完整 sid）
+    // 监控轮应答（taskId = roundKey）：按 requestId 反查 monPerms。查不到 = 本地 UI
+    // 已先答（waterfall 收尾已清 monPerms）——幂等返回，让服务端撤下待应答即可。
     for (const [sid, mp] of monPerms) {
       if (mp.requestId === requestId) {
         monPerms.delete(sid)
@@ -626,7 +627,8 @@ function applyInner(ctx: any): void {
     }
     const run = a2aRuns.get(taskId)
     if (!run || !run.permission || run.permission.requestId !== requestId) {
-      throw new Error("permission request not pending (already answered?)")
+      log(`a2a reply ${taskId.slice(0, 8)}: permission ${requestId.slice(0, 12)} already settled (local won)`)
+      return
     }
     settlePermission(run, outcome)
     a2aEmit(
@@ -637,47 +639,71 @@ function applyInner(ctx: any): void {
     log(`a2a ${taskId.slice(0, 8)}: permission ${requestId.slice(0, 12)} → ${reply}`)
   }
 
-  // ---------------- approval/request 应答器（远程应答桥） ----------------
+  // ---------------- approval/request 应答器（远程应答桥，先答先算） ----------------
 
-  // ApprovalService.request 会向 approval/request waterfall 要一个 outcome；
-  // 本监听器把「等远程应答」的 promise 接进 waterfall：远程（web/飞书/微信/桌宠）
-  // 回复 → settlePermission → 这里把 outcome 返回给 dsh。
-  // 本地 UI 先答：dsh 内建 answerer 在 waterfall 里先返回，本监听器不会被问到；
-  // 之后 approval/decided 事件到达，handleEvent 撤下远程等待。
-  safeOn("approval/request", async (req: any, next: () => Promise<string>) => {
-    const sid = req?.agent?.session?.header?.id
-    const taskId = sid ? sessionTasks.get(sid) : undefined
-    const run = taskId ? a2aRuns.get(taskId) : undefined
-    // 任务轮权限：等远程应答
-    if (run) {
-      // approval/asked 事件可能略晚于 waterfall 派发：等它把 permission 挂上
-      for (let i = 0; i < 50 && !run.permission; i++) {
-        await new Promise((r) => setTimeout(r, 100))
+  // waterfall 顺序：api-remotes 的 Remote 桥（桌面/web UI 的 answerer）注册在宿主启动期，
+  // 排在我们前面——它接到请求会挂给浏览器面板且在本地应答前不 next()，我们永远轮不到。
+  // 因此必须 prepend 抢队头；但抢到后不能独占等待（本地 UI 就答不了）：
+  // 立刻 next() 放行下游，远程/本地谁先 settle 用谁（先答先算，对齐虫群跨渠道语义）。
+  // 下游返回 unavailable（无 UI 在听）不算应答，继续等远程；30 分钟无任何应答 fail-closed。
+  const REMOTE_ANSWER_TIMEOUT_MS = 30 * 60_000
+
+  safeOn(
+    "approval/request",
+    async (req: any, next: () => Promise<string>) => {
+      const sid = req?.agent?.session?.header?.id
+      if (!sid) return next()
+      const taskId = sessionTasks.get(sid)
+      const run = taskId ? a2aRuns.get(taskId) : undefined
+      // approval/asked 在 decide() 前同步 append，通常已挂上；兜底等 5s
+      const waitAttach = async (has: () => boolean) => {
+        for (let i = 0; i < 50 && !has(); i++) {
+          await new Promise((r) => setTimeout(r, 100))
+        }
       }
-      if (run.permission) {
-        log(`approval/request: wait remote answer ${run.permission.requestId.slice(0, 12)}`)
-        const outcome = await new Promise<string>((resolve) => {
+      let remote: Promise<string> | null = null
+      if (run) {
+        await waitAttach(() => !!run.permission)
+        if (!run.permission) return next()
+        log(`approval/request: wait answer (task) ${run.permission.requestId.slice(0, 12)}`)
+        remote = new Promise<string>((resolve) => {
           ;(run as any)._waterfallResolve = resolve
         })
-        return outcome
+      } else {
+        await waitAttach(() => monPerms.has(sid))
+        const mp = monPerms.get(sid)
+        if (!mp) return next()
+        log(`approval/request: wait answer (monitor) ${mp.requestId.slice(0, 12)}`)
+        remote = new Promise<string>((resolve) => {
+          mp.resolve = resolve
+        })
       }
-      return next()
-    }
-    // 监控轮权限（用户日常对话触发的 approval）：同样等远程应答
-    if (sid && monPerms.has(sid)) return next() // asked 已挂，直接等下面
-    if (!sid) return next()
-    // asked 事件可能略晚于 waterfall 派发：等它把 monPerms 挂上
-    for (let i = 0; i < 50 && !monPerms.has(sid); i++) {
-      await new Promise((r) => setTimeout(r, 100))
-    }
-    const mp = monPerms.get(sid)
-    if (!mp) return next()
-    log(`approval/request: wait remote answer (monitor) ${mp.requestId.slice(0, 12)}`)
-    const outcome = await new Promise<string>((resolve) => {
-      mp.resolve = resolve
-    })
-    return outcome
-  })
+      // 下游（本地 UI / Remote 桥）：unavailable = 无 UI 在听，映射成永不 settle 继续等远程
+      const local = next().catch(() => "unavailable")
+      const localReal = local.then((o) =>
+        o === "unavailable" ? new Promise<never>(() => {}) : o,
+      )
+      // 工具调用被中止 → cancelled；看门狗 → unavailable（fail-closed，对齐 dsh 缺省链）
+      const aborted = new Promise<string>((resolve) => {
+        req?.signal?.addEventListener("abort", () => resolve("cancelled"), { once: true })
+      })
+      const watchdog = new Promise<string>((resolve) => {
+        setTimeout(() => resolve("unavailable"), REMOTE_ANSWER_TIMEOUT_MS)
+      })
+      const outcome = await Promise.race([remote, localReal, aborted, watchdog])
+      // 收尾幂等：远程先答时 replyPermission 已清过状态，这里 no-op；本地先答时清残留
+      // 并通知中枢撤下等待（replied 帧），web/飞书/微信的待应答卡随之关闭。
+      if (run) {
+        settlePermission(run, outcome)
+      } else {
+        monPerms.delete(sid)
+        const round = monRounds.get(sid)
+        if (round) monEmit(round.roundKey, sid, { type: "replied" })
+      }
+      return outcome
+    },
+    { prepend: true },
+  )
 
   /** permission 统一收尾：清状态 + 通知 approval/request waterfall */
   function settlePermission(run: A2aRun, outcome: string): void {
