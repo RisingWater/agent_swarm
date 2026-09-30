@@ -2361,44 +2361,44 @@ table.ws-grid th {
 .nexus-terminal.claude-tui .nexus-terminal-head,
 .nexus-terminal.claude-tui .nexus-footer { background: #201812; }
 
-/* --- dsh-ui 时间线控件（模仿 deepseek harness web UI，色值取自其 design-platform.css 暗色主题） --- */
-/* bg 950 #151517 / layer-2 850 #2C2C2E / code-block 900 #1B1B1C / brand 500 #4176E6 / bubble 850 */
+/* --- dsh-ui 时间线控件（模仿 deepseek harness web UI，色值取自其 design-platform.css 亮色主题） --- */
+/* bg 00 #FFFFFF / code-block 50 #F9FAFB / bubble 50 #EDF3FE / brand 500 #4176E6 / 边框 */
 
 .nexus-terminal.dsh-ui {
-  background: #151517;
-  border-color: #2c2c2e;
-  color: #f9fafb;
+  background: #ffffff;
+  border-color: #e5e7eb;
+  color: #0f1115;
   font-family: var(--font-sans, inherit);
   font-size: 14px;
   line-height: 1.6;
 }
 
 .nexus-terminal.dsh-ui .nexus-terminal-head {
-  background: #1b1b1c;
-  border-bottom-color: #2c2c2e;
+  background: #f9fafb;
+  border-bottom-color: #e5e7eb;
 }
 
-.nexus-terminal.dsh-ui .nexus-head-title { color: #f9fafb; }
-.nexus-terminal.dsh-ui .nexus-head-session { color: #9a9a9e; }
+.nexus-terminal.dsh-ui .nexus-head-title { color: #0f1115; }
+.nexus-terminal.dsh-ui .nexus-head-session { color: #67696e; }
 .nexus-terminal.dsh-ui .nexus-head-status.on { color: #4176e6; }
-.nexus-terminal.dsh-ui .nexus-head-status.off { color: #67696e; }
-.nexus-terminal.dsh-ui .nexus-head-clear { color: #67696e; }
-.nexus-terminal.dsh-ui .nexus-head-clear:hover { color: #f9fafb; }
-.nexus-terminal.dsh-ui .nexus-waiting { color: #55575c; }
+.nexus-terminal.dsh-ui .nexus-head-status.off { color: #9a9a9e; }
+.nexus-terminal.dsh-ui .nexus-head-clear { color: #9a9a9e; }
+.nexus-terminal.dsh-ui .nexus-head-clear:hover { color: #0f1115; }
+.nexus-terminal.dsh-ui .nexus-waiting { color: #b8b8bc; }
 .nexus-terminal.dsh-ui .nexus-timeline::-webkit-scrollbar { width: 8px; }
-.nexus-terminal.dsh-ui .nexus-timeline::-webkit-scrollbar-thumb { background: #2c2c2e; border-radius: 4px; }
-.nexus-terminal.dsh-ui .nexus-input-row { background: #1b1b1c; border-top-color: #2c2c2e; }
-.nexus-terminal.dsh-ui .nexus-input { background: #2c2c2e; border-color: #3a3a3d; color: #f9fafb; }
+.nexus-terminal.dsh-ui .nexus-timeline::-webkit-scrollbar-thumb { background: #e5e7eb; border-radius: 4px; }
+.nexus-terminal.dsh-ui .nexus-input-row { background: #f9fafb; border-top-color: #e5e7eb; }
+.nexus-terminal.dsh-ui .nexus-input { background: #ffffff; border-color: #d8d8dc; color: #0f1115; }
 .nexus-terminal.dsh-ui .nexus-send { background: #4176e6; border-color: #4176e6; color: #fff; }
 .nexus-terminal.dsh-ui .nexus-send:hover { background: #5889ec; }
-.nexus-terminal.dsh-ui .nexus-send:disabled { background: #2c2c2e; border-color: #2c2c2e; color: #67696e; }
-.nexus-terminal.dsh-ui .nexus-footer { background: #1b1b1c; border-top-color: #2c2c2e; }
+.nexus-terminal.dsh-ui .nexus-send:disabled { background: #f9fafb; border-color: #e5e7eb; color: #b8b8bc; }
+.nexus-terminal.dsh-ui .nexus-footer { background: #f9fafb; border-top-color: #e5e7eb; }
 .nexus-terminal.dsh-ui .nexus-statusline { color: #4176e6; }
 .nexus-terminal.dsh-ui .nexus-spinner { color: #4176e6; }
-.nexus-terminal.dsh-ui .nexus-status-dim { color: #67696e; }
-.nexus-terminal.dsh-ui .nexus-jump-bottom { background: #2c2c2e; color: #f9fafb; border-color: #3a3a3d; }
+.nexus-terminal.dsh-ui .nexus-status-dim { color: #9a9a9e; }
+.nexus-terminal.dsh-ui .nexus-jump-bottom { background: #ffffff; color: #0f1115; border-color: #d8d8dc; }
 
-/* 用户消息：右对齐蓝色气泡（dsw-specific-bubble 暗色 = neutral-bluish-850） */
+/* 用户消息：右对齐蓝色气泡（dsw-specific-bubble 亮色 = deepseek-50） */
 .nexus-terminal.dsh-ui .dsh-userRow {
   display: flex;
   flex-direction: column;
@@ -2408,10 +2408,10 @@ table.ws-grid th {
 
 .nexus-terminal.dsh-ui .dsh-bubble {
   max-width: min(70%, 525px);
-  background: #2c2c2e;
+  background: #edf3fe;
   border-radius: 16px;
   padding: 10px 16px;
-  color: #f9fafb;
+  color: #0f1115;
   white-space: pre-wrap;
   word-break: break-word;
 }
@@ -2430,14 +2430,14 @@ table.ws-grid th {
 }
 
 .nexus-terminal.dsh-ui .dsh-rowHead::-webkit-details-marker { display: none; }
-.nexus-terminal.dsh-ui .dsh-rowHead:hover .dsh-rowTitle { color: #fff; }
+.nexus-terminal.dsh-ui .dsh-rowHead:hover .dsh-rowTitle { color: #000; }
 
 .nexus-terminal.dsh-ui .dsh-rowIcon {
   flex: none;
   display: inline-flex;
   align-items: center;
   align-self: center;
-  color: #9a9a9e;
+  color: #67696e;
 }
 
 .nexus-terminal.dsh-ui .dsh-rowIcon.err { color: #e5484d; }
@@ -2445,7 +2445,7 @@ table.ws-grid th {
 
 .nexus-terminal.dsh-ui .dsh-rowTitle {
   flex: none;
-  color: #e8e8ea;
+  color: #2c2c2e;
   font-size: 13px;
   line-height: 24px;
 }
@@ -2457,7 +2457,7 @@ table.ws-grid th {
   border-radius: 1px;
   margin: 0 8px;
   align-self: center;
-  background: #67696e;
+  background: #b8b8bc;
 }
 
 .nexus-terminal.dsh-ui .dsh-rowSummary {
@@ -2466,7 +2466,7 @@ table.ws-grid th {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: #9a9a9e;
+  color: #67696e;
   font-size: 13px;
   line-height: 24px;
 }
@@ -2475,7 +2475,7 @@ table.ws-grid th {
 
 /* streaming 微光（TextShimmer 简化版） */
 .nexus-terminal.dsh-ui .dsh-shimmer {
-  background: linear-gradient(90deg, #9a9a9e 30%, #e8e8ea 50%, #9a9a9e 70%);
+  background: linear-gradient(90deg, #9a9a9e 30%, #2c2c2e 50%, #9a9a9e 70%);
   background-size: 200% 100%;
   -webkit-background-clip: text;
   background-clip: text;
@@ -2491,7 +2491,7 @@ table.ws-grid th {
 /* think 展开正文：标题下缩进 + 次级排版 */
 .nexus-terminal.dsh-ui .dsh-thinkBody {
   padding: 4px 0 4px 22px;
-  color: #9a9a9e;
+  color: #67696e;
   font-size: 13px;
   white-space: pre-wrap;
   word-break: break-word;
@@ -2502,9 +2502,9 @@ table.ws-grid th {
   display: flex;
   flex-direction: column;
   margin: 4px 0 4px 22px;
-  border: 0.5px solid #3a3a3d;
+  border: 0.5px solid #e0e0e3;
   border-radius: 10px;
-  background: #1b1b1c;
+  background: #f9fafb;
   font-family: var(--font-mono);
   font-size: 12px;
 }
@@ -2520,7 +2520,7 @@ table.ws-grid th {
 }
 
 .nexus-terminal.dsh-ui .dsh-ioLabel {
-  color: #67696e;
+  color: #9a9a9e;
   font-size: 11px;
 }
 
@@ -2528,7 +2528,7 @@ table.ws-grid th {
   min-width: 0;
   white-space: pre-wrap;
   word-break: break-word;
-  color: #b8b8bc;
+  color: #44464b;
 }
 
 .nexus-terminal.dsh-ui .dsh-ioText[data-error] { color: #e5484d; }
@@ -2536,7 +2536,7 @@ table.ws-grid th {
 .nexus-terminal.dsh-ui .dsh-ioDivider {
   flex: none;
   height: 0.5px;
-  background: #2c2c2e;
+  background: #e5e7eb;
 }
 
 /* turn 级错误/完成行（StateDot + 文案） */
@@ -2562,19 +2562,19 @@ table.ws-grid th {
 
 .nexus-terminal.dsh-ui .dsh-turnErrorCopy { min-width: 0; overflow-wrap: anywhere; }
 .nexus-terminal.dsh-ui .dsh-turnErrorTitle { margin-right: 6px; color: #e5484d; font-weight: 600; }
-.nexus-terminal.dsh-ui .dsh-turnErrorMessage { color: #b8b8bc; }
+.nexus-terminal.dsh-ui .dsh-turnErrorMessage { color: #44464b; }
 
-/* ask 卡（权限/提问）：layer-2 面板 + 品牌色按钮 */
+/* ask 卡（权限/提问）：代码块底面板 + 品牌色按钮 */
 .nexus-terminal.dsh-ui .dsh-askCard {
   align-self: stretch;
   padding: 10px 14px;
-  border: 0.5px solid #3a3a3d;
+  border: 0.5px solid #e0e0e3;
   border-radius: 10px;
-  background: #1b1b1c;
+  background: #f9fafb;
 }
 
-.nexus-terminal.dsh-ui .dsh-askTitle { color: #f9fafb; font-weight: 600; font-size: 13px; }
-.nexus-terminal.dsh-ui .dsh-askBody { color: #9a9a9e; font-size: 13px; margin-top: 4px; overflow-wrap: anywhere; }
+.nexus-terminal.dsh-ui .dsh-askTitle { color: #0f1115; font-weight: 600; font-size: 13px; }
+.nexus-terminal.dsh-ui .dsh-askBody { color: #67696e; font-size: 13px; margin-top: 4px; overflow-wrap: anywhere; }
 
 .nexus-terminal.dsh-ui .dsh-askActions {
   display: flex;
@@ -2584,57 +2584,57 @@ table.ws-grid th {
 }
 
 .nexus-terminal.dsh-ui .dsh-ask-btn {
-  background: #2c2c2e;
-  border: 0.5px solid #3a3a3d;
+  background: #ffffff;
+  border: 0.5px solid #d8d8dc;
   border-radius: 999px;
-  color: #e8e8ea;
+  color: #2c2c2e;
   font-family: inherit;
   font-size: 12px;
   padding: 5px 14px;
   cursor: pointer;
 }
 
-.nexus-terminal.dsh-ui .dsh-ask-btn:hover { background: #3a3a3d; color: #fff; }
+.nexus-terminal.dsh-ui .dsh-ask-btn:hover { background: #f0f0f2; color: #000; }
 
-.nexus-terminal.dsh-ui .dsh-ask-btn.danger { color: #e5484d; border-color: #4a2a2c; }
+.nexus-terminal.dsh-ui .dsh-ask-btn.danger { color: #e5484d; border-color: #f0c8ca; }
 
 /* assistant 回答：通栏 markdown */
-.nexus-terminal.dsh-ui .dsh-assistant { align-self: stretch; word-break: break-word; color: #f9fafb; }
+.nexus-terminal.dsh-ui .dsh-assistant { align-self: stretch; word-break: break-word; color: #0f1115; }
 
 /* dsh-ui：markdown 渲染内的代码块用 code-block 底色 */
 .nexus-terminal.dsh-ui .md code {
-  background: #1b1b1c;
-  border-color: #3a3a3d;
-  color: #9ec3ff;
+  background: #f9fafb;
+  border-color: #e0e0e3;
+  color: #4868b4;
 }
 
 .nexus-terminal.dsh-ui .md pre {
-  background: #1b1b1c;
-  border-color: #2c2c2e;
+  background: #f9fafb;
+  border-color: #e5e7eb;
 }
 
 .nexus-terminal.dsh-ui .md pre code {
   background: transparent;
   border: none;
-  color: #e8e8ea;
+  color: #2c2c2e;
 }
 
 .nexus-terminal.dsh-ui .md th {
   background: transparent;
-  border-color: #3a3a3d;
-  color: #f9fafb;
+  border-color: #e0e0e3;
+  color: #0f1115;
 }
 
-.nexus-terminal.dsh-ui .md td { border-color: #2c2c2e; }
+.nexus-terminal.dsh-ui .md td { border-color: #e5e7eb; }
 
 .nexus-terminal.dsh-ui .md blockquote {
   border-left-color: #4176e6;
-  color: #9a9a9e;
+  color: #67696e;
 }
 
 .nexus-terminal.dsh-ui .md a { color: #4176e6; }
 
-.nexus-terminal.dsh-ui .md hr { border-color: #2c2c2e; }
+.nexus-terminal.dsh-ui .md hr { border-color: #e5e7eb; }
 
 /* ---------- 中枢页：固定视口高度布局（控件高度不随内容变化，页面无滚动条） ---------- */
 
