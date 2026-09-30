@@ -1,4 +1,4 @@
-﻿# agent_swarm deepseek harness 插件安装子脚本（由 deploy/install.ps1 分发器调用）。
+﻿﻿# agent_swarm deepseek harness 插件安装子脚本（由 deploy/install.ps1 分发器调用）。
 # 做四件事：
 #   1. 检查 dsh 命令可用
 #   2. 写全局配置 ~/.config/dsh/agent-swarm.json
@@ -111,26 +111,27 @@ if (Test-Path $skillSrc) {
     Write-Host "==> 已安装 skill 到 $skillsDir\agent-swarm"
 }
 
-# 2.6 MCP 挂载：把解析后的静态条目追加进 profile 用户 patch 层。
-# （bundle patch 禁止 !!js——plugin-manager 安装期校验用 js-yaml 默认 schema 不认；
-#  用户 patch 层由启动时 Include 解析，但为统一也不写表达式，直接写明文值。）
+# 2.6 MCP 挂载：以 insert 语义追加进 profile 用户 patch 层（root 组合）。
+# 注意：必须是 `- insert:` 形状——裸 id+config 行是"覆盖已有条目"语义，
+# id 不存在会被静默跳过（entry not found）。
 $profileName = if ($Profile) { $Profile } else { "desktop" }
 $profilePatch = Join-Path $HOME ".dsh\profiles\$profileName\cordis.patch.yml"
 $mcpUrl = "$Server/mcp/"
 $mcpHeader = "Bearer $ApiKey"
 $mcpEntry = @"
 
-# agent-swarm MCP（由 install-deepseek 写入；删掉本段即卸载 mcp__agent-swarm__* 工具）
-- id: agent-swarm-mcp
-  name: '@deepseek-ai/dsh-mcp-client'
-  config:
-    serverName: agent-swarm
-    transport: streamable-http
-    url: $mcpUrl
-    headers:
-      Authorization: $mcpHeader
-    toolCallTimeoutMs: 120000
-    failOnStartupError: false
+# agent-swarm MCP (by install-deepseek; delete this block to remove mcp__agent-swarm__* tools)
+- insert:
+    - id: agent-swarm-mcp
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: agent-swarm
+        transport: streamable-http
+        url: $mcpUrl
+        headers:
+          Authorization: $mcpHeader
+        toolCallTimeoutMs: 120000
+        failOnStartupError: false
 "@
 if (Test-Path $profilePatch) {
     $patchText = [IO.File]::ReadAllText($profilePatch)

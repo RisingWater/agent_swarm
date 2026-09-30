@@ -95,23 +95,24 @@ if [ -d "$SRC/skills" ]; then
   echo "==> 已安装 skill 到 $HOME/.dsh/skills/agent-swarm"
 fi
 
-# 2.6 MCP 挂载：把解析后的静态条目追加进 profile 用户 patch 层
-# （bundle patch 禁止 !!js——plugin-manager 安装期校验不认；这里写明文值）
+# 2.6 MCP 挂载：以 insert 语义追加进 profile 用户 patch 层（root 组合）。
+# 裸 id+config 行是"覆盖已有条目"语义，id 不存在会被静默跳过——必须 - insert:。
 PROFILE_NAME="${PROFILE:-desktop}"
 PROFILE_PATCH="$HOME/.dsh/profiles/$PROFILE_NAME/cordis.patch.yml"
 MCP_ENTRY="
 
-# agent-swarm MCP（由 install-deepseek 写入；删掉本段即卸载 mcp__agent-swarm__* 工具）
-- id: agent-swarm-mcp
-  name: '@deepseek-ai/dsh-mcp-client'
-  config:
-    serverName: agent-swarm
-    transport: streamable-http
-    url: $SERVER/mcp/
-    headers:
-      Authorization: Bearer $API_KEY
-    toolCallTimeoutMs: 120000
-    failOnStartupError: false
+# agent-swarm MCP (by install-deepseek; delete this block to remove mcp__agent-swarm__* tools)
+- insert:
+    - id: agent-swarm-mcp
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: agent-swarm
+        transport: streamable-http
+        url: $SERVER/mcp/
+        headers:
+          Authorization: Bearer $API_KEY
+        toolCallTimeoutMs: 120000
+        failOnStartupError: false
 "
 mkdir -p "$(dirname "$PROFILE_PATCH")"
 if [ -f "$PROFILE_PATCH" ] && grep -q "agent-swarm-mcp" "$PROFILE_PATCH"; then
