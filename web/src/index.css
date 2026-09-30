@@ -2361,6 +2361,289 @@ table.ws-grid th {
 .nexus-terminal.claude-tui .nexus-terminal-head,
 .nexus-terminal.claude-tui .nexus-footer { background: #201812; }
 
+/* --- dsh-ui 时间线控件（模仿 deepseek harness web UI，色值取自其 design-platform.css 亮色主题） --- */
+/* bg 00 #FFFFFF / code-block 50 #F9FAFB / bubble 50 #EDF3FE / brand 500 #4176E6 / 边框 */
+
+.nexus-terminal.dsh-ui {
+  background: #ffffff;
+  border-color: #e5e7eb;
+  color: #0f1115;
+  font-family: var(--font-sans, inherit);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.nexus-terminal.dsh-ui .nexus-terminal-head {
+  background: #f9fafb;
+  border-bottom-color: #e5e7eb;
+}
+
+.nexus-terminal.dsh-ui .nexus-head-title { color: #0f1115; }
+.nexus-terminal.dsh-ui .nexus-head-session { color: #67696e; }
+.nexus-terminal.dsh-ui .nexus-head-status.on { color: #4176e6; }
+.nexus-terminal.dsh-ui .nexus-head-status.off { color: #9a9a9e; }
+.nexus-terminal.dsh-ui .nexus-head-clear { color: #9a9a9e; }
+.nexus-terminal.dsh-ui .nexus-head-clear:hover { color: #0f1115; }
+.nexus-terminal.dsh-ui .nexus-waiting { color: #b8b8bc; }
+.nexus-terminal.dsh-ui .nexus-timeline::-webkit-scrollbar { width: 8px; }
+.nexus-terminal.dsh-ui .nexus-timeline::-webkit-scrollbar-thumb { background: #e5e7eb; border-radius: 4px; }
+.nexus-terminal.dsh-ui .nexus-input-row { background: #f9fafb; border-top-color: #e5e7eb; }
+.nexus-terminal.dsh-ui .nexus-input { background: #ffffff; border-color: #d8d8dc; color: #0f1115; }
+.nexus-terminal.dsh-ui .nexus-send { background: #4176e6; border-color: #4176e6; color: #fff; }
+.nexus-terminal.dsh-ui .nexus-send:hover { background: #5889ec; }
+.nexus-terminal.dsh-ui .nexus-send:disabled { background: #f9fafb; border-color: #e5e7eb; color: #b8b8bc; }
+.nexus-terminal.dsh-ui .nexus-footer { background: #f9fafb; border-top-color: #e5e7eb; }
+.nexus-terminal.dsh-ui .nexus-statusline { color: #4176e6; }
+.nexus-terminal.dsh-ui .nexus-spinner { color: #4176e6; }
+.nexus-terminal.dsh-ui .nexus-status-dim { color: #9a9a9e; }
+.nexus-terminal.dsh-ui .nexus-jump-bottom { background: #ffffff; color: #0f1115; border-color: #d8d8dc; }
+
+/* 用户消息：右对齐蓝色气泡（dsw-specific-bubble 亮色 = deepseek-50） */
+.nexus-terminal.dsh-ui .dsh-userRow {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  align-self: stretch;
+}
+
+.nexus-terminal.dsh-ui .dsh-bubble {
+  max-width: min(70%, 525px);
+  background: #edf3fe;
+  border-radius: 16px;
+  padding: 10px 16px;
+  color: #0f1115;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* think / 工具行：DisclosureRow 形态（图标 + 标题 + 2px 圆点分隔 + 摘要） */
+.nexus-terminal.dsh-ui .dsh-row { align-self: stretch; }
+
+.nexus-terminal.dsh-ui .dsh-rowHead {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+  min-width: 0;
+}
+
+.nexus-terminal.dsh-ui .dsh-rowHead::-webkit-details-marker { display: none; }
+.nexus-terminal.dsh-ui .dsh-rowHead:hover .dsh-rowTitle { color: #000; }
+
+.nexus-terminal.dsh-ui .dsh-rowIcon {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  align-self: center;
+  color: #67696e;
+}
+
+.nexus-terminal.dsh-ui .dsh-rowIcon.err { color: #e5484d; }
+.nexus-terminal.dsh-ui .dsh-rowIcon.dsh-think { color: #4176e6; }
+
+.nexus-terminal.dsh-ui .dsh-rowTitle {
+  flex: none;
+  color: #2c2c2e;
+  font-size: 13px;
+  line-height: 24px;
+}
+
+.nexus-terminal.dsh-ui .dsh-rowSep {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  margin: 0 6px;
+  align-self: center;
+  color: #9a9a9e;
+  /* 展开箭头（chevron）：收起朝下、展开旋转朝上 */
+  border-right: 1.5px solid currentcolor;
+  border-bottom: 1.5px solid currentcolor;
+  transform: rotate(45deg);
+  transition: transform 120ms ease;
+  background: none;
+  border-radius: 0;
+}
+
+.nexus-terminal.dsh-ui .dsh-row[open] .dsh-rowSep { transform: rotate(-135deg); }
+
+.nexus-terminal.dsh-ui .dsh-rowSummary {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #67696e;
+  font-size: 13px;
+  line-height: 24px;
+}
+
+.nexus-terminal.dsh-ui .dsh-rowSummary.err { color: #e5484d; }
+
+/* streaming 微光（TextShimmer 简化版） */
+.nexus-terminal.dsh-ui .dsh-shimmer {
+  background: linear-gradient(90deg, #9a9a9e 30%, #2c2c2e 50%, #9a9a9e 70%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: dsh-shimmer 1.6s linear infinite;
+}
+
+@keyframes dsh-shimmer {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
+}
+
+/* think 展开正文：标题下缩进 + 次级排版 */
+.nexus-terminal.dsh-ui .dsh-thinkBody {
+  padding: 4px 0 4px 22px;
+  color: #67696e;
+  font-size: 13px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* 展开的 IN/OUT 卡（dsh ioCard：代码块底 + 圆角 + IN/OUT 槽位标签栅格） */
+.nexus-terminal.dsh-ui .dsh-ioCard {
+  display: flex;
+  flex-direction: column;
+  margin: 4px 0 4px 22px;
+  border: 0.5px solid #e0e0e3;
+  border-radius: 10px;
+  background: #f9fafb;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.nexus-terminal.dsh-ui .dsh-ioSection {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  column-gap: 14px;
+  align-items: baseline;
+  padding: 10px 14px;
+  max-height: 150px;
+  overflow-y: auto;
+}
+
+.nexus-terminal.dsh-ui .dsh-ioLabel {
+  color: #9a9a9e;
+  font-size: 11px;
+}
+
+.nexus-terminal.dsh-ui .dsh-ioText {
+  min-width: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: #44464b;
+}
+
+.nexus-terminal.dsh-ui .dsh-ioText[data-error] { color: #e5484d; }
+
+.nexus-terminal.dsh-ui .dsh-ioDivider {
+  flex: none;
+  height: 0.5px;
+  background: #e5e7eb;
+}
+
+/* turn 级错误/完成行（StateDot + 文案） */
+.nexus-terminal.dsh-ui .dsh-turnError {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  align-self: stretch;
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.nexus-terminal.dsh-ui .dsh-turnErrorDot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  margin-top: 6px;
+  border-radius: 50%;
+  background: #e5484d;
+}
+
+.nexus-terminal.dsh-ui .dsh-turnErrorDot.ok { background: #4176e6; }
+
+.nexus-terminal.dsh-ui .dsh-turnErrorCopy { min-width: 0; overflow-wrap: anywhere; }
+.nexus-terminal.dsh-ui .dsh-turnErrorTitle { margin-right: 6px; color: #e5484d; font-weight: 600; }
+.nexus-terminal.dsh-ui .dsh-turnErrorMessage { color: #44464b; }
+
+/* ask 卡（权限/提问）：代码块底面板 + 品牌色按钮 */
+.nexus-terminal.dsh-ui .dsh-askCard {
+  align-self: stretch;
+  padding: 10px 14px;
+  border: 0.5px solid #e0e0e3;
+  border-radius: 10px;
+  background: #f9fafb;
+}
+
+.nexus-terminal.dsh-ui .dsh-askTitle { color: #0f1115; font-weight: 600; font-size: 13px; }
+.nexus-terminal.dsh-ui .dsh-askBody { color: #67696e; font-size: 13px; margin-top: 4px; overflow-wrap: anywhere; }
+
+.nexus-terminal.dsh-ui .dsh-askActions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+
+.nexus-terminal.dsh-ui .dsh-ask-btn {
+  background: #ffffff;
+  border: 0.5px solid #d8d8dc;
+  border-radius: 999px;
+  color: #2c2c2e;
+  font-family: inherit;
+  font-size: 12px;
+  padding: 5px 14px;
+  cursor: pointer;
+}
+
+.nexus-terminal.dsh-ui .dsh-ask-btn:hover { background: #f0f0f2; color: #000; }
+
+.nexus-terminal.dsh-ui .dsh-ask-btn.danger { color: #e5484d; border-color: #f0c8ca; }
+
+/* assistant 回答：通栏 markdown */
+.nexus-terminal.dsh-ui .dsh-assistant { align-self: stretch; word-break: break-word; color: #0f1115; }
+
+/* dsh-ui：markdown 渲染内的代码块用 code-block 底色 */
+.nexus-terminal.dsh-ui .md code {
+  background: #f9fafb;
+  border-color: #e0e0e3;
+  color: #4868b4;
+}
+
+.nexus-terminal.dsh-ui .md pre {
+  background: #f9fafb;
+  border-color: #e5e7eb;
+}
+
+.nexus-terminal.dsh-ui .md pre code {
+  background: transparent;
+  border: none;
+  color: #2c2c2e;
+}
+
+.nexus-terminal.dsh-ui .md th {
+  background: transparent;
+  border-color: #e0e0e3;
+  color: #0f1115;
+}
+
+.nexus-terminal.dsh-ui .md td { border-color: #e5e7eb; }
+
+.nexus-terminal.dsh-ui .md blockquote {
+  border-left-color: #4176e6;
+  color: #67696e;
+}
+
+.nexus-terminal.dsh-ui .md a { color: #4176e6; }
+
+.nexus-terminal.dsh-ui .md hr { border-color: #e5e7eb; }
+
 /* ---------- 中枢页：固定视口高度布局（控件高度不随内容变化，页面无滚动条） ---------- */
 
 .nexus-page {

@@ -236,17 +236,21 @@ def crypto_decrypt_ok(t: models.A2aTask, plain: str) -> bool:
 
 
 def test_a2a_call_rejects_bad_targets(as_user, ws):
+    # from_workspace 必填（2026-10-01 起）：缺失/查无/不是你的都拒绝——
+    # 它是长任务完成提醒的回送地址（schema required，这里测业务层兜底）
+    with pytest.raises(ValueError, match="from_workspace is required"):
+        asyncio.run(mcp_endpoint.a2a_call(target="w-nope", message="x", from_workspace=""))
     with pytest.raises(ValueError, match="not found or not visible"):
-        asyncio.run(mcp_endpoint.a2a_call(target="w-nope", message="x"))
+        asyncio.run(mcp_endpoint.a2a_call(target="w-nope", message="x", from_workspace="w-nope"))
     # 别人的工作区不可见
     with pytest.raises(ValueError, match="not found or not visible"):
-        asyncio.run(mcp_endpoint.a2a_call(target="w-evil-ws", message="x"))
+        asyncio.run(mcp_endpoint.a2a_call(target="w-evil-ws", message="x", from_workspace=ws.id))
     # disabled 工作区
     with Session(engine) as s:
         s.add(models.Workspace(id="w-dis", user_id=as_user.id, name="d", path="/d", status="disabled"))
         s.commit()
     with pytest.raises(ValueError, match="disabled"):
-        asyncio.run(mcp_endpoint.a2a_call(target="w-dis", message="x"))
+        asyncio.run(mcp_endpoint.a2a_call(target="w-dis", message="x", from_workspace=ws.id))
     # 离线且心跳过期（非后台模式）→ 不可派发
     with Session(engine) as s:
         s.add(models.Workspace(
@@ -255,7 +259,7 @@ def test_a2a_call_rejects_bad_targets(as_user, ws):
         ))
         s.commit()
     with pytest.raises(ValueError, match="not online"):
-        asyncio.run(mcp_endpoint.a2a_call(target="w-stale", message="x"))
+        asyncio.run(mcp_endpoint.a2a_call(target="w-stale", message="x", from_workspace=ws.id))
 
 
 def test_a2a_task_status_and_ownership(as_user, ws):

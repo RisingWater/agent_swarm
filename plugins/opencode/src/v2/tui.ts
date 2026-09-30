@@ -4,11 +4,11 @@
  * @opencode/plugin/tui 的 Plugin.define + context.keymap.layer + context.ui.dialog.select
  * + context.ui.toast.show。命令语义与 V1 完全一致：
  *   /swarm-mode    弹窗选择 foreground / background
- *   /swarm-monitor 开关前台会话实时监控
  *   /swarm-remove  删除本目录工作区（仅离线可删）→ 清 WORKSPACE_ID
  *   /swarm-enable  启用工作区
  *   /swarm-disable 禁用工作区
- * （/swarm-add 仍是 md 命令 commands/swarm-add.md，V2 同样支持。）
+ * （/swarm-add 仍是 md 命令 commands/swarm-add.md，V2 同样支持。
+ *   监控无 /swarm-monitor 开关——默认常开，关闭走飞书/微信渠道侧。）
  *
  * server 地址与 apikey 读 ~/.config/opencode/agent-swarm.json（与 server 插件共用）；
  * workspace ID 读写 <项目根>/.agent_swarm/workspace.md。
@@ -187,31 +187,6 @@ const plugin: Definition = {
           },
         },
         {
-          id: "agent-swarm.monitor",
-          title: "Swarm: Monitor TUI Session",
-          group: "agent_swarm",
-          description: "切换前台会话实时监控（对话轮次上报 web 中枢）",
-          slash: { name: "swarm-monitor" },
-          run: async () => {
-            const cfg = readCfg()
-            const picked = await context.ui.dialog.select({
-              title: "前台会话实时监控",
-              options: [
-                { title: `${cfg.monitor !== false ? "● " : "○ "}开启（TUI 对话实时上报中枢）`, value: "on" },
-                { title: `${cfg.monitor === false ? "● " : "○ "}关闭`, value: "off" },
-              ],
-              current: cfg.monitor === false ? "off" : "on",
-            })
-            if (picked === undefined) return
-            const next = String(picked) === "on"
-            if (writeCfg({ ...readCfg(), monitor: next })) {
-              toastOk(`实时监控: ${next ? "开启" : "关闭"}（立即生效）`)
-            } else {
-              toastErr("写入配置失败")
-            }
-          },
-        },
-        {
           id: "agent-swarm.remove",
           title: "Swarm: Remove Workspace",
           group: "agent_swarm",
@@ -275,7 +250,7 @@ const plugin: Definition = {
         return null
       },
     })
-    tuiLog("commands registered via app slot (/swarm-mode, /swarm-monitor, /swarm-remove, /swarm-enable, /swarm-disable)")
+    tuiLog("commands registered via app slot (/swarm-mode, /swarm-remove, /swarm-enable, /swarm-disable)")
 
     // ---------------- 在线心跳 ----------------
     // V2 的插件由 service 按 location 常驻加载，server 插件里的心跳会让"没开 TUI 的项目"

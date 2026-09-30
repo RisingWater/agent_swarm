@@ -123,6 +123,12 @@ def perm_card(task: models.A2aTask, workspace_name: str, event: dict, owner_key:
         if not title and pats:
             title = "访问/执行：" + "；".join(p[:80] for p in pats)[:200]
         body.append(f"🔐 权限请求：{perm}" + (f" — {title[:160]}" if title else ""))
+        # 权限按钮按工作区 agent 类型决定：dsh 只有允许一次/拒绝（无持久授权语义）
+        from server.nexus_a2a import permission_replies
+        replies = permission_replies(getattr(task, "agent_type", "") or "")
+        perm_btns = [b for b in (
+            ("✅ 允许", "once", "primary"), ("✅ 本会话允许", "always", "default"), ("❌ 拒绝", "reject", "danger"),
+        ) if b[1] in replies]
         elements = [
             {"tag": "div", "text": {"tag": "lark_md", "content": "\n\n".join(body)}},
             {"tag": "hr"},
@@ -131,25 +137,11 @@ def perm_card(task: models.A2aTask, workspace_name: str, event: dict, owner_key:
                 "columns": [
                     {"tag": "column", "width": "weighted", "weight": 1, "elements": [{
                         "tag": "button",
-                        "text": {"tag": "plain_text", "content": "✅ 允许"},
-                        "type": "primary",
+                        "text": {"tag": "plain_text", "content": label},
+                        "type": btn_type,
                         "value": {"action": "feishu_reply", "taskId": task.id,
-                                  "reply": "allow", "requestId": request_id},
-                    }]},
-                    {"tag": "column", "width": "weighted", "weight": 1, "elements": [{
-                        "tag": "button",
-                        "text": {"tag": "plain_text", "content": "✅ 本会话允许"},
-                        "type": "default",
-                        "value": {"action": "feishu_reply", "taskId": task.id,
-                                  "reply": "always", "requestId": request_id},
-                    }]},
-                    {"tag": "column", "width": "weighted", "weight": 1, "elements": [{
-                        "tag": "button",
-                        "text": {"tag": "plain_text", "content": "❌ 拒绝"},
-                        "type": "danger",
-                        "value": {"action": "feishu_reply", "taskId": task.id,
-                                  "reply": "reject", "requestId": request_id},
-                    }]},
+                                  "reply": reply, "requestId": request_id},
+                    }]} for label, reply, btn_type in perm_btns
                 ],
             },
         ]

@@ -1005,7 +1005,7 @@ function HomePage({ toast, loggedIn, onGoAccount, onOpenLogin, onGoDocs }: { toa
               <FeatureIcon kind="eye" />
               <h3>监控模式</h3>
             </div>
-            <p>开启后（默认开），你在 opencode TUI 里的日常对话会按轮次实时同步到网页中枢：提问、思考、工具调用、回答全程可见，权限请求远程应答，历史随时回溯——像给 agent 开了一扇观察窗。</p>
+            <p>你在 agent 里的日常对话会按轮次实时同步到网页中枢：提问、思考、工具调用、回答全程可见，权限请求远程应答，历史随时回溯——像给 agent 开了一扇观察窗。</p>
           </div>
           <div className="home-card">
             <div className="home-card-head">
@@ -1045,7 +1045,7 @@ function HomePage({ toast, loggedIn, onGoAccount, onOpenLogin, onGoDocs }: { toa
           <li>让前端 agent 把后端 bug 派发给后端工作区的 agent 修复</li>
           <li>让一个 agent 去另一个仓库执行测试、汇总结果</li>
           <li>在网页「中枢」里给任意在线 agent 直接下达指令，实时围观它干活</li>
-          <li>开启监控模式，把 TUI 里和 agent 的日常对话实时同步到网页，随时远程回看</li>
+          <li>把你在 agent 里的日常对话实时同步到网页，随时远程回看</li>
           <li>绑定飞书 / 微信等即时聊天工具，在聊天里派活、看进度、收完成简报</li>
           <li>让 agent 把构建包 / 报告等产物上传到中枢，聊天收文件、网页集中管理下载</li>
           <li>集中管理所有 AI 工作区的用途说明、备注与在线状态</li>
@@ -1197,7 +1197,7 @@ function SupportedAgents() {
   const tools: { tool: "opencode" | "claude" | "deepseek" | "pi" | "more"; name: string; supported: boolean }[] = [
     { tool: "opencode", name: "opencode", supported: true },
     { tool: "claude", name: "claude code", supported: true },
-    { tool: "deepseek", name: "deepseek harness", supported: false },
+    { tool: "deepseek", name: "deepseek harness", supported: true },
     { tool: "pi", name: "pi", supported: false },
     { tool: "more", name: "更多 MCP 客户端", supported: false },
   ]
@@ -1375,12 +1375,20 @@ function DocsPage() {
               <b>重启 claude 后生效</b>。claude 工作区支持注册管理、在线状态与后台会话任务执行；
               前台注入暂不支持（见「命令」章节的支持情况表）。
             </li>
+            <li>
+              <b>deepseek harness</b>：安装 cordis bundle 插件（<code>dsh plugin add</code>，按 profile 安装）
+              → 写入 MCP 配置（agent-swarm-mcp）→ 拷贝 <code>/swarm-*</code> 命令。
+              <b>重启 dsh 后生效</b>。注册工作区走会话内 <code>/swarm-add</code>（安装脚本不注册）。
+              支持前台注入（最近活跃会话）、后台 per-caller 会话、监控同步与权限/提问应答
+              （详见「命令」章节的支持情况表）。
+            </li>
           </ul>
           <h3>验证安装</h3>
           <p>
             重启后打开「工作区」页，约 30 秒内应看到该机器的工作区状态点变绿（online）。
             opencode 可查看 <code>~/.config/opencode/plugins/agent-swarm/plugin.log</code>；
-            claude 可查看 <code>~/.claude/agent-swarm/keepalive.log</code>。
+            claude 可查看 <code>~/.claude/agent-swarm/keepalive.log</code>；
+            deepseek harness 可查看 <code>~/.config/dsh/agent-swarm/plugin.log</code>。
           </p>
         </section>
 
@@ -1393,7 +1401,7 @@ function DocsPage() {
           <h3>注册方式</h3>
           <p>任选其一：</p>
           <ul>
-            <li>在该项目的 agent 对话里使用 <code>/swarm-add</code> 命令（opencode 与 claude 均可用）</li>
+            <li>在该项目的 agent 对话里使用 <code>/swarm-add</code> 命令（opencode、claude 与 deepseek harness 均可用）</li>
             <li>直接让 agent：「帮我把当前目录注册到虫群」（它会调用 <code>workspace_add</code> 工具）</li>
           </ul>
           <p>
@@ -1427,6 +1435,14 @@ agent: (a2a_call) → 对方 TUI 实时出现任务 → 执行 → 结果自动�
             <code>input-required</code>。执行方式分前台/后台两种（见下节），
             完成后最后一条 assistant 回复自动回传给调用方。
           </p>
+          <h3>长任务完成提醒</h3>
+          <p>
+            跨工作区的任务有时会跑很久：发起方 agent 等不到结果就失去耐心收轮，工作停在那里，
+            结果留在任务记录里没人取。虫群会自动补位——任务完成后稍等片刻，若结果仍未被发起方
+            取走（且发起方前台轮已收尾或离线），服务端会向发起方推送一条<b>完成提醒</b>：
+            agent 收到后调用 <code>a2a_task</code> 取回结果并继续原本的工作。已取走结果的任务不会重复提醒；
+            发起方离线时提醒会排队，上线即送达。
+          </p>
           <h3>前台会话与后台会话</h3>
           <p>
             每个工作区收到任务时，按配置选择执行方式：
@@ -1450,14 +1466,14 @@ agent: (a2a_call) → 对方 TUI 实时出现任务 → 执行 → 结果自动�
           </p>
           <h3>监控模式（前台会话实时同步）</h3>
           <p>
-            开启后（默认开启），你在 opencode TUI 里与 agent 的<b>日常对话</b>会按轮次实时同步到网页中枢：
+            开启后，你在 agent 里与它的<b>日常对话</b>会按轮次实时同步到网页中枢：
             每一次提问、agent 的思考、工具调用、最终回答，以及权限请求/AI 提问，都会以独立「轮次」出现在
             中枢时间线里，与 A2A 任务轮混排显示。你可以在网页上远程围观同事屏幕上的对话过程、回溯任意一轮历史
             （中枢时间线上滚逐轮加载），监控轮次的权限请求同样可以在网页上远程应答。
           </p>
           <ul>
             <li><b>只监控前台会话</b>——后台任务会话不经过此通道，不会重复上报；中枢下发的任务轮也自动去重</li>
-            <li><b>开关</b>：TUI 内执行 <code>/swarm-monitor</code> 即时切换；默认开启</li>
+            <li><b>开关</b>——在飞书/微信渠道侧关闭监控转发即可；不想让某个项目被围观就不在该项目注册工作区</li>
             <li><b>归档</b>：每轮对话作为一条 <code>[monitor]</code> 记录进入「调用记录」页（按工作区筛选查看），与 A2A 任务记录并列</li>
           </ul>
           <h3>心跳与在线状态</h3>
@@ -1494,24 +1510,24 @@ agent: (a2a_call) → 对方 TUI 实时出现任务 → 执行 → 结果自动�
               </tr>
               <tr>
                 <td><code>/swarm-mode</code></td>
-                <td>切换任务执行模式：前台注入（foreground）或后台会话（background），即时生效（仅 opencode）</td>
-              </tr>
-              <tr>
-                <td><code>/swarm-monitor</code></td>
-                <td>切换前台会话实时监控：开启后你在 TUI 里的日常对话（提问/思考/工具/回答）会实时同步到网页中枢，即时生效（仅 opencode）</td>
+                <td>切换任务执行模式：前台注入（foreground）或后台会话（background），即时生效（opencode / deepseek harness）</td>
               </tr>
             </tbody>
           </table>
+          <p>
+            前台会话实时监控在 opencode 与 deepseek harness 上均可用：你在 agent 里的日常对话
+            （提问/思考/工具/回答）会实时同步到网页中枢；不想同步时在飞书/微信渠道侧关闭监控转发即可。
+          </p>
           <h3>各 agent 支持情况</h3>
           <table>
-            <thead><tr><th>能力</th><th>opencode</th><th>claude code</th></tr></thead>
+            <thead><tr><th>能力</th><th>opencode</th><th>claude code</th><th>deepseek harness</th></tr></thead>
             <tbody>
-              <tr><td>注册 / 保活 / 启停管理</td><td>✅</td><td>✅</td></tr>
-              <tr><td><code>/swarm-*</code> 命令</td><td>✅</td><td>✅（不含 /swarm-mode、/swarm-monitor）</td></tr>
-              <tr><td>前台注入（任务进入当前会话）</td><td>✅</td><td>—</td></tr>
-              <tr><td>后台会话（独立会话静默执行）</td><td>✅</td><td>✅</td></tr>
-              <tr><td>前台会话监控（TUI 对话同步中枢）</td><td>✅</td><td>—</td></tr>
-              <tr><td>权限 / 提问实时应答（input-required）</td><td>✅</td><td>—</td></tr>
+              <tr><td>注册 / 保活 / 启停管理</td><td>✅</td><td>✅</td><td>✅</td></tr>
+              <tr><td><code>/swarm-*</code> 命令</td><td>✅</td><td>✅（不含 /swarm-mode）</td><td>✅</td></tr>
+              <tr><td>前台注入（任务进入当前会话）</td><td>✅</td><td>—</td><td>✅（注入最近活跃会话）</td></tr>
+              <tr><td>后台会话（独立会话静默执行）</td><td>✅</td><td>✅</td><td>✅</td></tr>
+              <tr><td>前台会话监控（TUI 对话同步中枢）</td><td>✅</td><td>—</td><td>✅</td></tr>
+              <tr><td>权限 / 提问实时应答（input-required）</td><td>✅</td><td>—</td><td>✅（先答先算，无"始终允许"）</td></tr>
             </tbody>
           </table>
         </section>
@@ -1528,12 +1544,20 @@ agent: (a2a_call) → 对方 TUI 实时出现任务 → 执行 → 结果自动�
             <thead><tr><th>聊天工具</th><th>绑定方式</th><th>能力</th></tr></thead>
             <tbody>
               <tr>
-                <td>飞书</td>
+                <td>
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>
+                    <FeishuIcon size={18} /> 飞书
+                  </span>
+                </td>
                 <td>给机器人发 <code>/swarm bind as_你的密钥</code>（密钥在「API Key」页复制）</td>
                 <td>派任务 / 时间线直播 / 完成简报 / 监控同步 / 权限应答</td>
               </tr>
               <tr>
-                <td>微信 ClawBot</td>
+                <td>
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>
+                    <WeixinIcon size={18} /> 微信 ClawBot
+                  </span>
+                </td>
                 <td>网页「账号 → 聊天工具绑定 → 微信 ClawBot」扫码登录（用自己的微信号，无需 API Key）</td>
                 <td>派任务 / 任务详细流 / 完成简报 / 监控同步 / 权限编号应答</td>
               </tr>
@@ -1645,8 +1669,8 @@ agent: (a2a_call) → 对方 TUI 实时出现任务 → 执行 → 结果自动�
             在网页上直接指挥 agent。选择一个在线工作区，输入指令发送，时间线会实时滚动
             agent 的思考过程、工具调用与最终答复。agent 请求权限或向你提问时，直接在时间线里点按钮应答。
             时间线历史持久化保存，刷新页面不丢；点 <code>clear</code> 清空视图，鼠标上滚逐轮加载更早的对话，
-            右下角的悬浮按钮可随时跳回最新消息。开启监控模式（<code>/swarm-monitor</code>，默认开）后，
-            你在 TUI 里的日常对话也会实时出现在这里。
+            右下角的悬浮按钮可随时跳回最新消息。开启监控模式后，
+            你在 agent 里的日常对话也会实时出现在这里。
           </p>
           <h3>工作区</h3>
           <p>
@@ -1688,13 +1712,19 @@ agent: (a2a_call) → 对方 TUI 实时出现任务 → 执行 → 结果自动�
           <h3>支持哪些 AI 工具？</h3>
           <p>
             我们基于开放协议（MCP + A2A）设计，目标是让<b>所有兼容的 agent 客户端</b>都能加入虫群。
-            目前 opencode 全功能支持；claude code 支持注册管理与后台会话任务执行，前台注入暂不支持
-            （见「命令」章节的支持情况表）。其它客户端会逐步支持。
+            目前 opencode 与 deepseek harness 全功能支持；claude code 支持注册管理与后台会话任务执行，
+            前台注入暂不支持（见「命令」章节的支持情况表）。其它客户端会逐步支持。
           </p>
           <h3>claude 工作区能执行任务吗？</h3>
           <p>
             能，但目前仅限<b>后台会话</b>方式：任务在独立会话静默执行，结果自动回传（网页中枢可实时观看）。
             前台注入（任务进入你正在看的会话）还在规划中。
+          </p>
+          <h3>派出去的任务对方跑很久，agent 等不到结果就停了？</h3>
+          <p>
+            不会丢。跨工作区任务完成后，若发起方 agent 已经过早收轮（没等到结果），服务端会向它推送一条
+            <b>完成提醒</b>——agent 收到后自动调用 <code>a2a_task</code> 取回结果并继续原本的工作；
+            发起方离线时提醒排队，上线即送达。你也可以随时手动让 agent「查一下任务 &lt;task_id&gt; 的结果」。
           </p>
           <h3>安装后 agent 没出现 / 收不到任务？</h3>
           <p>
@@ -1975,18 +2005,19 @@ function NexusPage({ toast }: { toast: (m: string) => void }) {
     if (meta.nexus === "tool") {
       const key = `tool-${meta.call_id}`
       const cmd = toolCommand(meta.input as Record<string, unknown> | undefined)
-      const entry: TimelineItem = {
-        key,
-        kind: "tool",
-        text: cmd,
-        tool: String(meta.tool ?? ""),
-        state: String(meta.tool_state ?? "running"),
-        output: typeof meta.output === "string" ? meta.output : undefined,
-        time: Date.now(),
-      }
       setItems((prev) => {
         const next = [...prev]
         const i = next.findIndex((it) => it.key === key)
+        // 合并而非覆盖：result 帧只带 output 不带 input/工具名，直接覆盖会把 IN 冲掉
+        const base = i >= 0 ? next[i] : { key, kind: "tool" as const, text: "", time: Date.now() }
+        const entry: TimelineItem = {
+          ...base,
+          text: cmd || base.text,
+          tool: String(meta.tool ?? "") || base.tool,
+          state: String(meta.tool_state ?? "running"),
+          output: typeof meta.output === "string" ? meta.output : base.output,
+          time: Date.now(),
+        }
         if (i >= 0) next[i] = entry
         else next.push(entry)
         return next
@@ -2123,18 +2154,19 @@ function NexusPage({ toast }: { toast: (m: string) => void }) {
     }
     if (mtype === "tool") {
       const key = `tool-${p.callId ?? p.call_id ?? `${round}-${p.tool}`}`
-      const entry: TimelineItem = {
-        key,
-        kind: "tool",
-        text: toolCommand(p.input as Record<string, unknown> | undefined),
-        tool: String(p.tool ?? ""),
-        state: String(p.toolState ?? "running"),
-        output: typeof p.output === "string" ? p.output : undefined,
-        time: Date.now(),
-      }
       setItems((prev) => {
         const next = [...prev]
         const i = next.findIndex((it) => it.key === key)
+        // 合并而非覆盖：result 帧只带 output，覆盖会把 running 行的 IN 冲掉
+        const base = i >= 0 ? next[i] : { key, kind: "tool" as const, text: "", time: Date.now() }
+        const entry: TimelineItem = {
+          ...base,
+          text: toolCommand(p.input as Record<string, unknown> | undefined) || base.text,
+          tool: String(p.tool ?? "") || base.tool,
+          state: String(p.toolState ?? "running"),
+          output: typeof p.output === "string" ? p.output : base.output,
+          time: Date.now(),
+        }
         if (i >= 0) next[i] = entry
         else next.push(entry)
         // 同轮出现【新的 running 工具】= agent 已越过权限等待（多半在 TUI 里选过了）：
@@ -2449,7 +2481,7 @@ function NexusPage({ toast }: { toast: (m: string) => void }) {
       </div>
 
       {selected && (
-        <div className={`nexus-terminal ${agentToolKind(current?.agent_type) === "opencode" ? "tui" : "claude-tui"}`}>
+        <div className={`nexus-terminal ${agentToolKind(current?.agent_type) === "opencode" ? "tui" : agentToolKind(current?.agent_type) === "deepseek" ? "dsh-ui" : "claude-tui"}`}>
           <div className="nexus-terminal-head">
             <AgentTypeIcon type={current?.agent_type} inherit />
             <span className="nexus-head-title">{current?.name ?? selected}</span>
@@ -2554,6 +2586,8 @@ function NexusPage({ toast }: { toast: (m: string) => void }) {
 
 /** timeline 条目渲染入口：按 agent 类型分发控件
  *  opencode → OpencodeTuiEntry（TUI 黑底终端风格）
+ *  claude → ClaudeTuiEntry（claude code CLI 时间线风格）
+ *  deepseek → DshEntry（dsh web UI 风格：蓝泡用户消息 + think 行 + 工具行/IO 卡）
  *  其他/未知 → TimelineEntry（气泡风格，兜底默认）
  */
 function TimelineEntrySwitch({ item, agentType, onPermissionReply, onQuestionReply }: {
@@ -2566,7 +2600,158 @@ function TimelineEntrySwitch({ item, agentType, onPermissionReply, onQuestionRep
   const props = { item, onPermissionReply, onQuestionReply }
   if (kind === "opencode") return <OpencodeTuiEntry {...props} />
   if (kind === "claude") return <ClaudeTuiEntry {...props} />
+  if (kind === "deepseek") return <DshEntry {...props} />
   return <TimelineEntry {...props} />
+}
+
+// ---------------- dsh 中枢控件（模仿 deepseek harness web UI） ----------------
+
+/** dsh 工具行摘要：工具名 · 摘要（视觉上由 2px 圆点分隔） */
+function dshToolSummary(item: TimelineItem): string {
+  return truncateLine(item.text ?? "", 96)
+}
+
+/** dsh 时间线条目：用户消息右对齐蓝色气泡（dsw-specific-bubble），
+ *  thinking/工具 = DisclosureRow 形态（图标 + 标题 + 点分隔摘要，展开出正文/IO 卡）。 */
+function DshEntry({ item, onPermissionReply, onQuestionReply }: {
+  item: TimelineItem
+  onPermissionReply?: (requestId: string, reply: "once" | "always" | "reject") => void
+  onQuestionReply?: (requestId: string, answers: string[][]) => void
+}) {
+  if (item.kind === "user") {
+    // 用户消息：右对齐蓝色气泡（对齐 dsh MessageItem 的 bubble 形态）
+    return (
+      <div className="dsh-userRow">
+        <div className="dsh-bubble">{item.text}</div>
+      </div>
+    )
+  }
+  if (item.kind === "idle") {
+    return null
+  }
+  if (item.kind === "error") {
+    return (
+      <div className="dsh-turnError">
+        <span className="dsh-turnErrorDot" />
+        <div className="dsh-turnErrorCopy">
+          <span className="dsh-turnErrorTitle">出错了</span>
+          <span className="dsh-turnErrorMessage">{item.text}</span>
+        </div>
+      </div>
+    )
+  }
+  if (item.kind === "reasoning") {
+    // thinking：think 图标 + 标题「思考中/已深度思考」+ 首行摘要，展开全文
+    const running = false
+    const summary = truncateLine((item.text ?? "").replace(/\*\*/g, "").split("\n").find((l) => l.trim()) ?? "", 88)
+    return (
+      <details className="dsh-row">
+        <summary className="dsh-rowHead">
+          <span className="dsh-rowIcon dsh-think">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <path d="M12 3a6 6 0 0 0-3.6 10.8c.6.5.9 1.1 1 1.8l.1.4h5l.1-.4c.1-.7.4-1.3 1-1.8A6 6 0 0 0 12 3Z" />
+              <path d="M10 19h4" />
+              <path d="M10.5 22h3" />
+            </svg>
+          </span>
+          <span className="dsh-rowTitle">{running ? "思考中" : "已深度思考"}</span>
+          <span className="dsh-rowSep" />
+          <span className="dsh-rowSummary">{summary}</span>
+        </summary>
+        <div className="dsh-thinkBody">{item.text}</div>
+      </details>
+    )
+  }
+  if (item.kind === "tool") {
+    const running = item.state === "running"
+    const failed = item.state === "error"
+    const output = item.output?.trim() ?? ""
+    return (
+      <details className="dsh-row" data-error={failed || undefined} open={running || undefined}>
+        <summary className="dsh-rowHead">
+          <span className={`dsh-rowIcon${failed ? " err" : ""}`}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <path d="M14.7 6.3a4.5 4.5 0 0 0-6 6L3 18l3 3 5.7-5.7a4.5 4.5 0 0 0 6-6L15 12l-3-3 2.7-2.7Z" />
+            </svg>
+          </span>
+          <span className="dsh-rowTitle">{item.tool ?? "tool"}</span>
+          <span className="dsh-rowSep" />
+          <span className={`dsh-rowSummary${failed ? " err" : ""}`}>
+            {running ? <span className="dsh-shimmer">{dshToolSummary(item)}</span> : dshToolSummary(item)}
+          </span>
+        </summary>
+        {(output || dshToolSummary(item)) && (
+          <div className={`dsh-ioCard${failed ? " err" : ""}`}>
+            <div className="dsh-ioSection">
+              <span className="dsh-ioLabel">IN</span>
+              <span className="dsh-ioText">{dshToolSummary(item)}</span>
+            </div>
+            {output && (
+              <>
+                <div className="dsh-ioDivider" />
+                <div className="dsh-ioSection">
+                  <span className="dsh-ioLabel">OUT</span>
+                  <span className="dsh-ioText" data-error={failed || undefined}>{output}</span>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+      </details>
+    )
+  }
+  if (item.kind === "permission") {
+    if (item.answered) {
+      return (
+        <div className="dsh-turnError">
+          <span className="dsh-turnErrorDot ok" />
+          <div className="dsh-turnErrorCopy">
+            <span className="dsh-turnErrorMessage">权限已{permAnswerLabel(item.answered!)}：{item.permission}</span>
+          </div>
+        </div>
+      )
+    }
+    return (
+      <div className="dsh-askCard">
+        <div className="dsh-askTitle">权限请求</div>
+        <div className="dsh-askBody">{item.permission}{item.text ? ` — ${item.text}` : ""}</div>
+        <div className="dsh-askActions">
+          {/* dsh 的 ApprovalOutcome 只有 allowed-once/rejected——没有"始终允许" */}
+          <button className="dsh-ask-btn" onClick={() => onPermissionReply?.(item.request_id!, "once")}>允许一次</button>
+          <button className="dsh-ask-btn danger" onClick={() => onPermissionReply?.(item.request_id!, "reject")}>拒绝</button>
+        </div>
+      </div>
+    )
+  }
+  if (item.kind === "question") {
+    if (item.answered) {
+      return (
+        <div className="dsh-turnError">
+          <span className="dsh-turnErrorDot ok" />
+          <div className="dsh-turnErrorCopy">
+            <span className="dsh-turnErrorMessage">已选择：<b>{item.answered}</b></span>
+          </div>
+        </div>
+      )
+    }
+    return (
+      <div className="dsh-askCard">
+        <div className="dsh-askTitle">需要你的选择</div>
+        <div className="dsh-askBody">{item.text}</div>
+        <div className="dsh-askActions">
+          {(item.options ?? []).map((o) => (
+            <button key={o.value} className="dsh-ask-btn" onClick={() => onQuestionReply?.(item.request_id!, [[o.value]])}>
+              {o.label}
+            </button>
+          ))}
+        </div>
+      </div>
+    )
+  }
+  // agent 回答：markdown 正文（无气泡，dsh 的 assistant 文本是通栏排版）
+  return (
+    <div className="dsh-assistant"><Md text={item.text} /></div>
+  )
 }
 
 /** 兜底默认控件：气泡风格（通用，不依赖具体 agent 工具的视觉习惯） */

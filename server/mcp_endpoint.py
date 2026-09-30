@@ -423,7 +423,7 @@ CALL_TIMEOUT_SECONDS = int(os.environ.get("AGENT_SWARM_CALL_TIMEOUT", "3600"))
 
 
 @mcp.tool(annotations=_ann(open_world=True))
-async def a2a_call(target: str, message: str, context_id: str = "", from_workspace: str = "", wait_seconds: int = 0) -> dict:
+async def a2a_call(target: str, message: str, context_id: str = "", *, from_workspace: str, wait_seconds: int = 0) -> dict:
     """通过 A2A 协议给另一个 agent 发任务（支持内部工作区与外部 A2A agent）。
 
     用 list_workspaces 找内部工作区（传 workspace ID），或直接传外部 agent 的
@@ -435,22 +435,34 @@ async def a2a_call(target: str, message: str, context_id: str = "", from_workspa
             服务端会直接拒绝
         message: 任务指令，尽量具体（涉及文件写绝对路径）
         context_id: 可选，延续之前的会话上下文（多轮任务）
-        from_workspace: 你（发起方）所在的工作区 ID（list_workspaces 可查）。
-            传入后调用记录会显示真实发起方；缺省时发起方标注为"agent（未注明）"
+        from_workspace: **必填**——你（发起方）所在的工作区 ID（读项目根
+            `.agent_swarm/workspace.md` 的 WORKSPACE_ID，或 list_workspaces 查）。
+            它是长任务完成提醒的回送地址：没它，派出去的任务跑完后台 agent
+            没等到结果时，你收不到提醒。传了不属于自己的工作区会被拒绝
         wait_seconds: 同步等待任务终态的秒数（0=立即返回只拿 task_id）。
             >0 时服务端挂事件总线等任务完成（最多等这么久），返回体直接带
             status/result——推荐派任务时传 300~600，免去轮询。
+            长任务若你中途放弃等待也没关系：任务完成后服务端会自动提醒你
+            （收到"[agent_swarm 提醒]"消息时，用 a2a_task 取结果并继续原工作）。
     """
     from server.nexus_a2a import call_external
 
     user = get_user()
     session = next(get_session())
     try:
-        # 发起方校验：必须是当前用户的工作区（防伪造归属）
+        # 发起方归属校验（schema 已 required，这里兜底直接调用方）：
+        # 必填——它是长任务完成提醒的回送地址；校验防伪造归属
         from_ws_valid = False
-        if from_workspace:
+        if (from_workspace or "").strip():
             from_ws = session.get(models.Workspace, from_workspace)
             from_ws_valid = from_ws is not None and from_ws.user_id == user.id
+            if not from_ws_valid:
+                raise ValueError(f"from_workspace {from_workspace!r} not found or not visible to you")
+        if not from_ws_valid:
+            raise ValueError(
+                "from_workspace is required: pass YOUR workspace id "
+                "(read WORKSPACE_ID from .agent_swarm/workspace.md, or list_workspaces)"
+            )
         # 禁止自我派单（2026-09-25）：target = 自己的工作区会无限循环调用自己
         if target == from_workspace and from_workspace:
             raise ValueError("refusing to dispatch a task to your own workspace (self-call loop); pick another target via list_workspaces")
@@ -545,6 +557,9 @@ async def a2a_call(target: str, message: str, context_id: str = "", from_workspa
 def a2a_task(task_id: str) -> dict:
     """查询 A2A 任务的状态与结果（a2a_call 后轮询用）。
 
+    收到"[agent_swarm 提醒]"消息时，用本工具取回之前发起的跨工作区任务结果，
+    然后继续你原本的工作——不要重新发起任务。
+
     Args:
         task_id: a2a_call 返回的任务 ID
     """
@@ -570,6 +585,11 @@ def a2a_task(task_id: str) -> dict:
                 task.done_at = utcnow()
                 session.add(task)
                 session.commit()
+        if task.status in ("completed", "failed", "canceled"):
+            # 调用方查询 = 结果已取走：完成提醒不再触发
+            from server.nexus_a2a import mark_result_delivered
+
+            mark_result_delivered(task.id)
         out = {
             "task_id": task.id,
             "context_id": task.context_id,

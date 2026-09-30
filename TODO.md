@@ -1,6 +1,8 @@
 # agent_swarm 开发进度 TODO
 
-> 更新时间: 2026-09-25 · Linux 开发机（/home/wangxu/workdir/agent_swarm，workspace ID HQDCqedTfoHWKfaSxSJoKg；线上服务 10.17.17.19:8700 容器 agent-swarm）
+> 更新时间: 2026-10-01 · Linux 开发机（/mnt/disk_nvme1/workdir/agent_swarm，workspace ID HQDCqedTfoHWKfaSxSJoKg；线上服务 10.17.17.19:8700 容器 agent-swarm）
+
+> **2026-09-28：重建镜像全员离线事故（sqlmodel 0.0.45+ 拒绝 naive datetime，已锁 `<0.0.45` 修复）**，详见架构演进史末条与高优先级待办（锁文件 / aware 迁移）
 
 > **2026-09-25：桌宠（dsh-pet）对接批次落地——双鉴权（hello apikey/reply 等 5 端点）、派发链路可靠化（密文读回+ack 门控 working）、插件接单即 ack、WS 通配订阅 "*"；测试从零建起 26 例**，详见架构演进史 09-25 条
 > 服务已跑在 :8700（容器内 · 前端构建产物由 8700 静态托管）；本机 opencode 已是 **v2.0.15**
@@ -37,7 +39,10 @@
 - **2026-09-23 离线派发策略 C（用户拍板）**：新增 `dispatchable(wid)` = 有插件连接 且（心跳新鲜=有 TUI **或** 连接上报 `execution_mode=="background"`）。即**没开 TUI 的前台工作区不可派发（409）**，后台模式照常可派（常驻 service 插件代跑）；插件在 WS hello/ping 上报执行模式，`/swarm-mode` 切完下一次 ping 生效
 - **2026-09-23 A2A 轮权限应答 409 修复（用户实测 V1/V2 同样复现 → 锁定服务端）**：`handle_plugin_event`（A2A 轮事件入口）从 18de0c9 起**只做终态收尾，从不把 working/input-required 写回任务行**，而 web 下发的 `_send_message_core` 也不标 working → A2A 轮任务行**永远停在 queued**（accepted_at=None）→ `/reply` 对非 monitor 任务严格校验 `input-required` → 409 "task is queued, not waiting for input"（用户看到的 queueing not working）。权限 E2E 此前全过的都是监控轮（`handle_monitor_event` 有完整写回）+ feishu/weixin reply（`reply_task_from_feishu` 不校验状态），A2A 轮 web 应答属**首次真验**暴露的既有缺口（与插件版本无关）。修复：① `handle_plugin_event` 补非终态写回——working：queued→working（补记 accepted_at）/ input-required 且事件带 `metadata.replied`→working（input-required 期间的 text/tool 流式帧是 working 状态，**不得顶回**，对齐监控轮 566-569 的坑）；input-required：非终态→input-required。② `nexus_reply` / `reply_task_from_feishu` 转发成功后服务端自持 input-required→working（V1 插件不回发 replied 事件，不依赖插件回执）
 - **2026-09-25 桌宠（dsh-pet）对接批次：双鉴权 + 派发可靠化 + 通配订阅（agent 互调派单驱动，docs/desktop-client-nexus-integration.md）**：① **双鉴权**——WS `/ws/nexus` hello 支持 apikey（与 token 二选一，`_auth_apikey` 复用，长效免 24h 重登录）；新增 `_require_user_http`（JWT 或 apikey 任一）切换 reply/history/rounds 三端点；`GET /api/workspaces`、`/api/calls` 列表+删除同款换 `get_user_either`（workspaces:56 曾漏换被桌宠实测 401 抓到）。② **派发链路可靠化**——`dispatch_queued_for` 两连修：密文任务解密读回（**ENC_KEY 下读明文列派空指令**，插件 "text required" 拒单无痕、任务卡 working 的根因，nmj9ZdVL 事故）；顺序反转为**发送+ack（30s）成功才置 working**，发送失败/拒单/无 ack 一律回退 queued 等重试，死连接剔除，补 accepted/rejected/no-ack 日志（fY8LWdS2 超时无 agent 领取的另一半根因）。③ **插件接单即回 ack**（V1/V2 `onTask` 加 `onAccepted` 回调，nexus_a2a.ts 幂等 ack）——前台长任务不再拖满服务端 30s（V2 prompt 整轮才 resolve 的历史包袱）。④ **WS subscribe 通配 `"*"`**——订阅本用户全部工作区（`all_subscribers` 注册表 + `WebConn.all_workspaces`），`_push_web` 推送时逐事件 `_owns` 属主过滤（2026-09-18 跨用户泄漏教训必须保留）；**通配不做 history 回放**（回执 note 提示，历史走 REST）；与飞书/微信「属主全局」简报语义对齐（IM 是 internal_listeners 进程内广播 + 查库按属主收件，web 是按 wid 定向，桌宠现在两全）。⑤ **测试从零建起**：tests/ 26 例（MCP 12 工具全覆盖+四 annotation hint 校验、派发回归、双鉴权四态、通配隔离），夹具 session 级共享。**待办残留**：插件重装+重启 opencode 后验接单即 ack E2E；web 前端 `subscribed` 回执要兼容 `workspace_id:"*"`（现 web 只订单个 wid，不影响但留意）
+- **2026-09-28 重建镜像全员离线事故 + sqlmodel 锁版本（用户报障）**：`requirements.txt` 全 `>=` 不锁版本，重建镜像拉到 sqlmodel **0.0.47**——其 DateTime 自 **0.0.45** 起换成 `UTCDateTime` TypeDecorator，**绑定时 naive datetime 直接 raise**（"Datetime values must have timezone information"），而代码库全线 naive UTC（`models.utcnow()` 取 UTC 后去掉 tzinfo）→ heartbeat/任务落库全炸、插件心跳连续失败 90s 超时、**所有工作区离线**（插件侧完全正常，纯服务端问题）。修复：`sqlmodel>=0.0.22,<0.0.45`（实测 0.0.45 仍炸、**0.0.44 naive 写库 OK**；本机 venv 0.0.42 同约定）。注意：**库里存的一直是 UTC，跨时区语义未受影响**——这是"naive UTC vs aware UTC"两种等价表示法的 Python API 口味之争，不是时区 bug。教训：不锁版本 = 构建不确定，同类事故防不胜防（见高优先级待办：锁文件 + aware 迁移）
+- **2026-09-30 deepseek harness（dsh）插件——第三种 harness 接入（源码 D:\wangxu\work\deepseek-harness，Cordis 微内核 + bundle 安装）**：新增 `plugins/deepseek/`（bundle 形态：`package.json` 带 `dsh.bundle.patch` + `cordis.patch.yml` insert 行，`dsh plugin [--profile <name>] add <本地目录>` 安装，**换 profile 要再装一次**）。**模式设计（用户拍板）**：dsh 无前台/后台之分——web UI 多会话并行、进程常驻即在线、浏览器关了照样跑，任务执行位置 = **per-caller 会话**（`sessions.json` 复用，同 opencode 后台模式），用户随时在 dsh Web UI 点开会话看全程；**在线 = dsh 进程在跑**（插件 30s 心跳，无 execution_mode/无 TUI 心跳插件）。**零运行时裸依赖**（对齐 opencode V2 哲学）：`createUserMessage` 手构、SessionId/ApprovalRequestId 品牌类型运行时就是 string、不 import `@deepseek-ai/*`。链路：`message/send` → `agents.create/resume`（cwd=工作区目录）→ `agent.followup()` 注入 → **接单即 ack** → `session/event` 单监听按 session 路由（`sessionTasks` 表，一会话同时一任务轮）→ text/reasoning（`assistant/attempt` stream 快照，len 门槛去重）/tool（`tool/call`+`tool/result`）→ `turn/end`（completed/max-tokens→completed；error/aborted/blocked→failed）→ artifact + 终态。**权限双向**：`approval/asked`（真实 ApprovalRequestId）→ input-required，插件同时注册 `approval/request` waterfall 应答器——远程应答（web/飞书/微信）经 WS 续聊 resolve；本地 UI 先答则 `approval/decided` 到达自动撤下（先答先算）。安装脚本 `install-deepseek.sh|.ps1`：bundle 复制到 `~/.dsh/agent-swarm-plugin`（index.js 转发器 → tsx 加载 src/*.ts）+ 写 `~/.config/dsh/agent-swarm.json` + **register.mjs 直调 MCP `workspace_add`（agent_type=deepseek，purpose 取 AGENTS.md 首行）写 workspace.md**——装完即用。deploy 分发器零改动（自动遍历 plugins/ 找 install-<name>.*）。**未实测**：dsh 实机装插件 E2E（心跳/任务/权限/简报）、`agents.create` 无 factory 场景、approval/request 应答器与内建 answerer 的竞态
 - ~~**headless spawn opencode 生成 purpose**~~（2026-09-14 已废弃）：挂 `--session 当前会话` 把对话上下文带进总结上传过屁话；专属 summarySessionId 复用会话方案复杂度又高，写了又删。purpose 回归前台 agent 自己分析（md 命令流程）
+- **2026-10-01 deepseek harness（dsh）全功能对齐 + 中枢 dsh 专属控件 + 跨工作区长任务完成提醒（用户驱动）**：① **dsh 监控**——session/event 非任务轮全走监控管道（默认常开无开关，`/swarm-monitor` 命令从 opencode V1/V2 一并移除，文档统一「默认常开」口径，关闭走渠道侧）；② **中枢 DshEntry 控件**——模仿 dsh web UI 浅色主题、右对齐淡蓝气泡、工具行 IN/OUT 卡 + chevron 展开；③ **权限应答按 agent_type 分派**——dsh 无「始终允许」（`permission_replies()` 两选项），web/飞书/微信卡片全部适配；dsh 权限 waterfall 先答先算（prepend 抢队头 + 立即 next() 放行本地 UI + `Promise.race`，无超时，不设看门狗）；④ **跨工作区长任务完成提醒（E2E 实测全链路）**——`a2a_call` 的 `from_workspace` 升级**必填**（schema required + 业务校验；agent 读最新 MCP 描述会自行适配；缺失 = 提醒无回送地址直接拒绝），任务终态后每 `AGENT_SWARM_NOTIFY_DELAY`（默认 60s）复查：结果未取走（`a2a_task` 查询/`wait_task_final` 送达即标记）且发起方前台轮已收尾 → 推极简提醒（caller=nexus-notify，只带 task_id + 取回指引）；发起方还在等则**继续复查**（首版一次性检查在发起方中途放弃时永久漏提醒——实测 bug），上限 120 轮；离线排队上线补推；install-deepseek.ps1 双 BOM 事故修复（叠加 BOM 被 PS 当 token 报「无法识别 ﻿#」）。⑤ 文档同步：README/README_CN（dsh 接入 + 提醒机制 + 监控常开口径）、requirements.md（§3 a2a_call 必填、§4 提醒机制、§9 监控常开 + dsh、§10 dsh 安装）
 - ~~teams 团队功能~~（API/前端已删，**表保留**，用户"想好后再加"）
 - ~~request_help 求助体系~~（被 workspace_call 替代后整体删除，help_requests 表已 DROP）
 - ~~workspace_call 自定义协议~~（被 A2A 替代，workspace_calls 表已 DROP，改 a2a_tasks）
@@ -45,6 +50,29 @@
 - ~~e2e 测试脚本~~（用户 2026-09-12 决定放弃，scripts/test_plugin_smoke.ts 是死代码可删可留）
 
 ## 已完成（除注明外均已进 git）
+
+### deepseek harness（dsh）全功能对齐 + 跨工作区长任务完成提醒（2026-09-30 ~ 10-01，E2E 实测）
+
+> 用户驱动批次：dsh 第三种 harness 接入并全功能对齐（监控/权限/命令），中枢为 dsh 做专属控件；解决跨工作区长任务发起方失去耐心放弃等待的问题。**2026-10-01 用户确认：飞书/微信/桌宠/V2 opencode 全部 OK**。
+
+- ✅ **dsh 监控模式**（96375a2）：session/event 非任务轮全走 monitor 管道（user/message 开轮 → attempt/message 衍生 text/reasoning 帧 → tool 帧 → idle 收轮）；心跳读全局工作区清单（986d065/3872641）；assistant 文本在 `data.message.content`（db570a3）；stream 压缩打包形态 `streamText()` 解析（dac7a4b）；工具 result 帧合并不覆盖 running 行（e46d5ae）
+- ✅ **中枢 dsh 专属控件 DshEntry**（f528e25→6f78d95）：模仿 dsh web UI——浅色主题、右对齐淡蓝气泡、工具行 IN/OUT 卡、chevron 展开箭头
+- ✅ **权限应答按 agent_type 分派**（5af2eb3/b09eeb0）：dsh 无「始终允许」（ApprovalOutcome 只有 allowed-once/rejected），`permission_replies()` 两选项，web/飞书 perm_card/微信编号卡全适配
+- ✅ **dsh 权限 waterfall 先答先算**（f75fe8c→fab3bf2）：监控轮权限远程应答桥 monPerms；prepend 抢队头 + 立即 next() 放行本地 UI + `Promise.race`；去 30min 看门狗（不设超时）；迟到远程应答幂等
+- ✅ **长任务完成提醒**（091f8e6→a62644a，E2E 实测全链路）：`a2a_call` 的 `from_workspace` 升级**必填**（528ba18，schema required + 业务兜底）；任务终态后每 `AGENT_SWARM_NOTIFY_DELAY`（默认 60s）复查——结果未取走（`a2a_task` 查询/`wait_task_final` 送达即标记）且发起方前台轮已收尾 → 推极简提醒（caller=nexus-notify，只带 task_id + 取回指引）；发起方还在等则**继续复查**（首版一次性检查在发起方中途放弃时永久漏提醒——实测抓到），上限 120 轮；离线排队上线补推；含 5 例单测
+- ✅ **/swarm-monitor 命令移除**（b561c1f）：监控常开无开关（opencode V1/V2），关闭走飞书/微信渠道侧；文档统一「默认常开」口径（88a118b/9a93d29）
+- ✅ **install-deepseek.ps1 双 BOM 修复**（2410351）：叠加 BOM 被 PS 当 token 报「无法识别 ﻿#」——含中文的 ps1 必须 UTF-8 **单 BOM**
+- ✅ **文档同步**（6bd9ea3/9a93d29/88a118b/eefbc80）：web 首页/文档页 dsh 点亮 + FAQ；README/README_CN/requirements.md/TODO.md 全量补齐（dsh 接入、提醒机制、监控常开）
+
+### 桌宠（dsh-pet）对接批次：双鉴权 + 派发可靠化 + 通配订阅（2026-09-25，已配合桌宠测试 OK）
+
+> 桌宠等外部桌面客户端作为中枢消费方接入（详见 `docs/desktop-client-nexus-integration.md`）。**2026-10-01 用户确认：配合桌宠已测试 OK**。
+
+- ✅ **双鉴权**：WS `/ws/nexus` hello 支持 apikey（与 JWT 二选一，长效免 24h 重登录）；reply/history/rounds/workspaces/calls 等端点换 `get_user_either`（JWT 或 apikey 任一）
+- ✅ **派发链路可靠化**：`dispatch_queued_for` 密文任务解密读回（ENC_KEY 下读明文列会派空指令——nmj9ZdVL 卡死事故根因之一）；顺序反转为**发送 + 插件 ack（30s）成功才置 working**，失败/拒单/无 ack 回退 queued 等重试；插件接单即回 ack（V1/V2 `onAccepted`，长前台任务不再拖满 30s）
+- ✅ **WS 通配订阅 `"*"`**：订阅本用户全部工作区，推送逐事件 `_owns` 属主过滤（跨用户泄漏教训必须保留）；通配不做历史回放（历史走 REST）
+- ✅ **测试从零建起**：tests/ 26 例起步（MCP 12 工具全覆盖 + 四 annotation hint、派发回归、双鉴权四态、通配隔离）
+- ✅ **终态 brief 帧**：completed/failed 事件在 web 推送出口附带简报摘要（artifact 截 1600 / error 截 700），桌宠等 WS 订阅者无需解密任务行即可展示同级简报卡（2026-09-25 桌宠派单）
 
 ### opencode V1/V2 双版本插件支持（2026-09-23，核心链路实测；仅 dev 未合并 master）
 
@@ -221,23 +249,26 @@
 
 ### 高优先级
 
-- [ ] **桌宠对接 E2E 收尾**（2026-09-25 批次，服务端均已进 dev 并已在本机部署）：① 插件重装 + 重启 opencode 后验**接单即 ack**（长前台任务 plugin.log 无 "no ack in 30s"）；② 桌宠实测 **WS 通配订阅**：hello(apikey) → subscribe `{"workspace_id":"*"}` → 其它工作区事件实时到达、第二用户事件收不到；③ web 前端中枢页对 `subscribed` 回执 `workspace_id:"*"` 的兼容确认（web 不用通配，理论无影响）
-- [ ] **重建镜像并部署**（把本轮所有服务端改动带上线）：多连接/去 4001 踢人、`with Session` 内不 await、SQLite WAL+池 30、`tasks/cancel` 与超时置 failed 漏 commit、`dispatchable` 离线派发策略 C，外加 V2 插件与按版本分流的安装脚本（tarball 由 start.sh 打包）、09-25 桌宠批次（双鉴权/派发可靠化/通配订阅）。推送 `10.17.17.19:8082/agent-swarm:latest` 后从 dpanel 更新
-- [ ] **其它机器重装插件**：V1 机器走 V1 分支（逻辑未变）；V2 机器（如 4.193）重装后会自动发现 V2 插件。注意旧镜像 tarball 里没有 V2 插件，必须先重建镜像
-- [x] **V2 权限应答 E2E**：2026-09-23 已通（web 下发 A2A 轮 → TUI 弹权限 → web 点 allow always → 任务放行写入成功，任务行 accepted_at/completed 正常）。顺带暴露并修复服务端 A2A 轮状态写回 bug（见架构演进史 09-23 条）。取消（`session.interrupt`）仍未验
+- [x] **桌宠对接 E2E 收尾**（2026-10-01 用户确认：桌宠已 OK）：① 接单即 ack ② WS 通配订阅 ③ web 通配兼容——均验证通过
+- [x] **V2 opencode 全链路 OK**（2026-10-01 用户确认：v2 opencode 已 OK）——心跳/前台注入/后台任务/监控/权限应答实测通过；V2 提问（form）应答仍等官方补 ctx 能力（只上报）
+- [x] **飞书渠道 OK**（2026-10-01 用户确认）——时间线/简报/权限卡/监控同步实测通过
+- [x] **微信渠道 OK**（2026-10-01 用户确认）——真机 E2E（2026-09-20）+ 后续批次稳定运行
+- [ ] **重建镜像并部署**（把本轮所有服务端改动带上线）：多连接/去 4001 踢人、`with Session` 内不 await、SQLite WAL+池 30、`tasks/cancel` 与超时置 failed 漏 commit、`dispatchable` 离线派发策略 C、V2 插件与按版本分流的安装脚本、09-25 桌宠批次（双鉴权/派发可靠化/通配订阅，**已配合桌宠测试 OK**）、dsh 批次（permission_replies 按 agent_type 分派）、**长任务完成提醒**（from_workspace 必填 + AGENT_SWARM_NOTIFY_DELAY 复查链）。推送 `10.17.17.19:8082/agent-swarm:latest` 后从 dpanel 更新
+- [x] **其它机器重装插件**（2026-10-01 用户确认）：V2 插件 Windows/Linux 均已实测 OK
 - [ ] **V2 后台续聊 E2E**：同 caller 连发两单，确认第二单复用 `.agent_swarm/sessions.json` 的会话（plugin.log 见 resume）
-- [ ] **V2 5 条命令交互验证**：`/swarm-mode`、`/swarm-monitor`、`/swarm-remove|enable|disable` 在 TUI 里真按一遍（目前只验证了加载与注册）
-- [ ] **ps1 安装脚本 Windows 实测**：只做了 BOM/括号静态检查，未在 Windows 跑过 V2 分支
+- [ ] **V2 命令交互验证**：`/swarm-mode`、`/swarm-remove|enable|disable` 在 TUI 里真按一遍（目前只验证了加载与注册；`/swarm-monitor` 已移除——监控常开无开关）
+- [x] **ps1 安装脚本 Windows 实测**（2026-10-01 用户确认已跑过；install-deepseek.ps1 双 BOM 已修）
 - [ ] **V2 提问（form）支持**：server 插件 ctx 无 `session.form`——先按兼容 bug 反馈 opencode，官方补上后接应答（当前只上报）
 
-- [ ] **nexus-feishu**（下一个功能，用户已排期）：飞书渠道接入中枢，复用 A2A 下发/事件流/应答链路（caller=nexus-feishu）
 - [ ] **后台会话续聊 E2E（opencode 侧）**：同 caller（如 nexus-web）连发两个任务，验证第二个任务复用 `.agent_swarm/sessions.json` 里记录的会话（plugin.log 应见 `resume ses_`），且对话上下文延续
 - [ ] **后台任务独立会话在中枢页无区分展示**：后台任务（A2A-xxx 会话）与前台监控轮在时间线上无视觉区分；task 的 session_id 上报后工作区表"当前会话"列刷新未验证
-- [ ] 真实 opencode 前台注入权限应答 E2E：web 下发 → TUI 前台注入 → 权限应答 → artifact 回传（**A2A 轮权限应答 2026-09-23 已验证通过**；剩余未验：提问 question/form 应答——V2 server 插件无 session.form 只上报，见上面 form 待办）
+- [ ] **dsh 全链路 E2E 补验**：本机已验（监控/权限 waterfall/完成提醒），线上部署后需在真实 dsh 环境再过一遍（心跳上线/任务执行/权限远程应答/简报）
 
 ### 备忘
 
-- [ ] a2a-inspector 互操作验证（规范符合性快检，可选）
+- [ ] **aware datetime 迁移（后续单独立项）**：sqlmodel ≥0.0.45 的 `UTCDateTime` 是官方方向——要求 aware datetime、读取强制返回 UTC aware（`+00:00` 尾巴）。当前锁 `<0.0.45` 规避。迁移时全链路一起动：`models.utcnow()` 保留 tzinfo、各模型时间列注解、`init_db` 存量回填、API 序列化格式（`+00:00` vs `Z`，web/插件/渠道解析处全要过一遍）、AGENTS.md 的"UTC naive"约定更新。改动面大，勿顺手做
+- [ ] **依赖锁文件（防同类事故）**：`requirements.txt` 全 `>=` 不锁版本，本次 sqlmodel 0.0.45 行为变更是直接教训。建议生成锁文件（`pip freeze` 顶格或 `uv pip compile`）+ 镜像构建走锁文件；升级依赖改为显式改动+容器内冒烟验证（起服务后调一次 heartbeat）再推镜像
+- [ ] **a2a-inspector 互操作验证（规范符合性快检，可选）**
 - [ ] nas_brain 工作区 ID：CZBLEoPszNwLWpA2J4auGA（Windows 机 nas_brain 目录）；XYaR4TdtGqdqoAEW9vNn8g（Linux 机旧记录可能已失效，以 web 工作区页为准）
 - [ ] npm install 慢（~40s）：可把 @opencode-ai/* 设为 peerDependencies
 - [ ] 微信产物文件 item（iLink type-2）真机渲染未验证：`server/weixin/file_push.py` 目前走官方文件 item，失败降级文本链接——真机发一个产物确认普通微信客户端能收文件

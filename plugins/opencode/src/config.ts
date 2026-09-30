@@ -47,7 +47,7 @@ export function loadConfig(): ExtendedSwarmConfig | null {
           : "foreground",
     backgroundCommand:
       (globalCfg.backgroundCommand as string) ?? (localCfg.backgroundCommand as string) ?? process.env.AGENT_SWARM_BG_CMD ?? "auto",
-    // monitor 未配置时默认开；显式 false 才关（/swarm-monitor 写 boolean）
+    // monitor 未配置时默认开（常开语义；/swarm-monitor 命令已移除）
     monitor: (globalCfg.monitor as boolean | undefined) ?? (localCfg.monitor as boolean | undefined) ?? true,
   }
   if (!cfg.apiKey) return null

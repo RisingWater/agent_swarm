@@ -1,0 +1,12 @@
+# agent_swarm 插件 patch 层：把本 bundle 的插件插进 profile。
+# 安装：dsh plugin --profile <name> add <本目录>（bundle 路径安装，免构建）
+# 插件入口 main = index.js（由 src/*.ts 编译或直接以 tsx 运行均可）。
+#
+# 注意：本文件会被 plugin-manager 安装期校验解析（js-yaml 默认 schema，
+# 桌面版 0.2.0-rc.2 不认 !!js 表达式）——**禁止在本文件使用 !!js**。
+# agent_swarm MCP（mcp__agent-swarm__*，12 工具）由安装脚本把解析后的
+# 静态条目追加进 profile 用户 patch 层（cordis.patch.yml），见 install-deepseek.*。
+
+- insert:
+    - id: agent-swarm
+      name: dsh-agent-swarm-plugin

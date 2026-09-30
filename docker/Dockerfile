@@ -33,8 +33,11 @@ WORKDIR /app
 # 依赖先行复制，充分利用构建缓存
 # 先升级 pip：镜像内置的旧版 pip 解析器在 fastapi/pydantic/starlette 交叉约束上会回溯死循环
 COPY requirements.txt .
-RUN pip install --no-cache-dir --upgrade pip \
-    && pip install --no-cache-dir -r requirements.txt
+# pip 直连国内镜像源（构建期不走代理；docker pull 的代理是 daemon 配置，与此无关）。
+# 换源：docker build --build-arg PIP_MIRROR=<url> ...
+ARG PIP_MIRROR=https://pypi.tuna.tsinghua.edu.cn/simple
+RUN pip install --no-cache-dir --upgrade pip -i "$PIP_MIRROR" \
+    && pip install --no-cache-dir -r requirements.txt -i "$PIP_MIRROR"
 
 # 服务端源码 + 安装脚本（/download/install.* 端点读取 deploy/ 下的脚本）
 COPY server/ ./server/

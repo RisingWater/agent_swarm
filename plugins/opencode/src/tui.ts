@@ -10,6 +10,7 @@
  *   /swarm-remove   自动删除工作区（仅离线可删）→ 清 WORKSPACE_ID（不弹窗）
  *   /swarm-enable   自动启用
  *   /swarm-disable  自动禁用
+ * （监控常开，无 /swarm-monitor 开关；关闭走飞书/微信渠道侧。）
  *
  * server 地址与 apikey 读 ~/.config/opencode/agent-swarm.json（与 server 插件共用配置）；
  * workspace ID 读/写项目根（api.state.path.worktree）的 .agent_swarm/workspace.md。
@@ -185,40 +186,6 @@ const tui: TuiPlugin = async (api) => {
                 api.ui.toast({
                   variant: "success",
                   message: `执行模式: ${MODE_LABEL[next]}（下一个 A2A 任务生效）`,
-                  duration: 5000,
-                })
-              } else {
-                toastErr("写入配置失败")
-              }
-              dialog?.clear()
-            },
-          }),
-        )
-      },
-    },
-    {
-      title: "Swarm: Monitor TUI Session",
-      value: "swarm.monitor",
-      description: "切换前台会话实时监控（对话轮次上报 web 中枢）",
-      slash: { name: "swarm-monitor" },
-      onSelect: (dialog) => {
-        const cfg = readCfg()
-        dialog?.replace(() =>
-          api.ui.DialogSelect({
-            title: "前台会话实时监控",
-            options: [
-              { title: `${cfg.monitor !== false ? "● " : "○ "}开启（TUI 对话实时上报中枢）`, value: "on" },
-              { title: `${cfg.monitor === false ? "● " : "○ "}关闭`, value: "off" },
-            ],
-            get current() {
-              return cfg.monitor === false ? "off" : "on"
-            },
-            onSelect: (opt) => {
-              const next = String(opt.value) === "on"
-              if (writeCfg({ ...readCfg(), monitor: next })) {
-                api.ui.toast({
-                  variant: "success",
-                  message: `实时监控: ${next ? "开启" : "关闭"}（立即生效）`,
                   duration: 5000,
                 })
               } else {

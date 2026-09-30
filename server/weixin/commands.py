@@ -327,12 +327,16 @@ async def _answer_pending(sess: gateway.UserSession, pending: dict, text: str) -
     kind = pending.get("kind", "permission")
     options = pending.get("options") or []
     if kind == "permission":
-        # 权限卡固定三选项（卡面 1=允许一次 2=始终允许 3=拒绝；options 字段为空，
-        # 编号必须按固定表解析——真机事故 2026-09-20：回 2 被当成自由文本归成 once）
-        idx = _parse_index(text, 3)
+        # 权限编号按 pending 里存的合法应答表解析（dsh 两项：1=允许一次 2=拒绝；
+        # opencode/claude 三项：+始终允许。卡面渲染与解析共用同一 replies 列表）
+        replies = pending.get("replies") or ["once", "always", "reject"]
+        idx = _parse_index(text, len(replies))
         if idx is None:
             idx = 0  # 非编号输入 = 同意一次
-        answer = ("once", "always", "reject")[idx]
+        answer = replies[idx]
+        # 历史卡片回的 "allow" 归一为 once（reply 端点同语义兜底）
+        if answer == "allow":
+            answer = "once"
     else:
         idx = _parse_index(text, len(options))
         answer = options[idx] if idx is not None else text
