@@ -3550,6 +3550,7 @@ function WorkspacesPage({ toast }: { toast: (m: string) => void }) {
   // 团队共享给我的工作区（只读）
   const [sharedList, setSharedList] = useState<SharedWorkspace[]>([])
   const [sharedDetail, setSharedDetail] = useState<SharedWorkspace | null>(null)
+  const [sharedQuery, setSharedQuery] = useState("")
 
   const refresh = useCallback(async () => {
     try {
@@ -3613,6 +3614,13 @@ function WorkspacesPage({ toast }: { toast: (m: string) => void }) {
   const filtered = q
     ? list.filter((w) => hit(w.id, q) || hit(w.name, q) || hit(w.path, q) || hit(w.purpose, q) || hit(w.capabilities, q) || hit(w.notes, q))
     : list
+
+  const sq = sharedQuery.trim().toLowerCase()
+  const sharedShown = sq
+    ? sharedList.filter((w) =>
+        hit(w.name, sq) || hit(w.owner?.username, sq) || hit(w.purpose, sq) ||
+        hit(w.agent_type, sq) || w.teams.some((t) => hit(t, sq)))
+    : sharedList
 
   return (
     <>
@@ -3688,7 +3696,10 @@ function WorkspacesPage({ toast }: { toast: (m: string) => void }) {
         团队共享给你的工作区：可被你的 agent 通过 a2a_call 调用（只拿最终答复），
         你看不到它的监控 / 产物 / 调用细节，也无法启用 / 禁用 / 删除。
       </p>
-      {sharedList.length ? (
+      {sharedList.length > 0 && (
+        <SearchBox value={sharedQuery} onChange={setSharedQuery} placeholder="搜索名称 / 所有者 / 团队 / 用途…" />
+      )}
+      {sharedShown.length ? (
         <table className="grid ws-grid">
           <thead>
             <tr>
@@ -3700,7 +3711,7 @@ function WorkspacesPage({ toast }: { toast: (m: string) => void }) {
             </tr>
           </thead>
           <tbody>
-            {sharedList.map((w) => (
+            {sharedShown.map((w) => (
               <tr key={w.id}>
                 <td className="strong">
                   <AgentTypeIcon type={w.agent_type} />
@@ -3726,7 +3737,11 @@ function WorkspacesPage({ toast }: { toast: (m: string) => void }) {
           </tbody>
         </table>
       ) : (
-        <p style={{ color: "var(--text-weak)" }}>[*] 暂无共享工作区——加入团队后，队友共享的工作区会出现在这里。</p>
+        <p style={{ color: "var(--text-weak)" }}>
+          {sharedList.length
+            ? `[*] 没有匹配「${sharedQuery.trim()}」的共享工作区`
+            : "[*] 暂无共享工作区——加入团队后，队友共享的工作区会出现在这里。"}
+        </p>
       )}
 
       {sharedDetail && (
