@@ -63,6 +63,26 @@ export const name = "agent-swarm"
  * 没有声明就不能访问 ctx.commands/ctx.agents（"cannot get property without inject"）。 */
 export const inject = ["commands", "agents"]
 
+/** 从 AssistantStreamRecord[] 提取累计 text / reasoning 文本。
+ *  记录是压缩打包形态：{type:"text-chunks"|"reasoning-chunks", texts:string[]}，
+ *  少量原始 {type:"chunk", chunk:{type:"text-delta"|"reasoning-delta", text}}。 */
+function streamText(stream: unknown): { text: string; reasoning: string } {
+  let text = ""
+  let reasoning = ""
+  if (!Array.isArray(stream)) return { text, reasoning }
+  for (const rec of stream) {
+    const t = String(rec?.type ?? "")
+    if (t === "text-chunks") text += (rec.texts ?? []).join("")
+    else if (t === "reasoning-chunks") reasoning += (rec.texts ?? []).join("")
+    else if (t === "chunk") {
+      const c = rec.chunk ?? {}
+      if (c.type === "text-delta") text += String(c.text ?? "")
+      else if (c.type === "reasoning-delta") reasoning += String(c.text ?? "")
+    }
+  }
+  return { text, reasoning }
+}
+
 /** 一个进行中的 A2A 任务轮（键 = taskId） */
 interface A2aRun {
   sessionId: string
@@ -240,17 +260,9 @@ function applyInner(ctx: any): void {
         break
       }
       case "assistant/attempt": {
-        // 持久流快照：stream[] 里 text-delta / reasoning-delta 累计值做全量快照上报
+        // 持久流快照：stream[] 里累计文本做全量快照上报
         log(`a2a ${taskId.slice(0, 8)}: attempt received (turn=${turn})`)
-        const stream = Array.isArray(data.stream) ? data.stream : []
-        let text = ""
-        let reasoning = ""
-        for (const rec of stream) {
-          if (rec?.type !== "chunk") continue
-          const c = rec.chunk ?? {}
-          if (c.type === "text-delta") text += String(c.text ?? "")
-          else if (c.type === "reasoning-delta") reasoning += String(c.text ?? "")
-        }
+        const { text, reasoning } = streamText(data.stream)
         if (text.length > run.lastTextLen) {
           run.lastTextLen = text.length
           a2aEmit(streamStatus(task, "text", `${taskId}-text`, text, "replace"))
@@ -296,15 +308,7 @@ function applyInner(ctx: any): void {
         if (t) run.finalText = t
         // 宿主根监听收不到 assistant/attempt（实测只有持久事件可达）——
         // 从 message 附带的 stream 快照补 reasoning/text 流式上报
-        const stream = Array.isArray(data.stream) ? data.stream : []
-        let text = ""
-        let reasoning = ""
-        for (const rec of stream) {
-          if (rec?.type !== "chunk") continue
-          const c = rec.chunk ?? {}
-          if (c.type === "text-delta") text += String(c.text ?? "")
-          else if (c.type === "reasoning-delta") reasoning += String(c.text ?? "")
-        }
+        const { text, reasoning } = streamText(data.stream)
         if (reasoning.length > run.lastReasoningLen) {
           run.lastReasoningLen = reasoning.length
           a2aEmit(streamStatus(task, "reasoning", `${taskId}-reasoning`, reasoning, "replace"))
@@ -408,14 +412,7 @@ function applyInner(ctx: any): void {
     switch (type) {
       case "assistant/attempt": {
         const stream = Array.isArray(data.stream) ? data.stream : []
-        let text = ""
-        let reasoning = ""
-        for (const rec of stream) {
-          if (rec?.type !== "chunk") continue
-          const c = rec.chunk ?? {}
-          if (c.type === "text-delta") text += String(c.text ?? "")
-          else if (c.type === "reasoning-delta") reasoning += String(c.text ?? "")
-        }
+        const { text, reasoning } = streamText(data.stream)
         log(`monitor ${round.roundKey}: attempt text=${text.length} reasoning=${reasoning.length}`)
         if (reasoning.trim()) monEmit(round.roundKey, sid, { type: "reasoning", partId: `mon-${sid.slice(0, 6)}-r`, text: reasoning })
         if (text.trim()) monEmit(round.roundKey, sid, { type: "text", partId: `mon-${sid.slice(0, 6)}-t`, text })
@@ -426,15 +423,7 @@ function applyInner(ctx: any): void {
         const t = blockText(data.message?.content) || blockText(data.content)
         if (t) round.finalText = t
         // 宿主根监听收不到 assistant/attempt——从 stream 快照补 thinking/text 帧
-        const stream = Array.isArray(data.stream) ? data.stream : []
-        let mtext = ""
-        let mreasoning = ""
-        for (const rec of stream) {
-          if (rec?.type !== "chunk") continue
-          const c = rec.chunk ?? {}
-          if (c.type === "text-delta") mtext += String(c.text ?? "")
-          else if (c.type === "reasoning-delta") mreasoning += String(c.text ?? "")
-        }
+        const { text: mtext, reasoning: mreasoning } = streamText(data.stream)
         if (mreasoning.trim()) monEmit(round.roundKey, sid, { type: "reasoning", partId: `mon-${sid.slice(0, 6)}-r`, text: mreasoning })
         if (mtext.trim()) monEmit(round.roundKey, sid, { type: "text", partId: `mon-${sid.slice(0, 6)}-t`, text: mtext })
         break
