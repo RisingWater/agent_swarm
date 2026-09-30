@@ -136,24 +136,12 @@ export function swarmCommands(ctx: any, opts: { directory: string; log: (msg: st
     const existing = readWorkspaceId(directory)
     if (existing) return { kind: "success", text: `当前目录已是工作区：${existing}（${workspaceFilePath(directory)}）` }
     const client = mcpClient(cfg)
-    let purposeText = purpose
-    if (!purposeText) {
-      // 未手动指定：先抓 AGENTS.md/README.md 首行占位，然后让会话 agent 读目录
-      // 总结覆盖（它有文件系统工具，比正则首行准）——没有描述文件时它自己看目录
-      for (const f of ["AGENTS.md", "README.md"]) {
-        const file = join(directory, f)
-        if (existsSync(file)) {
-          try {
-            const first = readFileSync(file, "utf-8").split("\n").find((l) => l.startsWith("# "))
-            if (first) { purposeText = first.replace(/^#\s*/, "").slice(0, 120); break }
-          } catch { /* ignore */ }
-        }
-      }
-      if (!purposeText) purposeText = `${basename(directory)}（dsh 工作区）`
-    }
+    // purpose 语义：用户手动传 = 直接落库（need_summary=false，不触发 agent 总结）；
+    // 未传 = 留空注册（服务端返回 need_summary=true），占位/总结交给会话 agent：
+    // 它读目录归纳后调 update_info 回填真实描述——比正则首行/占位文本准。
     const rsp = await client.callTool("workspace_add", {
       path: directory.replace(/\\/g, "/"),
-      purpose: purposeText,
+      purpose,
       name: basename(directory),
     })
     if (!rsp.ok) return { kind: "error", text: rsp.text }
