@@ -225,7 +225,7 @@ export function ActionBtn({ icon, children, onClick, disabled, danger, title }: 
       onClick={onClick}
     >
       {icon ? <span className="action-btn-icon">{icon}</span> : null}
-      {children}
+      {children != null ? <span className="action-btn-text">{children}</span> : null}
     </button>
   )
 }
@@ -239,6 +239,17 @@ function TrophyIcon({ size = 16 }: { size?: number }) {
       <path d="M7 4h10v5a5 5 0 0 1-10 0V4Z" />
       <path d="M17 4h3v2a3 3 0 0 1-3 3" />
       <path d="M7 4H4v2a3 3 0 0 0 3 3" />
+    </svg>
+  )
+}
+
+function NotebookIcon({ size = 16 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <rect x="4" y="3" width="16" height="18" rx="2" />
+      <path d="M8 3v18" />
+      <path d="M12 8h5M12 12h5" />
     </svg>
   )
 }
@@ -4355,6 +4366,8 @@ function PlannerPage({ toast }: { toast: (m: string) => void }) {
   const [busy, setBusy] = useState(false)
   /** 任务树里被折叠的节点 id 集合 */
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
+  /** 工作区 id → 名字（把任务的 assigned_agent 显示成名字而非 id） */
+  const [wsName, setWsName] = useState<Record<string, string>>({})
 
   // 新建/编辑目标表单
   const [form, setForm] = useState<{ goal?: PlannerGoal } | null>(null)
@@ -4368,7 +4381,12 @@ function PlannerPage({ toast }: { toast: (m: string) => void }) {
   const [noteText, setNoteText] = useState("")
 
   const refreshList = useCallback(async () => {
-    try { setList((await api.workspaces()).filter((w) => w.role === "planner")) } catch { /* 静默 */ }
+    try {
+      const [mine, shared] = await Promise.all([api.workspaces(), api.sharedWorkspaces()])
+      setList(mine.filter((w) => w.role === "planner"))
+      // 自有 + 团队共享工作区的 id → 名字（任务 assigned_agent 展示用）
+      setWsName(Object.fromEntries([...mine, ...shared.workspaces].map((w) => [w.id, w.name])))
+    } catch { /* 静默 */ }
   }, [])
   useEffect(() => {
     refreshList()
@@ -4451,6 +4469,9 @@ function PlannerPage({ toast }: { toast: (m: string) => void }) {
   const goals = state?.goals ?? []
   const goal = goals.find((g) => g.id === goalId)
   const goalTasks = (state?.tasks ?? []).filter((t) => t.goal_id === goalId)
+  // 任务 id → 标题（依赖列显示任务名字而非 id）
+  const taskTitle: Record<string, string> = {}
+  for (const t of state?.tasks ?? []) taskTitle[t.id] = t.title
   const online = !!state?.online
   /** 状态 → status-pill 类名（running/ready/pending 复用蓝色） */
   const pill = (k?: string) =>
@@ -4552,7 +4573,7 @@ function PlannerPage({ toast }: { toast: (m: string) => void }) {
                 <th style={{ width: 90 }}>优先级</th>
                 <th style={{ width: 120 }}>截止</th>
                 <th style={{ width: 70 }}>进度</th>
-                <th style={{ width: 330 }}>操作</th>
+                <th style={{ width: 430 }}>操作</th>
               </tr>
             </thead>
             <tbody>
@@ -4567,8 +4588,8 @@ function PlannerPage({ toast }: { toast: (m: string) => void }) {
                   <td>{g.priority || "-"}</td>
                   <td style={{ fontSize: 12, color: "var(--text-weak)" }}>{g.deadline || "-"}</td>
                   <td style={{ fontSize: 12 }}>{g.progress ? `${g.progress.done}/${g.progress.total}` : "-"}</td>
-                  <td onClick={(e) => e.stopPropagation()}>
-                    <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                  <td onClick={(e) => e.stopPropagation()} style={{ whiteSpace: "nowrap" }}>
+                    <div style={{ display: "flex", gap: 4, flexWrap: "nowrap" }}>
                       <ActionBtn icon={<BoltIcon />} disabled={busy || !online} title="催促规划器 agent 决策"
                         onClick={() => runOp("goal.nudge", { goal_id: g.id }, "已催促规划器")}>催促</ActionBtn>
                       <ActionBtn icon={<CheckIcon />} disabled={busy || !online} title="审批通过拆解，通知 agent 开始派发"
@@ -4592,7 +4613,10 @@ function PlannerPage({ toast }: { toast: (m: string) => void }) {
 
           {goal && (
             <>
-              <h3 style={{ margin: "20px 0 8px" }}>任务树：{goal.title}</h3>
+              <h3 className="planner-h3" style={{ margin: "20px 0 8px" }}>
+                <NotebookIcon />
+                任务树：{goal.title}
+              </h3>
               <table className="grid">
                 <thead>
                   <tr>
@@ -4629,8 +4653,12 @@ function PlannerPage({ toast }: { toast: (m: string) => void }) {
                         ) : null}
                       </td>
                       <td><span className={pill(t.status)}>{t.status || "-"}</span></td>
-                      <td style={{ fontSize: 12, color: "var(--text-weak)" }}>{(t.depends_on ?? []).join("、") || "-"}</td>
-                      <td style={{ fontSize: 12, color: "var(--text-weak)" }}>{t.assigned_agent || "-"}</td>
+                      <td style={{ fontSize: 12, color: "var(--text-weak)" }}>
+                        {(t.depends_on ?? []).map((d) => taskTitle[d] || d).join("、") || "-"}
+                      </td>
+                      <td style={{ fontSize: 12, color: "var(--text-weak)" }} title={t.assigned_agent || undefined}>
+                        {t.assigned_agent ? (wsName[t.assigned_agent] || t.assigned_agent) : "-"}
+                      </td>
                       <td style={{ fontSize: 12, color: "var(--text-weak)" }}>{t.acceptance_type || "-"}</td>
                       <td>
                         {t.acceptance_type === "manual" && t.status !== "done" ? (

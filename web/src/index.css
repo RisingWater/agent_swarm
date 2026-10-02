@@ -1290,6 +1290,7 @@ a.link:hover {
 .nexus-picker {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;  /* 下拉框 / 在线标志 / 操作按钮同一水平线居中对齐 */
   gap: 8px;
   margin: 14px 0 18px;
 }
@@ -2906,6 +2907,20 @@ table.ws-grid th {
 .action-btn-icon {
   display: inline-flex;
   align-items: center;
+  height: 16px;
+}
+
+/* svg 设为块级，避免 inline 基线在图标下方留缝 */
+.action-btn-icon svg {
+  display: block;
+}
+
+/* 文字与图标同高同中心，修正"文字偏高" */
+.action-btn-text {
+  display: inline-flex;
+  align-items: center;
+  height: 16px;
+  line-height: 16px;
 }
 
 .action-btn-danger {
