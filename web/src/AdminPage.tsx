@@ -3,6 +3,21 @@ import { useCallback, useEffect, useState } from "react"
 import { adminApi, type AdminStats, type AdminUser, type AdminWorkspace, type AdminCall } from "./api"
 import { copyText } from "./copy"
 import { Btn, Modal, NexusWorkspaceSelect, SearchBox } from "./App"
+import { useI18n, type Lang } from "./i18n"
+
+/** 顶栏中英文切换（与主站 `.lang-switch` 视效一致；AdminPage 也在 LangProvider 内渲染）。 */
+function LangSwitch() {
+  const { lang, setLang } = useI18n()
+  const pick = (l: Lang) => () => setLang(l)
+  return (
+    <span className="lang-switch" role="group" aria-label="Language / 语言">
+      <button type="button" className={lang === "zh" ? "on" : ""} aria-pressed={lang === "zh"}
+        title="中文" onClick={pick("zh")}>中</button>
+      <button type="button" className={lang === "en" ? "on" : ""} aria-pressed={lang === "en"}
+        title="English" onClick={pick("en")}>EN</button>
+    </span>
+  )
+}
 
 function fmtDate(iso: string): string {
   return iso.slice(0, 10)
@@ -13,13 +28,13 @@ function hit(haystack: unknown, q: string): boolean {
   return String(haystack ?? "").toLowerCase().includes(q.trim().toLowerCase())
 }
 
-function statusBadge(s: string) {
-  if (s === "completed") return <span>✅ 完成</span>
-  if (s === "failed") return <span>❌ 失败</span>
-  if (s === "canceled") return <span>🚫 取消</span>
-  if (s === "input-required") return <span>⏸ 待输入</span>
-  if (s === "working") return <span>🔄 执行中</span>
-  return <span>⏳ 排队</span>
+function statusBadge(s: string, t: (zh: string, en: string) => string) {
+  if (s === "completed") return <span>✅ {t("完成", "completed")}</span>
+  if (s === "failed") return <span>❌ {t("失败", "failed")}</span>
+  if (s === "canceled") return <span>🚫 {t("取消", "canceled")}</span>
+  if (s === "input-required") return <span>⏸ {t("待输入", "input-required")}</span>
+  if (s === "working") return <span>🔄 {t("执行中", "working")}</span>
+  return <span>⏳ {t("排队", "queued")}</span>
 }
 
 /** 近 30 天指令折线（内联 SVG，零依赖） */
@@ -65,12 +80,13 @@ function DailyChart({ data }: { data: { date: string; count: number }[] }) {
 }
 
 function AdminLogin({ toast, onSuccess }: { toast: (m: string) => void; onSuccess: () => void }) {
+  const { t } = useI18n()
   const [username, setUsername] = useState("")
   const [password, setPassword] = useState("")
   const [loading, setLoading] = useState(false)
 
   const submit = async () => {
-    if (!username || !password) return toast("请填写完整")
+    if (!username || !password) return toast(t("请填写完整", "Please fill in all fields"))
     setLoading(true)
     try {
       await adminApi.login(username, password)
@@ -85,14 +101,15 @@ function AdminLogin({ toast, onSuccess }: { toast: (m: string) => void; onSucces
   return (
     <div className="admin-login-page">
       <div className="admin-login-card" style={{ maxWidth: 360 }}>
+        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 4 }}><LangSwitch /></div>
         <Logo size={30} />
-        <h2 style={{ margin: "10px 0 4px" }}>后台管理</h2>
+        <h2 style={{ margin: "10px 0 4px" }}>{t("后台管理", "Admin")}</h2>
         <p style={{ color: "var(--text-weak)", fontSize: 13, margin: "0 0 18px" }}>
-          agent_swarm 管理控制台（独立登录）
+          {t("agent_swarm 管理控制台（独立登录）", "agent_swarm admin console (separate login)")}
         </p>
         <input
           className=""
-          placeholder="管理员用户名"
+          placeholder={t("管理员用户名", "Admin username")}
           value={username}
           onChange={(e) => setUsername(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && submit()}
@@ -100,13 +117,13 @@ function AdminLogin({ toast, onSuccess }: { toast: (m: string) => void; onSucces
         <input
           className=""
           type="password"
-          placeholder="密码"
+          placeholder={t("密码", "Password")}
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && submit()}
         />
         <button className="btn btn-primary" disabled={loading} onClick={submit} style={{ width: "100%" }}>
-          {loading ? "登录中…" : "登录"}
+          {loading ? t("登录中…", "Logging in…") : t("登录", "Log in")}
         </button>
       </div>
     </div>
@@ -124,6 +141,7 @@ function StatCard({ label, value, sub }: { label: string; value: string | number
 }
 
 function PanelPage({ toast, onLogout }: { toast: (m: string) => void; onLogout: () => void }) {
+  const { t } = useI18n()
   const [tab, setTab] = useState<"stats" | "users" | "workspaces" | "calls">("stats")
   const [stats, setStats] = useState<AdminStats | null>(null)
   const [users, setUsers] = useState<AdminUser[]>([])
@@ -159,43 +177,44 @@ function PanelPage({ toast, onLogout }: { toast: (m: string) => void; onLogout: 
   return (
     <>
       <header className="topnav">
-        <a className="topnav-logo" href="#/admin" onClick={(e) => e.preventDefault()} title="后台管理">
+        <a className="topnav-logo" href="#/admin" onClick={(e) => e.preventDefault()} title={t("后台管理", "Admin")}>
           <Logo />
-          <b style={{ fontSize: 14 }}>后台管理</b>
+          <b style={{ fontSize: 14 }}>{t("后台管理", "Admin")}</b>
         </a>
         <nav className="topnav-links">
-          <a className={tab === "stats" ? "active" : ""} onClick={() => setTab("stats")}>面板</a>
-          <a className={tab === "users" ? "active" : ""} onClick={() => setTab("users")}>用户</a>
-          <a className={tab === "workspaces" ? "active" : ""} onClick={() => setTab("workspaces")}>工作区</a>
-          <a className={tab === "calls" ? "active" : ""} onClick={() => setTab("calls")}>调用记录</a>
+          <a className={tab === "stats" ? "active" : ""} onClick={() => setTab("stats")}>{t("面板", "Dashboard")}</a>
+          <a className={tab === "users" ? "active" : ""} onClick={() => setTab("users")}>{t("用户", "Users")}</a>
+          <a className={tab === "workspaces" ? "active" : ""} onClick={() => setTab("workspaces")}>{t("工作区", "Workspaces")}</a>
+          <a className={tab === "calls" ? "active" : ""} onClick={() => setTab("calls")}>{t("调用记录", "Calls")}</a>
+          <LangSwitch />
           <a style={{ color: "var(--text-weak)" }}
-            onClick={() => { adminApi.logout(); onLogout() }}>退出登录</a>
+            onClick={() => { adminApi.logout(); onLogout() }}>{t("退出登录", "Log out")}</a>
         </nav>
       </header>
       <main className="page">
         {tab === "stats" && (
           <>
-            <p className="section-label">[ 面板 ]</p>
+            <p className="section-label">{t("[ 面板 ]", "[ Dashboard ]")}</p>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14, marginBottom: 22 }}>
-              <StatCard label="用户" value={stats?.users ?? "…"} />
-              <StatCard label="在线工作区" value={stats?.workspaces_online ?? "…"}
-                sub={`共 ${stats?.workspaces_total ?? 0} 个`} />
-              <StatCard label="指令总数" value={stats?.tasks_total ?? "…"} />
+              <StatCard label={t("用户", "Users")} value={stats?.users ?? "…"} />
+              <StatCard label={t("在线工作区", "Online workspaces")} value={stats?.workspaces_online ?? "…"}
+                sub={t(`共 ${stats?.workspaces_total ?? 0} 个`, `${stats?.workspaces_total ?? 0} total`)} />
+              <StatCard label={t("指令总数", "Total tasks")} value={stats?.tasks_total ?? "…"} />
             </div>
-            <p className="section-label">[ 近 30 天每日指令 ]</p>
+            <p className="section-label">{t("[ 近 30 天每日指令 ]", "[ Tasks per day, last 30 days ]")}</p>
             <div style={{ border: "1px solid var(--border)", borderRadius: 8, padding: 14, background: "var(--bg)" }}>
-              {stats ? <DailyChart data={stats.daily_tasks} /> : <p>loading…</p>}
+              {stats ? <DailyChart data={stats.daily_tasks} /> : <p>{t("加载中…", "loading…")}</p>}
             </div>
           </>
         )}
         {tab === "users" && (
           <>
-            <p className="section-label">[ 用户 ]</p>
+            <p className="section-label">{t("[ 用户 ]", "[ Users ]")}</p>
             <div className="admin-toolbar">
-              <SearchBox value={userQuery} onChange={setUserQuery} placeholder="搜索用户名 / 飞书 ID…" />
+              <SearchBox value={userQuery} onChange={setUserQuery} placeholder={t("搜索用户名 / 飞书 ID…", "Search username / Feishu ID…")} />
             </div>
             <table className="admin-table">
-              <thead><tr><th>用户名</th><th>创建时间</th><th>绑定飞书 ID</th><th></th></tr></thead>
+              <thead><tr><th>{t("用户名", "Username")}</th><th>{t("创建时间", "Created")}</th><th>{t("绑定飞书 ID", "Bound Feishu ID")}</th><th></th></tr></thead>
               <tbody>
                 {users.filter((u) =>
                   hit(u.username, userQuery) || u.feishu_ids.some((f) => hit(f, userQuery)),
@@ -212,7 +231,7 @@ function PanelPage({ toast, onLogout }: { toast: (m: string) => void; onLogout: 
                         ))
                         : <span style={{ color: "var(--text-weak)" }}>—</span>}
                     </td>
-                    <td><Btn size="sm" onClick={() => doReset(u)}>重置密码</Btn></td>
+                    <td><Btn size="sm" onClick={() => doReset(u)}>{t("重置密码", "Reset password")}</Btn></td>
                   </tr>
                 ))}
               </tbody>
@@ -221,13 +240,13 @@ function PanelPage({ toast, onLogout }: { toast: (m: string) => void; onLogout: 
         )}
         {tab === "workspaces" && (
           <>
-            <p className="section-label">[ 工作区 ]</p>
+            <p className="section-label">{t("[ 工作区 ]", "[ Workspaces ]")}</p>
             <div className="admin-toolbar">
-              <SearchBox value={wsQuery} onChange={setWsQuery} placeholder="搜索 ID / 名字 / 归属用户 / 用途 / 会话…" />
+              <SearchBox value={wsQuery} onChange={setWsQuery} placeholder={t("搜索 ID / 名字 / 归属用户 / 用途 / 会话…", "Search ID / name / owner / purpose / session…")} />
             </div>
             <table className="admin-table">
               <thead>
-                <tr><th>ID</th><th>名字</th><th>归属用户</th><th>用途</th><th>会话</th><th>状态</th><th>24h 调用</th></tr>
+                <tr><th>ID</th><th>{t("名字", "Name")}</th><th>{t("归属用户", "Owner")}</th><th>{t("用途", "Purpose")}</th><th>{t("会话", "Session")}</th><th>{t("状态", "Status")}</th><th>{t("24h 调用", "Calls (24h)")}</th></tr>
               </thead>
               <tbody>
                 {workspaces.filter((w) =>
@@ -246,7 +265,7 @@ function PanelPage({ toast, onLogout }: { toast: (m: string) => void; onLogout: 
                         ? w.session_title.slice(0, 24) + (w.session_title.length > 24 ? "…" : "")
                         : "—"}
                     </td>
-                    <td>{w.status === "disabled" ? <span>🚫 禁用</span> : w.online ? <span>🟢 在线</span> : <span>⚪ 离线</span>}</td>
+                    <td>{w.status === "disabled" ? <span>🚫 {t("禁用", "disabled")}</span> : w.online ? <span>🟢 {t("在线", "online")}</span> : <span>⚪ {t("离线", "offline")}</span>}</td>
                     <td>{w.calls_24h}</td>
                   </tr>
                 ))}
@@ -256,7 +275,7 @@ function PanelPage({ toast, onLogout }: { toast: (m: string) => void; onLogout: 
         )}
         {tab === "calls" && (
           <>
-            <p className="section-label">[ 调用记录 ]</p>
+            <p className="section-label">{t("[ 调用记录 ]", "[ Calls ]")}</p>
             <div className="admin-toolbar">
               <NexusWorkspaceSelect
                 list={workspaces.map((w) => ({ id: w.id, name: w.name, path: w.path, agent_type: w.agent_type, owner: w.owner }))}
@@ -264,12 +283,12 @@ function PanelPage({ toast, onLogout }: { toast: (m: string) => void; onLogout: 
                 onChange={setCallWs}
                 showOwner
               />
-              {callWs && <Btn size="sm" onClick={() => setCallWs("")}>全部工作区</Btn>}
-              <SearchBox value={callQuery} onChange={setCallQuery} placeholder="搜索 ID / 目标 / 发起方 / 内容…" />
+              {callWs && <Btn size="sm" onClick={() => setCallWs("")}>{t("全部工作区", "All workspaces")}</Btn>}
+              <SearchBox value={callQuery} onChange={setCallQuery} placeholder={t("搜索 ID / 目标 / 发起方 / 内容…", "Search ID / target / caller / content…")} />
             </div>
             <table className="admin-table">
               <thead>
-                <tr><th>ID</th><th>发起方</th><th>目标</th><th>归属</th><th>指令</th><th>结果</th><th>状态</th><th>时间</th></tr>
+                <tr><th>ID</th><th>{t("发起方", "Caller")}</th><th>{t("目标", "Target")}</th><th>{t("归属", "Owner")}</th><th>{t("指令", "Instruction")}</th><th>{t("结果", "Result")}</th><th>{t("状态", "Status")}</th><th>{t("时间", "Time")}</th></tr>
               </thead>
               <tbody>
                 {calls.filter((c) =>
@@ -280,10 +299,10 @@ function PanelPage({ toast, onLogout }: { toast: (m: string) => void; onLogout: 
                   <tr key={c.id}>
                     <td title={c.id} style={{ fontSize: 12 }}>{c.id.slice(0, 10)}…</td>
                     <td style={{ fontSize: 12 }}>
-                      {c.monitor ? <span title="前台监控轮">👀 {c.from_workspace || c.target} (monitor)</span>
+                      {c.monitor ? <span title={t("前台监控轮", "Foreground monitor round")}>👀 {c.from_workspace || c.target} (monitor)</span>
                         : c.from_workspace || (c.external_url ? `🔗 ${c.external_url.slice(0, 28)}…` : c.caller || "—")}
                     </td>
-                    <td style={{ fontSize: 12 }}>{c.target || (c.external_url ? "🔗 外部" : "—")}</td>
+                    <td style={{ fontSize: 12 }}>{c.target || (c.external_url ? `🔗 ${t("外部", "external")}` : "—")}</td>
                     <td style={{ fontSize: 12 }}>{c.owner || "—"}</td>
                     <td style={{ maxWidth: 220, fontSize: 12 }} title={c.instruction}>
                       {c.instruction ? (c.instruction.length > 40 ? c.instruction.slice(0, 40) + "…" : c.instruction) : "—"}
@@ -295,7 +314,7 @@ function PanelPage({ toast, onLogout }: { toast: (m: string) => void; onLogout: 
                           ? (c.result.length > 40 ? c.result.slice(0, 40) + "…" : c.result)
                           : "—"}
                     </td>
-                    <td style={{ fontSize: 12 }}>{statusBadge(c.status)}</td>
+                    <td style={{ fontSize: 12 }}>{statusBadge(c.status, t)}</td>
                     <td style={{ fontSize: 12, whiteSpace: "nowrap" }}>{fmtDate(c.created_at)}</td>
                   </tr>
                 ))}
@@ -304,18 +323,19 @@ function PanelPage({ toast, onLogout }: { toast: (m: string) => void; onLogout: 
           </>
         )}
         {resetPwd && (
-          <Modal onClose={() => setResetPwd(null)} title="密码已重置">
+          <Modal onClose={() => setResetPwd(null)} title={t("密码已重置", "Password reset")}>
             <p style={{ fontSize: 13 }}>
-              用户 <b>{resetPwd.user}</b> 的新密码：
+              {t("用户", "User")} <b>{resetPwd.user}</b> {t("的新密码：", "has a new password:")}
             </p>
             <div className="keyrow">
               <div className="keybox" style={{ userSelect: "all" }}>{resetPwd.password}</div>
-              <Btn variant="icon" title="copy" onClick={async () => {
-                toast(await copyText(resetPwd.password) ? "已复制" : "复制失败")
+              <Btn variant="icon" title={t("复制", "copy")} onClick={async () => {
+                toast(await copyText(resetPwd.password) ? t("已复制", "Copied") : t("复制失败", "Copy failed"))
               }}>⧉</Btn>
             </div>
             <p style={{ color: "var(--text-weak)", fontSize: 12, marginTop: 10 }}>
-              只展示这一次，请立即转告用户。API Key 不受影响（agent 连接不断开）。
+              {t("只展示这一次，请立即转告用户。API Key 不受影响（agent 连接不断开）。",
+                "Shown only once — tell the user right away. The API Key is unaffected (agents stay connected).")}
             </p>
           </Modal>
         )}
