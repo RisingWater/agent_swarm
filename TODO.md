@@ -153,6 +153,15 @@
 - [x] 测试 `test_planner_goal_lifecycle_ops`（archive/activate/delete 三个 op 原样下发）；全套 93 例通过、web build 通过
 - [x] 文档：requirements §15、README/README_CN、web 文档页、AGENTS.md
 
+### P12 规划器：目标字段 UI 适配（priority/deadline/criteria_confirmed，追加，2026-10-03）
+
+- [x] 优先级改**下拉 高/中/低**，提交整数（高=2/中=1/低=0）、新建默认「中」；列表映射回文案（未知回退原文）
+- [x] 截止可选：placeholder「不填则无截止」，列表空值显示「无截止」
+- [x] 成功标准旁显示 `criteria_confirmed` 徽标（1→「专家已确认」绿 / 0→「待专家确认」黄）；人工编辑成功标准有改动时下发 `criteria_confirmed=0`
+- [x] 类型：`PlannerGoal.priority: number|string`、`criteria_confirmed?: number`
+- [x] 测试：state 透传断言（priority 整数 2 / deadline "" / criteria_confirmed 1）；op payload 透传含整数优先级；全套通过、web build 通过
+- [x] 文档：requirements §15、README/README_CN、web 文档页
+
 ## 已完成（除注明外均已进 git）
 
 ### deepseek harness（dsh）全功能对齐 + 跨工作区长任务完成提醒（2026-09-30 ~ 10-01，E2E 实测）

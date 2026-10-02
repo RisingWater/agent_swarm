@@ -2082,7 +2082,7 @@ agent: (a2a_call) → 对方 TUI 实时出现任务 → 执行 → 结果自动�
             选中一个 planner 工作区后，页面管理它的<b>目标与任务树</b>：
           </p>
           <ul>
-            <li><b>目标</b>：新建 / 编辑 / 归档（标题、描述、优先级、截止、成功标准），列表显示状态、拆解审批徽标与进度</li>
+            <li><b>目标</b>：新建 / 编辑 / 归档（标题、描述、优先级下拉 高/中/低、截止可选、成功标准），列表显示状态/拆解审批徽标与进度；优先级提交为整数（高=2/中=1/低=0）、截止为空显示「无截止」、成功标准旁显示「专家已确认」/「待专家确认」徽标</li>
             <li><b>任务树</b>：选中目标后按依赖层级折叠 / 展开展示任务（状态 / 依赖 / 执行 agent / 验收）</li>
             <li><b>操作</b>：<code>催促</code>（让 agent 干活）、<code>通过拆解</code>（仅拆解状态为 <code>draft</code> 时出现）/ <code>重新拆解</code>（审批计划）、<code>通过</code> / <code>拒绝</code>（人工验收）、<code>归档</code>（<b>软隐藏</b>，保留数据、不参与调度，可 <code>激活</code> 恢复）/ <code>删除</code>（<b>硬删除，二次确认，不可恢复</b>，连同任务树 / 执行记录一起删除）；离线时全部禁用。目标列表上方有「隐藏已归档目标」复选框（默认勾选、cookie 记忆），取消勾选即可查看归档目标并「激活」/「删除」</li>
             <li><b>拆解审批</b>：目标的 <code>plan_status</code> 为 <code>draft</code>（草稿，待审批）/ <code>approved</code>（已通过）；draft 时任务树提示「待审批，通过后 agent 才会开始派发」，点 <code>通过拆解</code> 后才开始派发</li>
@@ -4459,12 +4459,17 @@ function PlannerPage({ toast }: { toast: (m: string) => void }) {
     } finally { setBusy(false) }
   }
 
+  /** 优先级选择值归一：core 约定 高=2 / 中=1 / 低=0；未知值回退「中」 */
+  const normPriority = (p?: number | string) => {
+    const s = String(p ?? "")
+    return s === "2" || s === "0" ? s : "1"
+  }
   const openCreate = () => {
-    setFTitle(""); setFDesc(""); setFPriority(""); setFDeadline(""); setFCriteria(""); setFExpert("")
+    setFTitle(""); setFDesc(""); setFPriority("1"); setFDeadline(""); setFCriteria(""); setFExpert("")
     setForm({})
   }
   const openEdit = (g: PlannerGoal) => {
-    setFTitle(g.title || ""); setFDesc(g.description || ""); setFPriority(g.priority || "")
+    setFTitle(g.title || ""); setFDesc(g.description || ""); setFPriority(normPriority(g.priority))
     setFDeadline(g.deadline || ""); setFCriteria(g.success_criteria || "")
     setFExpert(g.expert_workspace_id || "")  // 编辑态也允许改专家
     setForm({ goal: g })
@@ -4472,13 +4477,17 @@ function PlannerPage({ toast }: { toast: (m: string) => void }) {
   const submitForm = () => {
     if (!fTitle.trim()) { toast("请填写目标标题"); return }
     const payload: Record<string, unknown> = {
-      title: fTitle.trim(), description: fDesc.trim(), priority: fPriority.trim(),
-      deadline: fDeadline.trim(), success_criteria: fCriteria.trim(),
+      title: fTitle.trim(), description: fDesc.trim(),
+      priority: Number(fPriority),              // 高=2 / 中=1 / 低=0
+      deadline: fDeadline.trim(),               // 空串 = 无截止
+      success_criteria: fCriteria.trim(),
     }
     // 专家工作区：新建/编辑都可选；显式下发两个字段（空串 = 清除专家）
     payload.expert_workspace_id = fExpert
     payload.expert_name = fExpert ? (expertOptions.find((w) => w.id === fExpert)?.name || "") : ""
     if (form?.goal) {
+      // 人工改了成功标准 → 该标准回到「待专家确认」（未改则不动 criteria_confirmed）
+      if (fCriteria.trim() !== (form.goal.success_criteria || "")) payload.criteria_confirmed = 0
       runOp("goal.update", { goal_id: form.goal.id, ...payload }, "目标已更新")
     } else {
       runOp("goal.create", payload, "目标已创建")
@@ -4515,6 +4524,11 @@ function PlannerPage({ toast }: { toast: (m: string) => void }) {
   /** 验收类型展示文案：auto→自动验收 / manual→人工验收 / expert→专家验收点 */
   const acceptanceLabel = (a?: string) =>
     a === "auto" ? "自动验收" : a === "manual" ? "人工验收" : a === "expert" ? "专家验收点" : (a || "-")
+  /** 优先级数值 → 文案（高=2 / 中=1 / 低=0；未知回退原文） */
+  const priorityLabel = (p?: number | string) => {
+    const s = String(p ?? "")
+    return s === "2" ? "高" : s === "1" ? "中" : s === "0" ? "低" : (s || "-")
+  }
   /** 目标专家展示：优先 core 推的 expert_name，回退工作区名/ id */
   const expertLabel = (g: PlannerGoal) =>
     g.expert_name || (g.expert_workspace_id ? (wsName[g.expert_workspace_id] || g.expert_workspace_id) : "")
@@ -4637,7 +4651,16 @@ function PlannerPage({ toast }: { toast: (m: string) => void }) {
                         专家：{expertLabel(g)}
                       </div>
                     ) : null}
-                    {g.success_criteria ? <div style={{ fontSize: 12, color: "var(--text-weak)" }}>{g.success_criteria}</div> : null}
+                    {g.success_criteria ? (
+                      <div style={{ fontSize: 12, color: "var(--text-weak)", display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                        <span>{g.success_criteria}</span>
+                        {g.criteria_confirmed === 1 ? (
+                          <span className="status-pill done" title="成功标准已由专家确认">专家已确认</span>
+                        ) : (
+                          <span className="status-pill pending" title="成功标准待专家确认">待专家确认</span>
+                        )}
+                      </div>
+                    ) : null}
                   </td>
                   <td>
                     <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
@@ -4649,8 +4672,8 @@ function PlannerPage({ toast }: { toast: (m: string) => void }) {
                       )}
                     </div>
                   </td>
-                  <td>{g.priority || "-"}</td>
-                  <td style={{ fontSize: 12, color: "var(--text-weak)" }}>{g.deadline || "-"}</td>
+                  <td>{priorityLabel(g.priority)}</td>
+                  <td style={{ fontSize: 12, color: "var(--text-weak)" }}>{g.deadline || "无截止"}</td>
                   <td style={{ fontSize: 12 }}>{g.progress ? `${g.progress.done}/${g.progress.total}` : "-"}</td>
                   <td onClick={(e) => e.stopPropagation()} style={{ whiteSpace: "nowrap" }}>
                     <div style={{ display: "flex", gap: 4, flexWrap: "nowrap" }}>
@@ -4781,11 +4804,15 @@ function PlannerPage({ toast }: { toast: (m: string) => void }) {
             <div style={{ display: "flex", gap: 10 }}>
               <label style={{ display: "flex", flexDirection: "column", gap: 4, flex: 1 }}>
                 优先级
-                <input className="field" value={fPriority} onChange={(e) => setFPriority(e.target.value)} placeholder="high / medium / low" />
+                <select className="field" value={fPriority} onChange={(e) => setFPriority(e.target.value)}>
+                  <option value="2">高</option>
+                  <option value="1">中</option>
+                  <option value="0">低</option>
+                </select>
               </label>
               <label style={{ display: "flex", flexDirection: "column", gap: 4, flex: 1 }}>
-                截止
-                <input className="field" value={fDeadline} onChange={(e) => setFDeadline(e.target.value)} placeholder="YYYY-MM-DD" />
+                截止（可选）
+                <input className="field" value={fDeadline} onChange={(e) => setFDeadline(e.target.value)} placeholder="不填则无截止" />
               </label>
             </div>
             <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>

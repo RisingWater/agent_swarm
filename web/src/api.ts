@@ -134,9 +134,12 @@ export interface PlannerGoal {
   /** 专家工作区（有专家时任务树由专家拆解、含专家验收点） */
   expert_workspace_id?: string
   expert_name?: string
-  priority?: string
+  /** 优先级：高=2 / 中=1 / 低=0（core 约定） */
+  priority?: number | string
   deadline?: string
   success_criteria?: string
+  /** 成功标准是否经专家确认：1=已确认 / 0=待确认 */
+  criteria_confirmed?: number
   progress?: { done: number; total: number }
 }
 

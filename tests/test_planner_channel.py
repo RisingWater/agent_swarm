@@ -60,7 +60,8 @@ def test_planner_state_cache_and_op_roundtrip(client, ws):
             "updated_at": "2026-10-03T00:00:00Z",
             "goals": [{"id": "g1", "title": "目标一", "status": "planning",
                        "plan_status": "draft", "expert_workspace_id": "w-expert",
-                       "expert_name": "专家WS", "progress": {"done": 1, "total": 3}}],
+                       "expert_name": "专家WS", "priority": 2, "deadline": "",
+                       "criteria_confirmed": 1, "progress": {"done": 1, "total": 3}}],
             "tasks": [{"id": "t1", "goal_id": "g1", "title": "任务一",
                        "status": "pending", "depends_on": [], "acceptance_type": "manual"},
                       {"id": "t2", "goal_id": "g1", "title": "任务二",
@@ -78,6 +79,10 @@ def test_planner_state_cache_and_op_roundtrip(client, ws):
         # 专家工作区字段透传
         assert b["goals"][0]["expert_workspace_id"] == "w-expert"
         assert b["goals"][0]["expert_name"] == "专家WS"
+        # 优先级整数（高=2）、空截止、成功标准专家确认标记 透传
+        assert b["goals"][0]["priority"] == 2 and isinstance(b["goals"][0]["priority"], int)
+        assert b["goals"][0]["deadline"] == ""
+        assert b["goals"][0]["criteria_confirmed"] == 1
         # 专家验收点：acceptance_type=expert + status=waiting_expert 原样透传
         expert_task = next(t for t in b["tasks"] if t["id"] == "t2")
         assert expert_task["acceptance_type"] == "expert" and expert_task["status"] == "waiting_expert"
@@ -110,7 +115,8 @@ def test_planner_op_payload_passthrough(client, ws):
         assert wsc.receive_json()["type"] == "hello_ok"
         payload = {
             "title": "带专家的目标", "expert_workspace_id": "w-expert",
-            "expert_name": "专家WS", "priority": "high",
+            "expert_name": "专家WS", "priority": 2, "deadline": "",
+            "criteria_confirmed": 0,
         }
         r = client.post(f"/api/planner/{wid}/op", headers=_auth(),
                         json={"op": "goal.create", "payload": payload})
