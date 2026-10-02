@@ -128,7 +128,8 @@ def _apply_task_event(rc: RoundCards, event: dict) -> None:
         return
     # working 下的流式过程
     if ntype == "reasoning":
-        rc.ensure_thinking(str(meta.get("part_id", "r")), str(meta.get("text", "")))
+        rc.ensure_thinking(str(meta.get("part_id", "r")), str(meta.get("text", "")),
+                           str(meta.get("mode", "")))
     elif ntype == "tool":
         name = str(meta.get("tool", "") or "工具调用")
         st = str(meta.get("tool_state", "running"))
@@ -234,7 +235,9 @@ async def _on_monitor_event(workspace_id: str, payload: dict) -> None:
 
 def _apply_monitor_event(rc: RoundCards, round_key: str, mtype: str, payload: dict) -> None:
     if mtype == "reasoning":
-        rc.ensure_thinking(str(payload.get("partId") or "r"), str(payload.get("text", "")))
+        # 监控轮旧插件不带 mode → 空串走启发式拼接（见 RoundCards.ensure_thinking）
+        rc.ensure_thinking(str(payload.get("partId") or "r"), str(payload.get("text", "")),
+                           str(payload.get("mode", "")))
     elif mtype == "tool":
         name = str(payload.get("tool") or "工具调用")
         st = str(payload.get("toolState") or "")

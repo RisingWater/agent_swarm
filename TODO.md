@@ -203,6 +203,13 @@
 - [x] 前端「调用记录」：进行中（queued/working/input-required）行尾显示「中断」图标按钮（终态行仍是删除）+ 详情弹窗「中断任务」+ 二次确认弹窗；`api.cancelTask`
 - [x] 测试 `tests/test_nexus_cancel.py`（中断成功 / 终态 false / 422·401 / 非属主 404）；web build 通过；文档同步（requirements、AGENTS、web 文档页）
 
+### P18 飞书时间线：思考拼接 + 关打字机（追加，2026-10-03）
+
+- [x] `feishu/stream_card.py`：`RoundCards.ensure_thinking(part_id, text, mode)` —— reasoning 跨 part **拼成一张卡**（`append` 累积 / `replace` 覆盖该 part；监控轮无 mode 走前缀启发式），修复「只显示一段一段、结束才出全文」
+- [x] 时间线卡 `config.streaming_config`（`print_step=5000`/`print_frequency_ms=1`/`print_strategy=fast`）压掉飞书打字机（`streaming_mode` 必须保持 true，否则流式更新接口 300309）
+- [x] `feishu/bridge.py`：A2A 与监控两条 reasoning 路径都把 `mode` 传给 `ensure_thinking`
+- [x] 测试 `tests/test_feishu_stream_card.py`（拼接/覆盖/启发式/既有卡替换 + schema streaming_config）；全套 131 passed
+
 ## 已完成（除注明外均已进 git）
 
 ### deepseek harness（dsh）全功能对齐 + 跨工作区长任务完成提醒（2026-09-30 ~ 10-01，E2E 实测）

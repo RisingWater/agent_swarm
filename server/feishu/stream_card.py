@@ -3,7 +3,7 @@
 飞书卡片编辑会带"已编辑"时间显示，单卡反复重写体验差；时间线模式下一次轮次
 按事件顺序生成多张独立小卡：
 - 用户卡：提问确认（"收到，开始处理…"，无按钮）
-- 💭 思考过程卡：reasoning 快照实时刷新（partId 边界，一张）
+- 💭 思考过程卡：reasoning 跨 part 拼接成一张（append 累积 / replace 全量快照）
 - 工具卡：每个 callId 一张，标题=工具名，正文=命令/入参 + 输出，终态定格
 - 📝 处理中卡：过程性叙述文本（partId 边界）
 - 🤖 最终答复卡：idle/终态时才创建（保证时间线顺序），带终态 status
@@ -184,7 +184,19 @@ class TimelineCard:
             elements.append(actions)
         return {
             "schema": "2.0",
-            "config": {"streaming_mode": True, "wide_screen_mode": True},
+            "config": {
+                "streaming_mode": True,
+                # 关掉飞书打字机（2026-10-03 用户要求）：print_step 远大于卡片文本上限
+                # （_norm_text 截 2800），每次更新一次性渲染全部文本；print_strategy=fast
+                # 让未渲染的积压文本立即补全。streaming_mode 不能关——飞书的
+                # card_element.content 流式更新接口要求它为 true。
+                "streaming_config": {
+                    "print_frequency_ms": {"default": 1},
+                    "print_step": {"default": 5000},
+                    "print_strategy": "fast",
+                },
+                "wide_screen_mode": True,
+            },
             "header": {
                 "title": {"tag": "plain_text", "content": title[:72]},
                 "template": "blue",
@@ -369,7 +381,9 @@ class RoundCards:
         self.round_key = round_key
         self.user_card: TimelineCard | None = None
         self.thinking_card: TimelineCard | None = None
-        self.thinking_part = ""
+        # 思考过程跨 part 拼接：partId → 该 part 最新文本；order 保到达顺序
+        self.thinking_parts: dict[str, str] = {}
+        self.thinking_order: list[str] = []
         self.tool_cards: dict[str, TimelineCard] = {}
         self.trans_cards: dict[str, TimelineCard] = {}
         self.final_card: TimelineCard | None = None
@@ -401,16 +415,37 @@ class RoundCards:
             "buttons": [],
         })
 
-    def ensure_thinking(self, part_id: str, text: str) -> None:
+    def ensure_thinking(self, part_id: str, text: str, mode: str = "") -> None:
+        """💭 思考过程：把 reasoning 流**拼接**进同一张卡（不再一段一替换/一段一张）。
+
+        mode（A2A 事件 metadata 携带）："append"=delta 增量（拼接）；"replace"=全量
+        快照（覆盖该 part）。监控轮旧插件不带 mode，用启发式：新文本以旧文本为前缀
+        （或首次）→ 全量快照；否则视为增量片段拼接。
+        """
         if self.finalized or not text.strip():
             return
-        if self.thinking_card is not None and self.thinking_part == part_id:
-            self.thinking_card.replace_text(text)
+        prev = self.thinking_parts.get(part_id, "")
+        if mode == "append":
+            new = prev + text
+        elif mode == "replace":
+            new = text
+        elif not prev or text.startswith(prev):
+            new = text  # 无 mode：全量快照（首帧 / 累积片段已包含旧文本）
+        else:
+            new = prev + text  # 无 mode：增量片段，拼接
+        if part_id not in self.thinking_parts:
+            self.thinking_order.append(part_id)
+        self.thinking_parts[part_id] = new
+        joined = "\n\n".join(
+            self.thinking_parts[p] for p in self.thinking_order if self.thinking_parts.get(p)
+        )
+        if self.thinking_card is not None:
+            self.thinking_card.replace_text(joined)
             return
-        self._enqueue_create(f"think:{part_id}", {
+        self._enqueue_create("think", {
             "title": "💭 思考过程",
             "status": "",
-            "content": text,
+            "content": joined,
             "buttons": [_abort_button(self.round_key)],
         })
 
@@ -522,8 +557,7 @@ class RoundCards:
                 self.final_card = card
             elif key == "user":
                 self.user_card = card
-            elif key.startswith("think:"):
-                self.thinking_part = key.split(":", 1)[1]
+            elif key == "think":
                 self.thinking_card = card
             elif key.startswith("tool:"):
                 self.tool_cards[key.split(":", 1)[1]] = card
