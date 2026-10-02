@@ -18,6 +18,9 @@ PLUGIN_TGZ_CANDIDATES = [
 ]
 INSTALL_SH = PROJECT_ROOT / "deploy" / "install.sh"
 INSTALL_PS1 = PROJECT_ROOT / "deploy" / "install.ps1"
+# 规划核心服务（planner）一键安装脚本：克隆 agent_swarm_planner 到 ~/.agent_swarm/ 并安装
+PLANNER_INSTALL_SH = PROJECT_ROOT / "deploy" / "planner-install.sh"
+PLANNER_INSTALL_PS1 = PROJECT_ROOT / "deploy" / "planner-install.ps1"
 
 
 def _plugin_tgz() -> Path | None:
@@ -74,8 +77,32 @@ def _guess_base(request: Request) -> str:
     return f"{scheme}://{host}"
 
 
+def _render_script(path: Path, request: Request) -> str | None:
+    """读脚本并把 __SERVER_URL__ 替换为本次请求推断的平台地址。"""
+    if not path.exists():
+        return None
+    text = path.read_text(encoding="utf-8-sig")  # 容忍意外 BOM（irm|iex 场景不能带 BOM）
+    return text.replace("__SERVER_URL__", _server_base(request).rstrip("/"))
+
+
+async def planner_installer(request: Request) -> PlainTextResponse:
+    text = _render_script(PLANNER_INSTALL_SH, request)
+    if text is None:
+        return PlainTextResponse("planner-install.sh not found", 404)
+    return PlainTextResponse(text, media_type="application/x-sh")
+
+
+async def planner_installer_ps1(request: Request) -> Response:
+    text = _render_script(PLANNER_INSTALL_PS1, request)
+    if text is None:
+        return PlainTextResponse("planner-install.ps1 not found", 404)
+    return Response(content=text.encode("utf-8"), media_type="text/plain; charset=utf-8")
+
+
 routes = [
     Route("/download/plugin.tar.gz", plugin_tarball, methods=["GET"]),
     Route("/download/install.sh", installer, methods=["GET"]),
     Route("/download/install.ps1", installer_ps1, methods=["GET"]),
+    Route("/download/planner-install.sh", planner_installer, methods=["GET"]),
+    Route("/download/planner-install.ps1", planner_installer_ps1, methods=["GET"]),
 ]

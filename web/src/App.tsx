@@ -481,9 +481,6 @@ export default function App() {
   const [token, setToken] = useState(localStorage.getItem("swarm_token"))
   const [page, setPage] = useState<Page>("home")
   const [openTeamId, setOpenTeamId] = useState<string | null>(null)
-  // 是否拥有规划器工作区（role=planner）——没有就隐藏「规划器」入口
-  const [hasPlanner, setHasPlanner] = useState(false)
-
   // 后台管理：独立 hash 路由（#/admin），独立登录，不进主导航。
   // 注意 hooks 顺序：adminHash 判断必须在全部 hooks 声明之后（条件 return 会破坏 hooks 规则）
   const [adminHash, setAdminHash] = useState(window.location.hash === "#/admin")
@@ -492,29 +489,14 @@ export default function App() {
     window.addEventListener("hashchange", onHash)
     return () => window.removeEventListener("hashchange", onHash)
   }, [])
-  // 有规划器工作区时才显示「规划器」入口；登录态下每 60s 复查一次
-  useEffect(() => {
-    if (!token) { setHasPlanner(false); return }
-    let alive = true
-    const check = () =>
-      api.workspaces()
-        .then((ws) => { if (alive) setHasPlanner(ws.some((w) => w.role === "planner")) })
-        .catch(() => {})
-    check()
-    const t = setInterval(check, 60_000)
-    return () => { alive = false; clearInterval(t) }
-  }, [token])
-
   if (adminHash) return <AdminPage toast={toast} />
 
   const loggedIn = !!token
   const username = localStorage.getItem("swarm_user")
 
-  // 未登录：可见页面只有 首页/文档，受保护页面跳回首页；
-  // 没有规划器工作区时，「规划器」页也回退首页（入口已隐藏，防手滑/残留状态）
+  // 未登录：可见页面只有 首页/文档，受保护页面跳回首页
   const effectivePage: Page =
-    (!loggedIn && (page === "workspaces" || page === "calls" || page === "artifacts" || page === "account" || page === "nexus" || page === "teams" || page === "planner")) ||
-    (page === "planner" && !hasPlanner)
+    (!loggedIn && (page === "workspaces" || page === "calls" || page === "artifacts" || page === "account" || page === "nexus" || page === "teams" || page === "planner"))
       ? "home"
       : page
 
@@ -543,9 +525,7 @@ export default function App() {
             <>
               <a className={effectivePage === "nexus" ? "active" : ""} onClick={() => goto("nexus")}>中枢</a>
               <a className={effectivePage === "teams" ? "active" : ""} onClick={() => goto("teams")}>团队</a>
-              {hasPlanner && (
-                <a className={effectivePage === "planner" ? "active" : ""} onClick={() => goto("planner")}>规划器</a>
-              )}
+              <a className={effectivePage === "planner" ? "active" : ""} onClick={() => goto("planner")}>规划器</a>
               <a className={effectivePage === "workspaces" ? "active" : ""} onClick={() => goto("workspaces")}>工作区</a>
               <a className={effectivePage === "calls" ? "active" : ""} onClick={() => goto("calls")}>调用记录</a>
               <a className={effectivePage === "artifacts" ? "active" : ""} onClick={() => goto("artifacts")}>产物</a>
@@ -1849,16 +1829,19 @@ agent: (a2a_call) → 对方 TUI 实时出现任务 → 执行 → 结果自动�
           <p>
             正因为它不是一个普通 agent，接入方式也<b>特殊</b>：先安装并运行<b>规划核心服务</b>（见下方「安装与准备」），
             再在<b>该目录里</b>用专门的 <b><code>/swarm-add-planner</code></b> 命令注册——而不是普通的 <code>/swarm-add</code>；
-            注册后这个工作区就会被平台识别为<b>规划器工作区</b>，顶栏出现「规划器」入口。
+            注册后这个工作区就会被平台识别为<b>规划器工作区</b>。
           </p>
           <h3>安装与准备</h3>
           <ol>
             <li><b>环境</b>：Python ≥ 3.11，以及一个已装 agent-swarm 插件的 harness（opencode / claude / deepseek 任一）。</li>
             <li>
-              <b>获取并安装规划核心服务</b>：在其仓库根执行安装脚本——Linux/macOS：
-              <code>./deploy/install.sh</code>；Windows：
-              <code>.\deploy\install.ps1 -Server &lt;平台地址&gt; -ApiKey as_xxx</code>。
-              脚本会建虚拟环境、装依赖、写配置、建库，并可注册开机自启。
+              <b>获取并安装规划核心服务</b>：源码仓库
+              <a className="link" href="https://github.com/RisingWater/agent_swarm_planner"
+                target="_blank" rel="noreferrer">agent_swarm_planner</a>。
+              最省事的方式是在网页「规划器」页（还没有规划器工作区时）复制平台提供的<b>一键安装命令</b>——
+              它会克隆到 <code>~/.agent_swarm/agent_swarm_planner</code> 并自动安装。也可手动：克隆仓库后在其根目录执行
+              <code>./deploy/install.sh</code>（Windows：<code>.\deploy\install.ps1 -Server &lt;平台地址&gt; -ApiKey as_xxx</code>）。
+              安装会建虚拟环境、装依赖、写配置、建库，并可注册开机自启。
             </li>
             <li><b>自检与常驻</b>：<code>planner doctor</code> 自检；<code>planner serve</code> 前台运行；<code>planner service install</code> 注册为开机自启服务（<code>planner service status</code> 查看）。</li>
             <li><b>注册为规划器工作区</b>：在规划核心服务的目录启动 harness，输入 <code>/swarm-add-planner</code>（opencode / claude / deepseek 都支持；dsh 脚本化可用 <code>register.mjs --role planner</code>）。成功后网页出现「规划器」入口。</li>
@@ -4431,6 +4414,16 @@ function PlannerPage({ toast }: { toast: (m: string) => void }) {
   const [state, setState] = useState<PlannerState | null>(null)
   const [goalId, setGoalId] = useState<string>("")
   const [busy, setBusy] = useState(false)
+  /** 安装规划核心服务：平台分发的一键安装命令（无规划器工作区时展示） */
+  const [plat, setPlat] = useState<"sh" | "ps1">(/Win/i.test(navigator.platform) ? "ps1" : "sh")
+  const [me, setMe] = useState<(User & { api_key: string }) | null>(null)
+  useEffect(() => { api.me().then(setMe).catch(() => {}) }, [])
+  const plannerCmd =
+    plat === "sh"
+      ? `curl -fsSL ${pageOrigin}/download/planner-install.sh | bash -s -- --api-key ${me?.api_key || "你的apikey"}`
+      : `& ([scriptblock]::Create((irm ${pageOrigin}/download/planner-install.ps1))) -ApiKey ${me?.api_key || "你的apikey"}`
+  /** 工作区列表是否已加载完毕（首帧不闪「安装」面板） */
+  const [loaded, setLoaded] = useState(false)
   /** 待硬删除的目标（二次确认用） */
   const [delGoal, setDelGoal] = useState<PlannerGoal | null>(null)
   /** 任务详情弹窗 */
@@ -4476,6 +4469,7 @@ function PlannerPage({ toast }: { toast: (m: string) => void }) {
         ...shared.workspaces.map((w) => ({ id: w.id, name: w.name, path: "", agent_type: w.agent_type, owner: w.owner })),
       ])
     } catch { /* 静默 */ }
+    finally { setLoaded(true) }
   }, [])
   useEffect(() => {
     refreshList()
@@ -4646,6 +4640,51 @@ function PlannerPage({ toast }: { toast: (m: string) => void }) {
     }
   }
 
+  const installPanel = (
+    <div className="home-install" style={{ marginTop: 12 }}>
+      <p className="home-hint" style={{ marginTop: 0 }}>
+        还没有规划器工作区。运行下面的命令自动安装<b>规划核心服务</b>（克隆到
+        <code>~/.agent_swarm/agent_swarm_planner</code> 并完成安装），再在项目目录里用
+        <code>/swarm-add-planner</code> 注册，之后回到本页管理目标与任务树。源码仓库：
+        <a className="link" href="https://github.com/RisingWater/agent_swarm_planner"
+          target="_blank" rel="noreferrer">agent_swarm_planner</a>
+      </p>
+      <div className="tablist tablist-inline">
+        <button role="tab" aria-selected={plat === "sh"} onClick={() => setPlat("sh")}>macOS / linux</button>
+        <button role="tab" aria-selected={plat === "ps1"} onClick={() => setPlat("ps1")}>windows</button>
+      </div>
+      <div className="cmdblock cmdblock-joined">
+        <span className="cmd-text">
+          <span className="prompt">{plat === "sh" ? "$" : "PS>"}</span>
+          {me && !me.api_key ? "# 正在获取 api key…" : plannerCmd}
+        </span>
+        <Btn variant="icon" title="copy" onClick={async () => {
+          toast(await copyText(plannerCmd) ? "安装命令已复制" : "复制失败，请手动选择复制")
+        }}>⧉</Btn>
+      </div>
+      <p className="home-hint">
+        命令中的 API Key 可在账号页（点右上角用户名 → API Key）查看或重置；也可直接下载脚本：
+        <a className="link" href={`${pageOrigin}/download/planner-install.sh`} target="_blank" rel="noreferrer">planner-install.sh</a>
+        {' / '}
+        <a className="link" href={`${pageOrigin}/download/planner-install.ps1`} target="_blank" rel="noreferrer">planner-install.ps1</a>
+      </p>
+    </div>
+  )
+
+  // 没有规划器工作区：整页只显示安装控件（不显示工作区选择器 / 目标区）
+  if (loaded && !list.length) {
+    return (
+      <div>
+        <h1 className="page-title">规划器</h1>
+        <p className="page-sub">
+          把模糊的长期目标交给规划器工作区，自动拆成带依赖的任务树、调度虫群执行并追踪验收。
+          先安装<b>规划核心服务</b>，再在项目目录里用 <code>/swarm-add-planner</code> 注册。
+        </p>
+        {installPanel}
+      </div>
+    )
+  }
+
   return (
     <div>
       <h1 className="page-title">规划器</h1>
@@ -4659,11 +4698,6 @@ function PlannerPage({ toast }: { toast: (m: string) => void }) {
           <span className={`nexus-head-status ${online ? "on" : "off"}`}
             title={online ? "规划核心服务已连接" : "规划核心服务未连接"}>
             {online ? "● online" : "○ offline"}
-          </span>
-        )}
-        {!list.length && (
-          <span className="nexus-empty">
-            暂无规划器工作区 — 用 <code>/swarm-add-planner</code> 注册
           </span>
         )}
       </div>
