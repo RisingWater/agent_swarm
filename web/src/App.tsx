@@ -2837,6 +2837,7 @@ export function NexusWorkspaceSelect({ list, value, onChange, showOwner }: {
 }
 
 function NexusPage({ toast }: { toast: (m: string) => void }) {
+  const { t } = useI18n()
   const [list, setList] = useState<Workspace[]>([])
   const [selected, setSelected] = useState<string>(() => {
     // 恢复上次选中的工作区（cookie 记录，30 天有效）
@@ -2905,7 +2906,7 @@ function NexusPage({ toast }: { toast: (m: string) => void }) {
           ws.send(JSON.stringify({ type: "subscribe", workspace_id: selected }))
           break
         case "hello_err":
-          toast("WS 鉴权失败，请重新登录")
+          toast(t("WS 鉴权失败，请重新登录", "WebSocket auth failed, please log in again"))
           break
         case "subscribed":
           setPluginOnline(!!msg.plugin_online)
@@ -3047,7 +3048,7 @@ function NexusPage({ toast }: { toast: (m: string) => void }) {
             {
               key,
               kind: "question",
-              text: String(data?.question ?? "请选择"),
+              text: String(data?.question ?? t("请选择", "Please choose")),
               options,
               request_id: requestId,
               task_id: evt.taskId,
@@ -3062,7 +3063,7 @@ function NexusPage({ toast }: { toast: (m: string) => void }) {
       setBusy(false)
       setItems((prev) => [
         ...prev,
-        { key: `idle-${evt.taskId}-${prev.length}`, kind: "idle", text: "已完成", time: Date.now() },
+        { key: `idle-${evt.taskId}-${prev.length}`, kind: "idle", text: t("已完成", "Done"), time: Date.now() },
       ])
       return
     }
@@ -3143,7 +3144,7 @@ function NexusPage({ toast }: { toast: (m: string) => void }) {
         if (entry.state !== "running") return next
         return next.map((it) =>
           !it.answered && it.task_id === round && (it.kind === "permission" || it.kind === "question")
-            ? { ...it, answered: "TUI 已处理" }
+            ? { ...it, answered: "tui" }
             : it,
         )
       })
@@ -3194,7 +3195,7 @@ function NexusPage({ toast }: { toast: (m: string) => void }) {
             : {
                 key,
                 kind: "question" as const,
-                text: String(p.question ?? "请选择"),
+                text: String(p.question ?? t("请选择", "Please choose")),
                 options: (Array.isArray(p.options) ? p.options : []) as Array<{ label: string; value: string }>,
                 request_id: requestId,
                 task_id: round,
@@ -3208,7 +3209,7 @@ function NexusPage({ toast }: { toast: (m: string) => void }) {
       setItems((prev) => {
         const key = `idle-${round}`
         if (prev.some((it) => it.key === key)) return prev
-        return [...prev, { key, kind: "idle", text: "已完成", time: Date.now() }]
+        return [...prev, { key, kind: "idle", text: t("已完成", "Done"), time: Date.now() }]
       })
     }
   }
@@ -3230,7 +3231,7 @@ function NexusPage({ toast }: { toast: (m: string) => void }) {
   const send = () => {
     const text = input.trim()
     if (!text || !selected || busy) return
-    if (!pluginOnline) { toast("目标工作区插件不在线"); return }
+    if (!pluginOnline) { toast(t("目标工作区插件不在线", "The target workspace plugin is offline")); return }
     setBusy(true)
     setInput("")
     // 本地先回显用户消息（服务端 working 事件里也会带，去重 key 一致）
@@ -3244,7 +3245,7 @@ function NexusPage({ toast }: { toast: (m: string) => void }) {
         if (snap?.task_id) lastSentTask.current.set(selected, snap.task_id)
       })
       .catch((e: Error) => {
-        toast(`下发失败: ${e.message}`)
+        toast(`${t("下发失败", "Send failed")}: ${e.message}`)
         setBusy(false)
       })
   }
@@ -3344,12 +3345,12 @@ function NexusPage({ toast }: { toast: (m: string) => void }) {
       if (type === "permission" && requestId) {
         put({ key: `perm-${requestId}`, kind: "permission", text: String(data?.title ?? ""), permission: String(data?.permission ?? "unknown"), request_id: requestId, task_id: evt.taskId, time: 0 })
       } else if (type === "question" && requestId) {
-        put({ key: `ques-${requestId}`, kind: "question", text: String(data?.question ?? "请选择"), options: (Array.isArray(data?.options) ? data.options : []) as Array<{ label: string; value: string }>, request_id: requestId, task_id: evt.taskId, time: 0 })
+        put({ key: `ques-${requestId}`, kind: "question", text: String(data?.question ?? t("请选择", "Please choose")), options: (Array.isArray(data?.options) ? data.options : []) as Array<{ label: string; value: string }>, request_id: requestId, task_id: evt.taskId, time: 0 })
       }
       return
     }
     if (state === "completed") {
-      put({ key: `idle-${evt.taskId}`, kind: "idle", text: "已完成", time: 0 })
+      put({ key: `idle-${evt.taskId}`, kind: "idle", text: t("已完成", "Done"), time: 0 })
       return
     }
     if (state === "failed" || state === "canceled") {
@@ -3404,12 +3405,12 @@ function NexusPage({ toast }: { toast: (m: string) => void }) {
       put(
         mtype === "permission"
           ? { key, kind: "permission", text: String(p.title ?? ""), permission: String(p.permission ?? "unknown"), request_id: requestId, task_id: round, time: 0 }
-          : { key, kind: "question", text: String(p.question ?? "请选择"), options: (Array.isArray(p.options) ? p.options : []) as Array<{ label: string; value: string }>, request_id: requestId, task_id: round, time: 0 },
+          : { key, kind: "question", text: String(p.question ?? t("请选择", "Please choose")), options: (Array.isArray(p.options) ? p.options : []) as Array<{ label: string; value: string }>, request_id: requestId, task_id: round, time: 0 },
       )
       return
     }
     if (mtype === "idle") {
-      put({ key: `idle-${round}`, kind: "idle", text: "已完成", time: 0 })
+      put({ key: `idle-${round}`, kind: "idle", text: t("已完成", "Done"), time: 0 })
     }
   }
 
@@ -3446,8 +3447,9 @@ function NexusPage({ toast }: { toast: (m: string) => void }) {
 
   return (
     <div className="nexus-page">
-      <h1 className="page-title">中枢</h1>
-      <p className="page-sub">选择一个在线工作区直接下达指令，实时查看 agent 的思考、工具调用与答复。</p>
+      <h1 className="page-title">{t("中枢", "Nexus")}</h1>
+      <p className="page-sub">{t("选择一个在线工作区直接下达指令，实时查看 agent 的思考、工具调用与答复。",
+        "Pick an online workspace and send instructions directly; watch the agent's reasoning, tool calls and answers in real time.")}</p>
 
       <div className="nexus-picker">
         <NexusWorkspaceSelect
@@ -3455,7 +3457,8 @@ function NexusPage({ toast }: { toast: (m: string) => void }) {
           value={selected}
           onChange={setSelected}
         />
-        {!onlineList.length && <span className="nexus-empty">暂无在线工作区 — 等待插件心跳上线</span>}
+        {!onlineList.length && <span className="nexus-empty">{t("暂无在线工作区 — 等待插件心跳上线",
+          "No online workspaces yet — waiting for plugins to heartbeat online")}</span>}
       </div>
 
       {selected && (
@@ -3468,19 +3471,20 @@ function NexusPage({ toast }: { toast: (m: string) => void }) {
             )}
             <span className={`nexus-head-status ${pluginOnline ? "on" : "off"}`}>{pluginOnline ? "● online" : "○ offline"}</span>
             <span style={{ flex: 1 }} />
-            <button className="nexus-head-clear" title="清空视图（服务端历史保留，上滚可重新加载）" onClick={clearHistory}>
+            <button className="nexus-head-clear" title={t("清空视图（服务端历史保留，上滚可重新加载）",
+              "Clear the view (server history is kept; scroll up to reload)")} onClick={clearHistory}>
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
                 <path d="M3 6h18" />
                 <path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2" />
                 <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
               </svg>
-              clear
+              {t("清空", "clear")}
             </button>
           </div>
           <div className="nexus-timeline-wrap">
             <div className="nexus-timeline" ref={timelineRef} onScroll={onTimelineScroll}>
               {!items.length && (
-                <div className="nexus-waiting">waiting for input — type a command to start</div>
+                <div className="nexus-waiting">{t("等待输入 — 输入指令开始", "waiting for input — type a command to start")}</div>
               )}
               {items.map((it) => (
                 <TimelineEntrySwitch
@@ -3489,26 +3493,26 @@ function NexusPage({ toast }: { toast: (m: string) => void }) {
                   agentType={current?.agent_type}
                   onPermissionReply={(reqId, reply) => {
                     api.replyTask(selected, it.task_id ?? "", { type: "permission", request_id: reqId, reply })
-                      .catch((e: Error) => toast(`应答失败: ${e.message}`))
-                    markAnswered(it.key, reply === "once" ? "一次" : reply === "always" ? "始终" : "拒绝")
+                      .catch((e: Error) => toast(`${t("应答失败", "Reply failed")}: ${e.message}`))
+                    markAnswered(it.key, reply)
                   }}
                   onQuestionReply={(reqId, answers) => {
                     api.replyTask(selected, it.task_id ?? "", { type: "question", request_id: reqId, answers })
-                      .catch((e: Error) => toast(`应答失败: ${e.message}`))
-                    markAnswered(it.key, answers[0]?.[0] ?? "已选择")
+                      .catch((e: Error) => toast(`${t("应答失败", "Reply failed")}: ${e.message}`))
+                    markAnswered(it.key, answers[0]?.[0] ?? "")
                   }}
                 />
               ))}
               {busy && (
                 <div className="nexus-statusline">
                   <span className="nexus-spinner">✳</span>
-                  <span className="nexus-status-text">Working…</span>
-                  <span className="nexus-status-dim">(nexus-web · esc to interrupt in TUI)</span>
+                  <span className="nexus-status-text">{t("处理中…", "Working…")}</span>
+                  <span className="nexus-status-dim">{t("(nexus-web · 在 TUI 里按 esc 中断)", "(nexus-web · esc to interrupt in TUI)")}</span>
                 </div>
               )}
             </div>
             {showJumpBtn && (
-              <button className="nexus-jump-bottom" title="滚动到底部" onClick={jumpToBottom}>
+              <button className="nexus-jump-bottom" title={t("滚动到底部", "Scroll to bottom")} onClick={jumpToBottom}>
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
                   <path d="M12 5v14" />
                   <path d="M19 12l-7 7-7-7" />
@@ -3519,7 +3523,7 @@ function NexusPage({ toast }: { toast: (m: string) => void }) {
           <div className="nexus-input-row">
             <textarea
               className="nexus-input"
-              placeholder={pluginOnline ? "type a command for this agent" : "plugin offline — history only"}
+              placeholder={pluginOnline ? t("给这个 agent 输入指令", "type a command for this agent") : t("插件离线 — 仅可查看历史", "plugin offline — history only")}
               value={input}
               disabled={!pluginOnline || busy}
               rows={1}
@@ -3536,10 +3540,10 @@ function NexusPage({ toast }: { toast: (m: string) => void }) {
                 }
               }}
             />
-            <button className="nexus-send" onClick={send} disabled={!pluginOnline || busy || !input.trim()}>send ⏎</button>
+            <button className="nexus-send" onClick={send} disabled={!pluginOnline || busy || !input.trim()}>{t("发送 ⏎", "send ⏎")}</button>
           </div>
           <div className="nexus-footer">
-            <div className="nexus-footer-path" title={current?.session_title ? `会话: ${current.session_title}` : undefined}>
+            <div className="nexus-footer-path" title={current?.session_title ? `${t("会话", "Session")}: ${current.session_title}` : undefined}>
               {current?.path ?? selected}
               {current?.session_title && (
                 <>
@@ -3551,9 +3555,9 @@ function NexusPage({ toast }: { toast: (m: string) => void }) {
             <div className="nexus-footer-main">
               <span className="nexus-footer-key">nexus-web</span>
               <span className="nexus-footer-dim">·</span>
-              <span>target: {current?.name ?? selected}</span>
+              <span>{t("目标", "target")}: {current?.name ?? selected}</span>
               <span className="nexus-footer-dim">·</span>
-              <span>{busy ? "agent running…" : "agent idle"}</span>
+              <span>{busy ? t("agent 运行中…", "agent running…") : t("agent 空闲", "agent idle")}</span>
             </div>
           </div>
         </div>
@@ -3596,6 +3600,7 @@ function DshEntry({ item, onPermissionReply, onQuestionReply }: {
   onPermissionReply?: (requestId: string, reply: "once" | "always" | "reject") => void
   onQuestionReply?: (requestId: string, answers: string[][]) => void
 }) {
+  const { t } = useI18n()
   if (item.kind === "user") {
     // 用户消息：右对齐蓝色气泡（对齐 dsh MessageItem 的 bubble 形态）
     return (
@@ -3612,7 +3617,7 @@ function DshEntry({ item, onPermissionReply, onQuestionReply }: {
       <div className="dsh-turnError">
         <span className="dsh-turnErrorDot" />
         <div className="dsh-turnErrorCopy">
-          <span className="dsh-turnErrorTitle">出错了</span>
+          <span className="dsh-turnErrorTitle">{t("出错了", "Error")}</span>
           <span className="dsh-turnErrorMessage">{item.text}</span>
         </div>
       </div>
@@ -3632,7 +3637,7 @@ function DshEntry({ item, onPermissionReply, onQuestionReply }: {
               <path d="M10.5 22h3" />
             </svg>
           </span>
-          <span className="dsh-rowTitle">{running ? "思考中" : "已深度思考"}</span>
+          <span className="dsh-rowTitle">{running ? t("思考中", "Thinking") : t("已深度思考", "Thought it through")}</span>
           <span className="dsh-rowSep" />
           <span className="dsh-rowSummary">{summary}</span>
         </summary>
@@ -3684,19 +3689,19 @@ function DshEntry({ item, onPermissionReply, onQuestionReply }: {
         <div className="dsh-turnError">
           <span className="dsh-turnErrorDot ok" />
           <div className="dsh-turnErrorCopy">
-            <span className="dsh-turnErrorMessage">权限已{permAnswerLabel(item.answered!)}：{item.permission}</span>
+            <span className="dsh-turnErrorMessage">{t("权限已", "Permission ")}{permAnswerLabel(item.answered!, t)}{t("：", ": ")}{item.permission}</span>
           </div>
         </div>
       )
     }
     return (
       <div className="dsh-askCard">
-        <div className="dsh-askTitle">权限请求</div>
+        <div className="dsh-askTitle">{t("权限请求", "Permission request")}</div>
         <div className="dsh-askBody">{item.permission}{item.text ? ` — ${item.text}` : ""}</div>
         <div className="dsh-askActions">
           {/* dsh 的 ApprovalOutcome 只有 allowed-once/rejected——没有"始终允许" */}
-          <button className="dsh-ask-btn" onClick={() => onPermissionReply?.(item.request_id!, "once")}>允许一次</button>
-          <button className="dsh-ask-btn danger" onClick={() => onPermissionReply?.(item.request_id!, "reject")}>拒绝</button>
+          <button className="dsh-ask-btn" onClick={() => onPermissionReply?.(item.request_id!, "once")}>{t("允许一次", "allow once")}</button>
+          <button className="dsh-ask-btn danger" onClick={() => onPermissionReply?.(item.request_id!, "reject")}>{t("拒绝", "reject")}</button>
         </div>
       </div>
     )
@@ -3707,14 +3712,14 @@ function DshEntry({ item, onPermissionReply, onQuestionReply }: {
         <div className="dsh-turnError">
           <span className="dsh-turnErrorDot ok" />
           <div className="dsh-turnErrorCopy">
-            <span className="dsh-turnErrorMessage">已选择：<b>{item.answered}</b></span>
+            <span className="dsh-turnErrorMessage">{t("已选择：", "Selected: ")}<b>{item.answered}</b></span>
           </div>
         </div>
       )
     }
     return (
       <div className="dsh-askCard">
-        <div className="dsh-askTitle">需要你的选择</div>
+        <div className="dsh-askTitle">{t("需要你的选择", "Your choice is needed")}</div>
         <div className="dsh-askBody">{item.text}</div>
         <div className="dsh-askActions">
           {(item.options ?? []).map((o) => (
@@ -3738,10 +3743,11 @@ function TimelineEntry({ item, onPermissionReply, onQuestionReply }: {
   onPermissionReply?: (requestId: string, reply: "once" | "always" | "reject") => void
   onQuestionReply?: (requestId: string, answers: string[][]) => void
 }) {
+  const { t } = useI18n()
   if (item.kind === "user") {
     return (
       <div className="tl-item tl-user">
-        <div className="tl-role">你</div>
+        <div className="tl-role">{t("你", "You")}</div>
         <div className="tl-bubble">{item.text}</div>
       </div>
     )
@@ -3752,7 +3758,7 @@ function TimelineEntry({ item, onPermissionReply, onQuestionReply }: {
   if (item.kind === "error") {
     return (
       <div className="tl-item tl-error">
-        <div className="tl-role">错误</div>
+        <div className="tl-role">{t("错误", "Error")}</div>
         <div className="tl-bubble">{item.text}</div>
       </div>
     )
@@ -3760,7 +3766,7 @@ function TimelineEntry({ item, onPermissionReply, onQuestionReply }: {
   if (item.kind === "reasoning") {
     return (
       <details className="tl-item tl-reasoning">
-        <summary>思考过程</summary>
+        <summary>{t("思考过程", "Reasoning")}</summary>
         <div className="tl-plain">{item.text}</div>
       </details>
     )
@@ -3780,23 +3786,23 @@ function TimelineEntry({ item, onPermissionReply, onQuestionReply }: {
   }
   if (item.kind === "permission") {
     if (item.answered) {
-      return <div className="tl-item tl-idle">✓ 权限已{permAnswerLabel(item.answered!)}</div>
+      return <div className="tl-item tl-idle">✓ {t("权限已", "Permission ")}{permAnswerLabel(item.answered!, t)}</div>
     }
     return (
       <div className="tl-item tl-ask">
-        <div className="tl-ask-head">🔐 权限请求：{item.permission}</div>
+        <div className="tl-ask-head">🔐 {t("权限请求", "Permission request")}{t("：", ": ")}{item.permission}</div>
         {item.text && <div className="tl-ask-body">{item.text}</div>}
         <div className="tl-ask-actions">
-          <button className="tl-ask-btn" onClick={() => onPermissionReply?.(item.request_id!, "once")}>允许一次</button>
-          <button className="tl-ask-btn" onClick={() => onPermissionReply?.(item.request_id!, "always")}>始终允许</button>
-          <button className="tl-ask-btn danger" onClick={() => onPermissionReply?.(item.request_id!, "reject")}>拒绝</button>
+          <button className="tl-ask-btn" onClick={() => onPermissionReply?.(item.request_id!, "once")}>{t("允许一次", "allow once")}</button>
+          <button className="tl-ask-btn" onClick={() => onPermissionReply?.(item.request_id!, "always")}>{t("始终允许", "always allow")}</button>
+          <button className="tl-ask-btn danger" onClick={() => onPermissionReply?.(item.request_id!, "reject")}>{t("拒绝", "reject")}</button>
         </div>
       </div>
     )
   }
   if (item.kind === "question") {
     if (item.answered) {
-      return <div className="tl-item tl-idle">✓ {item.answered === "TUI 已处理" ? "已在 TUI 处理" : `已选择：${item.answered}`}</div>
+      return <div className="tl-item tl-idle">✓ {item.answered === "tui" ? t("已在 TUI 处理", "Handled in TUI") : item.answered ? `${t("已选择：", "Selected: ")}${item.answered}` : t("已选择", "Selected")}</div>
     }
     return (
       <div className="tl-item tl-ask">
@@ -3825,6 +3831,7 @@ function OpencodeTuiEntry({ item, onPermissionReply, onQuestionReply }: {
   onPermissionReply?: (requestId: string, reply: "once" | "always" | "reject") => void
   onQuestionReply?: (requestId: string, answers: string[][]) => void
 }) {
+  const { t } = useI18n()
   if (item.kind === "user") {
     // 用户指令：方形背景块 + 左侧蓝色竖线（居左，同 TUI）
     return (
@@ -3847,7 +3854,7 @@ function OpencodeTuiEntry({ item, onPermissionReply, onQuestionReply }: {
   if (item.kind === "reasoning") {
     return (
       <details className="tl-thought">
-        <summary>Thought for a bit (click to expand)</summary>
+        <summary>{t("思考片刻（点击展开）", "Thought for a bit (click to expand)")}</summary>
         <div className="tl-thought-body">{item.text}</div>
       </details>
     )
@@ -3872,18 +3879,18 @@ function OpencodeTuiEntry({ item, onPermissionReply, onQuestionReply }: {
       return (
         <div className="tl-ask-done">
           <span className="tl-ask-glyph">🔐</span>
-          权限已{permAnswerLabel(item.answered!)}：{item.permission}
+          {t("权限已", "Permission ")}{permAnswerLabel(item.answered!, t)}{t("：", ": ")}{item.permission}
         </div>
       )
     }
     return (
       <div className="tl-ask">
-        <div className="tl-ask-head"><span className="tl-ask-glyph">🔐</span> 权限请求：<b>{item.permission}</b></div>
+        <div className="tl-ask-head"><span className="tl-ask-glyph">🔐</span> {t("权限请求", "Permission request")}{t("：", ": ")}<b>{item.permission}</b></div>
         {item.text && <div className="tl-ask-body">{item.text}</div>}
         <div className="tl-ask-actions">
-          <button className="tl-ask-btn primary" onClick={() => onPermissionReply?.(item.request_id!, "once")}>allow once</button>
-          <button className="tl-ask-btn" onClick={() => onPermissionReply?.(item.request_id!, "always")}>always allow</button>
-          <button className="tl-ask-btn danger" onClick={() => onPermissionReply?.(item.request_id!, "reject")}>reject</button>
+          <button className="tl-ask-btn primary" onClick={() => onPermissionReply?.(item.request_id!, "once")}>{t("允许一次", "allow once")}</button>
+          <button className="tl-ask-btn" onClick={() => onPermissionReply?.(item.request_id!, "always")}>{t("始终允许", "always allow")}</button>
+          <button className="tl-ask-btn danger" onClick={() => onPermissionReply?.(item.request_id!, "reject")}>{t("拒绝", "reject")}</button>
         </div>
       </div>
     )
@@ -3892,7 +3899,7 @@ function OpencodeTuiEntry({ item, onPermissionReply, onQuestionReply }: {
     if (item.answered) {
       return (
         <div className="tl-ask-done">
-          <span className="tl-ask-glyph">❓</span> {item.answered === "TUI 已处理" ? "已在 TUI 处理" : <>已选择：<b>{item.answered}</b></>}
+          <span className="tl-ask-glyph">❓</span> {item.answered === "tui" ? t("已在 TUI 处理", "Handled in TUI") : <>{t("已选择：", "Selected: ")}<b>{item.answered}</b></>}
         </div>
       )
     }
@@ -3918,9 +3925,11 @@ function OpencodeTuiEntry({ item, onPermissionReply, onQuestionReply }: {
 }
 
 /** 权限条目应答状态文案：普通应答显示 允许（一次/始终）；TUI 已处理显示中性文案 */
-function permAnswerLabel(answered: string): string {
-  if (answered === "TUI 已处理") return "已在 TUI 处理"
-  return answered === "拒绝" ? "拒绝" : `允许（${answered}）`
+function permAnswerLabel(answered: string, t: (zh: string, en: string) => string): string {
+  if (answered === "tui") return t("已在 TUI 处理", "handled in TUI")
+  if (answered === "reject") return t("拒绝", "rejected")
+  const label = answered === "once" ? t("一次", "once") : answered === "always" ? t("始终", "always") : answered
+  return t(`允许（${label}）`, `allowed (${label})`)
 }
 /** 截断单行文本（工具命令摘要用） */
 function truncateLine(s: string, max: number): string {
@@ -3939,6 +3948,7 @@ function toolGlyph(tool: string): string {
 
 /** TUI 工具输出：默认限高隐藏，超长时显示 expand 文字（下划线），点击完全展开 */
 function TuiToolOutput({ output }: { output: string }) {
+  const { t } = useI18n()
   const [expanded, setExpanded] = useState(false)
   const LONG = 600 // 超过此长度视为超长输出
   const isLong = output.length > LONG
@@ -3946,7 +3956,7 @@ function TuiToolOutput({ output }: { output: string }) {
     <div className="tl-tool-output-wrap">
       <pre className={`tl-tool-output${isLong ? (expanded ? " expanded" : " clamped") : ""}`}>{output}</pre>
       {isLong && !expanded && (
-        <button className="tl-tool-expand" onClick={() => setExpanded(true)}>expand</button>
+        <button className="tl-tool-expand" onClick={() => setExpanded(true)}>{t("展开", "expand")}</button>
       )}
     </div>
   )
@@ -3962,11 +3972,11 @@ function claudeToolSummary(item: TimelineItem): string {
 }
 
 /** list/read 类工具的完成摘要（不展示内容，一行 + expand） */
-function claudeReadonlySummary(item: TimelineItem): string | null {
-  const t = (item.tool ?? "").toLowerCase()
+function claudeReadonlySummary(item: TimelineItem, t: (zh: string, en: string) => string): string | null {
+  const tool = (item.tool ?? "").toLowerCase()
   const n = (item.output ?? "").split("\n").filter((l) => l.trim()).length
-  if (["read", "view"].includes(t)) return `Read ${n || 1} line${n === 1 ? "" : "s"}`
-  if (["glob", "grep", "list"].includes(t)) return `Found ${n} entr${n === 1 ? "y" : "ies"}`
+  if (["read", "view"].includes(tool)) return t(`读取 ${n || 1} 行`, `Read ${n || 1} line${n === 1 ? "" : "s"}`)
+  if (["glob", "grep", "list"].includes(tool)) return t(`找到 ${n} 项`, `Found ${n} entr${n === 1 ? "y" : "ies"}`)
   return null
 }
 
@@ -3976,6 +3986,7 @@ function ClaudeTuiEntry({ item, onPermissionReply, onQuestionReply }: {
   onPermissionReply?: (requestId: string, reply: "once" | "always" | "reject") => void
   onQuestionReply?: (requestId: string, answers: string[][]) => void
 }) {
+  const { t } = useI18n()
   if (item.kind === "user") {
     // 用户输入：左侧 "> " 前缀，无框无竖线
     return (
@@ -4004,8 +4015,8 @@ function ClaudeTuiEntry({ item, onPermissionReply, onQuestionReply }: {
       <details className="cl-entry cl-fold">
         <summary>
           <span className="cl-dot">●</span>
-          <span className="cl-fold-label">Thought for a bit</span>
-          <span className="cl-expand">expand</span>
+          <span className="cl-fold-label">{t("思考片刻", "Thought for a bit")}</span>
+          <span className="cl-expand">{t("展开", "expand")}</span>
         </summary>
         <div className="cl-entry-body">
           <div className="cl-fold-body">{item.text}</div>
@@ -4015,7 +4026,7 @@ function ClaudeTuiEntry({ item, onPermissionReply, onQuestionReply }: {
   }
   if (item.kind === "tool") {
     const running = item.state === "running"
-    const readonly = claudeReadonlySummary(item)
+    const readonly = claudeReadonlySummary(item, t)
     const output = item.output?.trim() ?? ""
     // list/read 类：一行摘要（完成后替换为 Found/Read 行），expand 展开完整输出
     if (readonly && !running && output) {
@@ -4024,7 +4035,7 @@ function ClaudeTuiEntry({ item, onPermissionReply, onQuestionReply }: {
           <summary>
             <span className="cl-dot">●</span>
             <span className="cl-fold-label">{readonly}</span>
-            <span className="cl-expand">expand</span>
+            <span className="cl-expand">{t("展开", "expand")}</span>
           </summary>
           <div className="cl-entry-body">
             <div className="cl-tool-cmd">{claudeToolSummary(item)}</div>
@@ -4053,7 +4064,7 @@ function ClaudeTuiEntry({ item, onPermissionReply, onQuestionReply }: {
         <div className="cl-entry cl-done">
           <span className="cl-dot">●</span>
           <div className="cl-entry-body">
-            权限已{permAnswerLabel(item.answered!)}：{item.permission}
+            {t("权限已", "Permission ")}{permAnswerLabel(item.answered!, t)}{t("：", ": ")}{item.permission}
           </div>
         </div>
       )
@@ -4062,12 +4073,12 @@ function ClaudeTuiEntry({ item, onPermissionReply, onQuestionReply }: {
       <div className="cl-entry">
         <span className="cl-dot">●</span>
         <div className="cl-entry-body">
-          <div className="cl-ask-head">权限请求：<b>{item.permission}</b></div>
+          <div className="cl-ask-head">{t("权限请求", "Permission request")}{t("：", ": ")}<b>{item.permission}</b></div>
           {item.text && <div className="cl-ask-body">{item.text}</div>}
           <div className="cl-ask-actions">
-            <button className="cl-ask-btn primary" onClick={() => onPermissionReply?.(item.request_id!, "once")}>allow once</button>
-            <button className="cl-ask-btn" onClick={() => onPermissionReply?.(item.request_id!, "always")}>always allow</button>
-            <button className="cl-ask-btn danger" onClick={() => onPermissionReply?.(item.request_id!, "reject")}>reject</button>
+            <button className="cl-ask-btn primary" onClick={() => onPermissionReply?.(item.request_id!, "once")}>{t("允许一次", "allow once")}</button>
+            <button className="cl-ask-btn" onClick={() => onPermissionReply?.(item.request_id!, "always")}>{t("始终允许", "always allow")}</button>
+            <button className="cl-ask-btn danger" onClick={() => onPermissionReply?.(item.request_id!, "reject")}>{t("拒绝", "reject")}</button>
           </div>
         </div>
       </div>
@@ -4078,7 +4089,7 @@ function ClaudeTuiEntry({ item, onPermissionReply, onQuestionReply }: {
       return (
         <div className="cl-entry cl-done">
           <span className="cl-dot">●</span>
-          <div className="cl-entry-body">{item.answered === "TUI 已处理" ? "已在 TUI 处理" : <>已选择：<b>{item.answered}</b></>}</div>
+          <div className="cl-entry-body">{item.answered === "tui" ? t("已在 TUI 处理", "Handled in TUI") : <>{t("已选择：", "Selected: ")}<b>{item.answered}</b></>}</div>
         </div>
       )
     }
@@ -4109,13 +4120,14 @@ function ClaudeTuiEntry({ item, onPermissionReply, onQuestionReply }: {
 
 /** claude ⎿ 输出块：缩进 + ⎿ 前缀，超长限高 + expand */
 function ClaudeHookOutput({ output }: { output: string }) {
+  const { t } = useI18n()
   const [expanded, setExpanded] = useState(false)
   const isLong = output.split("\n").length > 8 || output.length > 400
   return (
     <div className="cl-hook-wrap">
       <pre className={`cl-hook-output${isLong && !expanded ? " clamped" : ""}`}>{output}</pre>
       {isLong && !expanded && (
-        <button className="cl-expand" onClick={() => setExpanded(true)}>expand</button>
+        <button className="cl-expand" onClick={() => setExpanded(true)}>{t("展开", "expand")}</button>
       )}
     </div>
   )
