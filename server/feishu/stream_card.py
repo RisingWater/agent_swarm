@@ -191,7 +191,7 @@ class TimelineCard:
                 # 让未渲染的积压文本立即补全。streaming_mode 不能关——飞书的
                 # card_element.content 流式更新接口要求它为 true。
                 "streaming_config": {
-                    "print_frequency_ms": {"default": 1},
+                    "print_frequency_ms": {"default": 20},
                     "print_step": {"default": 5000},
                     "print_strategy": "fast",
                 },
