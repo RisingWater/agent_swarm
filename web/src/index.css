@@ -139,6 +139,15 @@ body {
   color: var(--bg);
 }
 
+/* 已完成目标：标题前缀的金色奖杯 */
+.goal-trophy {
+  display: inline-flex;
+  align-items: center;
+  vertical-align: -2px;
+  margin-right: 4px;
+  color: #e0a400;
+}
+
 /* ---------- 站内信 ---------- */
 
 .notif-wrap {

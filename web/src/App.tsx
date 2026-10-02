@@ -5153,7 +5153,7 @@ function PlannerPage({ toast }: { toast: (m: string) => void }) {
     a === "auto" ? t("自动验收", "auto") : a === "manual" ? t("人工验收", "manual") : a === "expert" ? t("专家验收点", "expert acceptance point") : (a || "-")
   /** 目标状态 → 中文（active=进行中 / archived=已归档；未知回退原文） */
   const goalStatusLabel = (s?: string) =>
-    s === "active" ? t("进行中", "active") : s === "archived" ? t("已归档", "archived") : (s || "-")
+    s === "active" ? t("进行中", "active") : s === "archived" ? t("已归档", "archived") : s === "done" ? t("已完成", "completed") : (s || "-")
   /** 优先级数值 → 文案（高=2 / 中=1 / 低=0；未知回退原文） */
   const priorityLabel = (p?: number | string) => {
     const s = String(p ?? "")
@@ -5314,6 +5314,11 @@ function PlannerPage({ toast }: { toast: (m: string) => void }) {
                 <tr key={g.id} className={g.id === goalId ? "planner-row-active" : ""}
                   onClick={() => setGoalId(g.id)}>
                   <td className="strong">
+                    {g.status === "done" && (
+                      <span className="goal-trophy" title={t("已完成", "Completed")}>
+                        <TrophyIcon size={14} />
+                      </span>
+                    )}
                     <a className="link">{g.title}</a>
                     {g.expert_workspace_id ? (
                       <div style={{ fontSize: 12, color: "var(--text-weak)" }} title={g.expert_workspace_id}>
