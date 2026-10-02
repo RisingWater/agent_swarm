@@ -5550,7 +5550,19 @@ function PlannerPage({ toast }: { toast: (m: string) => void }) {
   )
 }
 
+/** 调用/任务状态中文标签（与 AdminPage 的 statusBadge 术语保持一致）。 */
+function callStatusLabel(s: string, t: (zh: string, en: string) => string): string {
+  if (s === "completed") return t("完成", "completed")
+  if (s === "failed") return t("失败", "failed")
+  if (s === "canceled") return t("取消", "canceled")
+  if (s === "input-required") return t("待输入", "input-required")
+  if (s === "working") return t("执行中", "working")
+  if (s === "queued") return t("排队", "queued")
+  return s
+}
+
 function CallsPage({ toast }: { toast: (m: string) => void }) {
+  const { t } = useI18n()
   const [list, setList] = useState<WorkspaceCall[]>([])
   const [detail, setDetail] = useState<WorkspaceCall | null>(null)
   const [deleting, setDeleting] = useState<string | null>(null)
@@ -5576,8 +5588,8 @@ function CallsPage({ toast }: { toast: (m: string) => void }) {
   }, [wsFilter])
   useEffect(() => {
     load()
-    const t = setInterval(load, 10_000)
-    return () => clearInterval(t)
+    const timer = setInterval(load, 10_000)
+    return () => clearInterval(timer)
   }, [load])
 
   const removeCall = async (id: string) => {
@@ -5586,9 +5598,9 @@ function CallsPage({ toast }: { toast: (m: string) => void }) {
       await api.deleteCall(id)
       setList((prev) => prev.filter((c) => c.id !== id))
       if (detail?.id === id) setDetail(null)
-      toast("调用记录已删除")
+      toast(t("调用记录已删除", "Call record deleted"))
     } catch (e) {
-      toast(e instanceof Error ? e.message : "删除失败")
+      toast(e instanceof Error ? e.message : t("删除失败", "Delete failed"))
     } finally {
       setDeleting(null)
     }
@@ -5601,15 +5613,15 @@ function CallsPage({ toast }: { toast: (m: string) => void }) {
     try {
       const res = await api.cancelTask(wsFilter, call.id)
       if (res.ok) {
-        toast("已发送中断请求")
+        toast(t("已发送中断请求", "Abort request sent"))
         setList((prev) => prev.map((c) => (c.id === call.id ? { ...c, status: "canceled" } : c)))
         setDetail((d) => (d && d.id === call.id ? { ...d, status: "canceled" } : d))
       } else {
-        toast(res.error || "任务已结束，无法中断")
+        toast(res.error || t("任务已结束，无法中断", "The task has ended and cannot be aborted"))
       }
       load()
     } catch (e) {
-      toast(e instanceof Error ? e.message : "中断失败")
+      toast(e instanceof Error ? e.message : t("中断失败", "Abort failed"))
     } finally {
       setAborting(null)
       setAbortTarget(null)
@@ -5624,9 +5636,9 @@ function CallsPage({ toast }: { toast: (m: string) => void }) {
     try {
       await api.clearWorkspaceHistory(wsFilter)
       setList([])
-      toast("该工作区的全部调用记录已清空")
+      toast(t("该工作区的全部调用记录已清空", "All call records for this workspace were cleared"))
     } catch (e) {
-      toast(e instanceof Error ? e.message : "清空失败")
+      toast(e instanceof Error ? e.message : t("清空失败", "Clear failed"))
     } finally {
       setClearingAll(false)
       setConfirmClear(false)
@@ -5635,8 +5647,8 @@ function CallsPage({ toast }: { toast: (m: string) => void }) {
 
   return (
     <>
-      <h1 className="page-title">调用记录</h1>
-      <p className="page-sub">A2A 任务调用与前台监控轮次历史（按工作区查看）。</p>
+      <h1 className="page-title">{t("调用记录", "Calls")}</h1>
+      <p className="page-sub">{t("A2A 任务调用与前台监控轮次历史（按工作区查看）。", "History of A2A task calls and foreground monitor rounds (view by workspace).")}</p>
       <div className="nexus-picker" style={{ marginBottom: 12 }}>
         <NexusWorkspaceSelect
           list={workspaces}
@@ -5645,24 +5657,24 @@ function CallsPage({ toast }: { toast: (m: string) => void }) {
         />
         <ActionBtn
           icon={<TrashIcon size={12} />}
-          title="清空该工作区的全部调用记录"
+          title={t("清空该工作区的全部调用记录", "Clear all call records for this workspace")}
           disabled={!wsFilter || clearingAll}
           onClick={() => setConfirmClear(true)}
         >
-          clear
+          {t("清空", "clear")}
         </ActionBtn>
       </div>
       {wsFilter && (
         <>
-          <SearchBox value={query} onChange={setQuery} placeholder="搜索发起方 / 目标 / 指令 / 状态…" />
+          <SearchBox value={query} onChange={setQuery} placeholder={t("搜索发起方 / 目标 / 指令 / 状态…", "Search caller / target / instruction / status…")} />
           <table className="grid">
             <thead>
               <tr>
-                <th style={{ width: 110 }}>时间</th>
-                <th style={{ width: 160 }}>发起方</th>
-                <th style={{ width: 140 }}>目标</th>
-                <th style={{ width: 110 }}>状态</th>
-                <th>指令</th>
+                <th style={{ width: 110 }}>{t("时间", "Time")}</th>
+                <th style={{ width: 160 }}>{t("发起方", "Caller")}</th>
+                <th style={{ width: 140 }}>{t("目标", "Target")}</th>
+                <th style={{ width: 110 }}>{t("状态", "Status")}</th>
+                <th>{t("指令", "Instruction")}</th>
                 <th style={{ width: 60 }}></th>
               </tr>
             </thead>
@@ -5681,7 +5693,7 @@ function CallsPage({ toast }: { toast: (m: string) => void }) {
                   <td style={{ color: "var(--text-weak)", fontSize: 12 }}>{fmtTime(r.created_at, "datetime")}</td>
                   <td>{callerLabel(r)}</td>
                   <td>{r.target?.name ?? "-"}</td>
-                  <td><span className={`status-pill ${r.status === "working" || r.status === "queued" ? "accepted" : r.status}`}>{r.status}</span></td>
+                  <td><span className={`status-pill ${r.status === "working" || r.status === "queued" ? "accepted" : r.status}`}>{callStatusLabel(r.status, t)}</span></td>
                   <td><a className="link" onClick={() => setDetail(r)}>{r.monitor ? "[monitor] " : ""}{r.instruction}</a></td>
                   <td>
                     {isActiveCall(r.status) ? (
@@ -5689,7 +5701,7 @@ function CallsPage({ toast }: { toast: (m: string) => void }) {
                         variant="icon"
                         size="sm"
                         className="btn-danger-hover"
-                        title="中断任务（abort）"
+                        title={t("中断任务（abort）", "Abort task")}
                         disabled={aborting === r.id}
                         onClick={() => setAbortTarget(r)}
                       >
@@ -5703,7 +5715,7 @@ function CallsPage({ toast }: { toast: (m: string) => void }) {
                           variant="icon"
                           size="sm"
                           className="btn-danger-hover"
-                          title="删除该调用记录"
+                          title={t("删除该调用记录", "Delete this call record")}
                           disabled={deleting === r.id}
                           onClick={() => removeCall(r.id)}
                         >
@@ -5722,7 +5734,7 @@ function CallsPage({ toast }: { toast: (m: string) => void }) {
               ))}
               {!list.length && (
                 <tr><td colSpan={6} style={{ color: "var(--text-weak)", textAlign: "center", padding: 32 }}>
-                  [*] 暂无调用记录
+                  {t("[*] 暂无调用记录", "[*] No call records yet")}
                 </td></tr>
               )}
               {list.length > 0 && query.trim() && !list.some((r) => {
@@ -5733,7 +5745,7 @@ function CallsPage({ toast }: { toast: (m: string) => void }) {
                 )
               }) && (
                 <tr><td colSpan={6} style={{ color: "var(--text-weak)", textAlign: "center", padding: 32 }}>
-                  [*] 没有匹配「{query.trim()}」的调用记录
+                  {t(`[*] 没有匹配「${query.trim()}」的调用记录`, `[*] No call records match "${query.trim()}"`)}
                 </td></tr>
               )}
             </tbody>
@@ -5742,32 +5754,36 @@ function CallsPage({ toast }: { toast: (m: string) => void }) {
       )}
       {!wsFilter && (
         <p style={{ color: "var(--text-weak)", textAlign: "center", padding: 48 }}>
-          [*] 请先选择工作区
+          {t("[*] 请先选择工作区", "[*] Please select a workspace first")}
         </p>
       )}
 
       {confirmClear && wsFilter && (
-        <Modal title="清空调用记录？" onClose={() => setConfirmClear(false)}>
+        <Modal title={t("清空调用记录？", "Clear call records?")} onClose={() => setConfirmClear(false)}>
           <p style={{ margin: 0, color: "var(--text-weak)", fontSize: 14 }}>
-            将删除工作区 <b>{workspaces.find((w) => w.id === wsFilter)?.name ?? wsFilter}</b> 的全部调用记录
-            （含事件与监控轮次），不可恢复。
+            <L
+              zh={<>将删除工作区 <b>{workspaces.find((w) => w.id === wsFilter)?.name ?? wsFilter}</b> 的全部调用记录
+                （含事件与监控轮次），不可恢复。</>}
+              en={<>All call records of workspace <b>{workspaces.find((w) => w.id === wsFilter)?.name ?? wsFilter}</b>
+                (including events and monitor rounds) will be deleted; this cannot be undone.</>}
+            />
           </p>
           <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
-            <Btn size="sm" variant="ghost" onClick={() => setConfirmClear(false)}>取消</Btn>
-            <Btn size="sm" variant="danger" disabled={clearingAll} onClick={clearAll}>确认清空</Btn>
+            <Btn size="sm" variant="ghost" onClick={() => setConfirmClear(false)}>{t("取消", "Cancel")}</Btn>
+            <Btn size="sm" variant="danger" disabled={clearingAll} onClick={clearAll}>{t("确认清空", "Confirm clear")}</Btn>
           </div>
         </Modal>
       )}
 
       {detail && (
-        <Modal wide title={`调用 ${detail.id.slice(0, 8)}${detail.monitor ? " (monitor)" : ""}`} onClose={() => setDetail(null)}>
+        <Modal wide title={`${t("调用", "Call")} ${detail.id.slice(0, 8)}${detail.monitor ? " (monitor)" : ""}`} onClose={() => setDetail(null)}>
           <dl className="dl">
-            <dt>发起方</dt><dd>{callerLabel(detail)}{detail.external_url ? ` (${detail.external_url})` : ""}</dd>
-            <dt>目标</dt><dd>{detail.target?.name} ({detail.target?.path})</dd>
-            <dt>状态</dt><dd>{detail.status}</dd>
-            <dt>发起时间</dt><dd>{fmtTime(detail.created_at, "datetime")}</dd>
-            <dt>指令</dt><dd>{detail.instruction}</dd>
-            <dt>结果</dt>
+            <dt>{t("发起方", "Caller")}</dt><dd>{callerLabel(detail)}{detail.external_url ? ` (${detail.external_url})` : ""}</dd>
+            <dt>{t("目标", "Target")}</dt><dd>{detail.target?.name} ({detail.target?.path})</dd>
+            <dt>{t("状态", "Status")}</dt><dd>{callStatusLabel(detail.status, t)}</dd>
+            <dt>{t("发起时间", "Started")}</dt><dd>{fmtTime(detail.created_at, "datetime")}</dd>
+            <dt>{t("指令", "Instruction")}</dt><dd>{detail.instruction}</dd>
+            <dt>{t("结果", "Result")}</dt>
             <dd>
               {detail.status === "failed" ? (
                 detail.error ?? "-"
@@ -5781,22 +5797,25 @@ function CallsPage({ toast }: { toast: (m: string) => void }) {
           {isActiveCall(detail.status) && (
             <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
               <Btn size="sm" variant="danger" disabled={aborting === detail.id}
-                onClick={() => setAbortTarget(detail)}>中断任务</Btn>
+                onClick={() => setAbortTarget(detail)}>{t("中断任务", "Abort task")}</Btn>
             </div>
           )}
         </Modal>
       )}
 
       {abortTarget && (
-        <Modal title="中断任务" onClose={() => setAbortTarget(null)}>
-          <p>确认中断任务 <code>{abortTarget.id.slice(0, 8)}</code>？</p>
+        <Modal title={t("中断任务", "Abort task")} onClose={() => setAbortTarget(null)}>
+          <p><L
+            zh={<>确认中断任务 <code>{abortTarget.id.slice(0, 8)}</code>？</>}
+            en={<>Abort task <code>{abortTarget.id.slice(0, 8)}</code>?</>}
+          /></p>
           <p style={{ color: "var(--text-weak)", fontSize: 12 }}>
-            中断会通知插件停止执行（后台任务 kill 进程树、前台会话 interrupt），任务置为 canceled；
-            不可恢复，如需继续请重新派发。
+            {t("中断会通知插件停止执行（后台任务 kill 进程树、前台会话 interrupt），任务置为 canceled；不可恢复，如需继续请重新派发。",
+              "Aborting tells the plugin to stop execution (background tasks kill the process tree, foreground sessions are interrupted) and marks the task canceled; it cannot be undone — re-dispatch if you want to continue.")}
           </p>
           <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
-            <Btn size="sm" variant="ghost" onClick={() => setAbortTarget(null)}>取消</Btn>
-            <Btn size="sm" variant="danger" disabled={!!aborting} onClick={() => abortCall(abortTarget)}>确认中断</Btn>
+            <Btn size="sm" variant="ghost" onClick={() => setAbortTarget(null)}>{t("取消", "Cancel")}</Btn>
+            <Btn size="sm" variant="danger" disabled={!!aborting} onClick={() => abortCall(abortTarget)}>{t("确认中断", "Confirm abort")}</Btn>
           </div>
         </Modal>
       )}
