@@ -61,7 +61,10 @@ def test_planner_state_cache_and_op_roundtrip(client, ws):
             "goals": [{"id": "g1", "title": "目标一", "status": "planning",
                        "plan_status": "draft", "expert_workspace_id": "w-expert",
                        "expert_name": "专家WS", "priority": 2, "deadline": "",
-                       "criteria_confirmed": 1, "progress": {"done": 1, "total": 3}}],
+                       "criteria_confirmed": 1, "progress": {"done": 1, "total": 3}},
+                      {"id": "g2", "title": "自评审目标", "status": "planning",
+                       "plan_status": "draft", "expert_workspace_id": wid,
+                       "expert_name": "本工作区"}],
             "tasks": [{"id": "t1", "goal_id": "g1", "title": "任务一",
                        "status": "pending", "depends_on": [], "acceptance_type": "manual"},
                       {"id": "t2", "goal_id": "g1", "title": "任务二",
@@ -83,6 +86,8 @@ def test_planner_state_cache_and_op_roundtrip(client, ws):
         assert b["goals"][0]["priority"] == 2 and isinstance(b["goals"][0]["priority"], int)
         assert b["goals"][0]["deadline"] == ""
         assert b["goals"][0]["criteria_confirmed"] == 1
+        # 专家 = planner 自身（自评审）：平台照常透传，不做特殊/剔除处理
+        assert b["goals"][1]["expert_workspace_id"] == wid
         # 专家验收点：acceptance_type=expert + status=waiting_expert 原样透传
         expert_task = next(t for t in b["tasks"] if t["id"] == "t2")
         assert expert_task["acceptance_type"] == "expert" and expert_task["status"] == "waiting_expert"

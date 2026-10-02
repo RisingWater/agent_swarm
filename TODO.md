@@ -162,6 +162,13 @@
 - [x] 测试：state 透传断言（priority 整数 2 / deadline "" / criteria_confirmed 1）；op payload 透传含整数优先级；全套通过、web build 通过
 - [x] 文档：requirements §15、README/README_CN、web 文档页
 
+### P13 规划器：专家可为 planner 自身（自评审，追加，2026-10-03）
+
+- [x] 专家工作区选择器**不再排除当前 planner 工作区**（可选中自身）
+- [x] `goals[].expert_workspace_id === 当前 planner wid` 时，目标列表专家处显示「本工作区（自评审）」徽标；表单选中自身时提示「自评审：planner agent 自行拆解，不走 A2A」
+- [x] 测试：state 快照含 `expert_workspace_id == wid` 的自评审目标并断言透传（平台不做特殊处理）；全套通过、web build 通过
+- [x] 文档：requirements §15、README/README_CN、web 文档页、AGENTS.md
+
 ## 已完成（除注明外均已进 git）
 
 ### deepseek harness（dsh）全功能对齐 + 跨工作区长任务完成提醒（2026-09-30 ~ 10-01，E2E 实测）
