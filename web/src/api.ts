@@ -38,6 +38,8 @@ export interface Workspace {
   notes: string | null
   status: "online" | "offline" | "disabled"
   agent_type: string | null
+  /** 工作区角色：agent（普通）/ planner（规划器） */
+  role: string
   owner: { id: string; username: string } | null
   last_heartbeat: string | null
   session_id: string | null
@@ -56,6 +58,7 @@ export interface SharedWorkspace {
   capabilities: string | null
   agent_type: string | null
   status: "online" | "offline" | "disabled"
+  role?: string
   owner: { id: string; username: string } | null
   teams: string[]
   last_heartbeat: string | null
@@ -188,6 +191,11 @@ export const api = {
   disableWorkspace: (id: string) => request(`/api/workspaces/${id}/disable`, { method: "POST" }),
   enableWorkspace: (id: string) => request(`/api/workspaces/${id}/enable`, { method: "POST" }),
   deleteWorkspace: (id: string) => request(`/api/workspaces/${id}`, { method: "DELETE" }),
+  /** 设置工作区角色（agent / planner），仅属主 */
+  setWorkspaceRole: (id: string, role: string) =>
+    request(`/api/workspaces/${encodeURIComponent(id)}/role`, {
+      method: "POST", body: JSON.stringify({ role }),
+    }) as Promise<{ ok: boolean; role: string }>,
 
   calls: (workspaceId = "") =>
     request(`/api/calls${workspaceId ? `?workspace_id=${encodeURIComponent(workspaceId)}` : ""}`) as Promise<WorkspaceCall[]>,

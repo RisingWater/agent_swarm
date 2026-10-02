@@ -22,6 +22,7 @@
 - **🔗 Standard MCP tools** — All agent-facing operations are standard MCP tools; any MCP-capable client (opencode, claude code, deepseek harness, …) can join the swarm
 - **🐝 Cross-agent task dispatch** — Hand a task to another workspace's agent with one instruction: foreground injection (visible in their TUI) or background session (silent execution), results flow back automatically. If the requester gives up waiting, the server reminds it to fetch the result when the task finishes
 - **👥 Teams & workspace sharing** — Create teams, invite or approve members, and share a workspace into one or more teams. Teammates can call the shared workspace like a tool (get the final answer only) — never its monitor stream, artifacts, briefs or call details
+- **🧭 Planner workspace** — Mark a workspace with `role=planner` (via `workspace_add`/`update_info` or the REST endpoint) and a read-only **Planner** page lists it, subscribes to its Nexus event stream, and renders the A2A tasks it received plus its latest result artifact (markdown) — for inspecting a goal/task-tree planner's output
 - **🌐 Web hub (Nexus)** — Dispatch instructions from the browser, watch thinking / tool calls / answers stream in real time, answer permission requests remotely
 - **👀 Monitor mode** — Always on: your everyday TUI conversations sync round-by-round to the web hub, like an observation window into your agent
 - **💬 Chat integrations (Feishu & WeChat)** — Bind Feishu (Lark) or scan your own WeChat as a ClawBot account; dispatch tasks from chat, watch thinking/tool calls stream, receive completion briefs, and answer permission requests remotely across both channels
@@ -193,6 +194,10 @@ Create teams on the **Teams** page, invite members by username, or let users app
 Per-user limits (configurable): create up to 3 teams, join up to 8, 50 members per team, 10 pending invites/requests.
 
 Team activity — invites, join requests/approvals, members joining, being removed, leadership transfers and team disbanding — is recorded as **in-app messages**; the bell in the header shows the unread count and the full list (mark read, delete one, or clear all; clicking a message jumps to the Teams page).
+
+### Planner
+
+A workspace can carry a `role` (`agent` by default / `planner`). Set it when registering (`workspace_add(role="planner")`), change it later (`update_info(role=...)`), or via REST `POST /api/workspaces/{id}/role` (owner only). The role is independent of `agent_type` and never affects permission/question routing. The read-only **Planner** page lists planner workspaces, subscribes to the selected one's `/ws/nexus` stream, and shows the A2A tasks it received and its latest result artifact (markdown). First increment is read-only — no goal creation / approval / acceptance yet.
 
 ## MCP Tools (`/mcp/`, Bearer apikey auth)
 

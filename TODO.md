@@ -99,6 +99,16 @@
 - [x] 前端顶栏铃铛 + 未读红点徽标（20s 轮询）+ 面板（点击标记已读并跳团队页 / 全部已读 / 全部删除(二次确认) / 每条垃圾桶删除）
 - [x] 测试 `test_notifications.py` 5 例；全套 75 例通过
 
+### P7 规划器标志 + 只读展示页（追加，2026-10-02）
+
+> 来源：agent-swarm-planner（外部 core 服务，工作区 `XVgn9ogswmCbzrwzFPJheF`）接入平台，需要平台侧 planner 标志 + 只读页。**只读第一增量**，不做创建目标/审批/验收。
+
+- [x] 模型 `workspaces.role`（默认 `agent`，合法 `agent`/`planner`；**独立于 `agent_type`**，不参与权限分派）+ `models.normalize_role` 校验 + `db._migrate` 加列（回填 agent，幂等）
+- [x] MCP：`workspace_add(role=...)` / `update_info(role=...)`；`list_workspaces`（自有 + 共享项）返回 `role`
+- [x] REST：`GET /api/workspaces`（+ `/shared`）返回 `role`；`POST /api/workspaces/{wid}/role`（仅属主，非法 422）
+- [x] 前端顶栏「规划器」只读页 `PlannerPage`：`NexusWorkspaceSelect` 选 planner 工作区 → 订阅 `/ws/nexus` → 展示收到的 A2A 任务 + 最近一次成果（markdown）
+- [x] 测试 `test_planner_role.py` 4 例（MCP 落库/返回、update_info、REST 设置/权限、旧库迁移幂等）；全套 79 例通过
+
 ## 已完成（除注明外均已进 git）
 
 ### deepseek harness（dsh）全功能对齐 + 跨工作区长任务完成提醒（2026-09-30 ~ 10-01，E2E 实测）

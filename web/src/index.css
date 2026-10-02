@@ -2955,3 +2955,30 @@ table.ws-grid th {
 .admin-toolbar .nexus-select-wrap {
   flex: 0 0 auto;
 }
+
+/* ---- 规划器（planner）只读页 ---- */
+.planner-latest {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-block);
+  padding: 14px 16px;
+  background: var(--bg-weak);
+  margin-top: 4px;
+}
+
+.planner-latest-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.planner-latest-head h3 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.planner-latest-time {
+  color: var(--text-weak);
+  font-size: 12px;
+}

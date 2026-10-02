@@ -355,7 +355,7 @@ function NotificationBell({ onOpenTeam }: { onOpenTeam: (teamId?: string) => voi
 
 // ---------------- 应用骨架 ----------------
 
-export type Page = "home" | "docs" | "workspaces" | "calls" | "artifacts" | "account" | "nexus" | "teams" | "login"
+export type Page = "home" | "docs" | "workspaces" | "calls" | "artifacts" | "account" | "nexus" | "teams" | "planner" | "login"
 
 export default function App() {
   const { msg, show: toast } = useToast()
@@ -378,7 +378,7 @@ export default function App() {
 
   // 未登录：可见页面只有 首页/文档，受保护页面跳回首页
   const effectivePage: Page =
-    !loggedIn && (page === "workspaces" || page === "calls" || page === "artifacts" || page === "account" || page === "nexus" || page === "teams")
+    !loggedIn && (page === "workspaces" || page === "calls" || page === "artifacts" || page === "account" || page === "nexus" || page === "teams" || page === "planner")
       ? "home"
       : page
 
@@ -407,6 +407,7 @@ export default function App() {
             <>
               <a className={effectivePage === "nexus" ? "active" : ""} onClick={() => goto("nexus")}>中枢</a>
               <a className={effectivePage === "teams" ? "active" : ""} onClick={() => goto("teams")}>团队</a>
+              <a className={effectivePage === "planner" ? "active" : ""} onClick={() => goto("planner")}>规划器</a>
               <a className={effectivePage === "workspaces" ? "active" : ""} onClick={() => goto("workspaces")}>工作区</a>
               <a className={effectivePage === "calls" ? "active" : ""} onClick={() => goto("calls")}>调用记录</a>
               <a className={effectivePage === "artifacts" ? "active" : ""} onClick={() => goto("artifacts")}>产物</a>
@@ -466,6 +467,7 @@ export default function App() {
         )}
         {effectivePage === "docs" && <DocsPage />}
         {effectivePage === "nexus" && <NexusPage toast={toast} />}
+        {effectivePage === "planner" && <PlannerPage toast={toast} />}
         {effectivePage === "teams" && <TeamsPage toast={toast} openTeamId={openTeamId} onConsumeOpenTeam={() => setOpenTeamId(null)} />}
         {effectivePage === "workspaces" && <WorkspacesPage toast={toast} />}
         {effectivePage === "calls" && <CallsPage toast={toast} />}
@@ -1907,6 +1909,24 @@ agent: (a2a_call) → 对方 TUI 实时出现任务 → 执行 → 结果自动�
             团队动态——被邀请、申请/审批结果、有人加入、被移出、移交队长、团队解散——都会记一条<b>站内信</b>；
             顶栏的铃铛显示未读数，点开可查看列表并标记已读（点击某条会跳到「团队」页并打开对应团队）；
             支持<b>全部已读 / 全部删除</b>，每条消息也可用垃圾桶按钮单独删除。
+          </p>
+        </section>
+
+        <section id="doc-planner" className="docs-section">
+          <h2>规划器</h2>
+          <h3>规划器工作区是什么？</h3>
+          <p>
+            工作区可带一个 <code>role</code>（默认 <code>agent</code>，可设为 <code>planner</code>）。
+            该字段独立于 <code>agent_type</code>，<b>不参与</b>权限 / 提问分派，只用于标识与展示。
+            设置方式：注册时 <code>workspace_add(role="planner")</code>、之后 <code>update_info(role=...)</code>，
+            或 REST <code>POST /api/workspaces/&#123;id&#125;/role</code>（仅属主）。
+          </p>
+          <h3>「规划器」页能看什么？</h3>
+          <p>
+            顶栏「规划器」页是<b>只读</b>展示：用工作区选择器选中一个 planner 工作区后，订阅它的
+            <code>/ws/nexus</code> 事件流，列出它<b>收到的 A2A 任务</b>（时间 / 状态 / 指令），
+            并把<b>最近一次成果</b>（任务结果 markdown）渲染出来——用于查看外部规划器回推的目标 / 任务树与进度。
+            第一增量不做创建目标 / 审批 / 验收，后续再加。
           </p>
         </section>
 
@@ -4151,6 +4171,178 @@ function callerLabel(r: { caller: { name: string; path: string } | null; externa
   const c = r.caller
   if (!c?.name) return "-"
   return c.name
+}
+
+/** 规划器（planner）只读页：列出带 role=planner 的工作区，订阅其 /ws/nexus 事件流，
+ *  展示收到的 A2A 任务与最近一次成果（markdown）。只读，暂不提供创建目标/审批/验收。 */
+function PlannerPage({ toast }: { toast: (m: string) => void }) {
+  const [list, setList] = useState<Workspace[]>([])
+  const [selected, setSelected] = useState<string>(() => {
+    // 记忆上次选中的规划器工作区（cookie，30 天；同中转/调用记录惯例）
+    const m = document.cookie.match(/(?:^|;\s*)swarm_planner_ws=([^;]*)/)
+    try { return m ? decodeURIComponent(m[1]) : "" } catch { return "" }
+  })
+  const [tasks, setTasks] = useState<WorkspaceCall[]>([])
+  const [detail, setDetail] = useState<WorkspaceCall | null>(null)
+  const [pluginOnline, setPluginOnline] = useState(false)
+  const refreshTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+
+  const refreshList = useCallback(async () => {
+    try { setList((await api.workspaces()).filter((w) => w.role === "planner")) } catch { /* 静默 */ }
+  }, [])
+  useEffect(() => {
+    refreshList()
+    const t = setInterval(refreshList, 15_000)
+    return () => clearInterval(t)
+  }, [refreshList])
+
+  // 默认选中第一个规划器工作区
+  useEffect(() => {
+    if (!selected && list.length) setSelected(list[0].id)
+  }, [list, selected])
+
+  useEffect(() => {
+    if (selected) {
+      document.cookie = `swarm_planner_ws=${encodeURIComponent(selected)}; max-age=${60 * 60 * 24 * 30}; path=/; SameSite=Lax`
+    }
+  }, [selected])
+
+  // 该工作区收到的 A2A 任务（monitor 轮不算任务）
+  const loadTasks = useCallback(() => {
+    if (!selected) { setTasks([]); return }
+    api.calls(selected)
+      .then((rows) => setTasks(rows.filter((c) => !c.monitor && c.target?.id === selected)))
+      .catch(() => {})
+  }, [selected])
+
+  useEffect(() => {
+    loadTasks()
+    const t = setInterval(loadTasks, 10_000)
+    return () => clearInterval(t)
+  }, [loadTasks])
+
+  // 订阅该工作区 /ws/nexus：任务/事件到达时节流刷新（1.5s 合并突发帧）
+  useEffect(() => {
+    if (!selected) return
+    setPluginOnline(false)
+    const token = localStorage.getItem("swarm_token") ?? ""
+    const proto = location.protocol === "https:" ? "wss:" : "ws:"
+    const ws = new WebSocket(`${proto}//${location.host}/ws/nexus`)
+    const schedule = () => {
+      clearTimeout(refreshTimer.current)
+      refreshTimer.current = setTimeout(loadTasks, 1500)
+    }
+    ws.onopen = () => ws.send(JSON.stringify({ type: "hello", token }))
+    ws.onmessage = (e) => {
+      let msg: any
+      try { msg = JSON.parse(e.data) } catch { return }
+      if (msg.type === "hello_ok") ws.send(JSON.stringify({ type: "subscribe", workspace_id: selected }))
+      else if (msg.type === "subscribed") setPluginOnline(!!msg.plugin_online)
+      else if (msg.type === "event" || msg.type === "task" || msg.type === "monitor") schedule()
+    }
+    return () => { ws.close(); clearTimeout(refreshTimer.current) }
+  }, [selected, loadTasks])
+
+  void toast  // 预留：后续只读页可能提示错误；当前静默
+
+  const sorted = [...tasks].sort((a, b) => (a.created_at < b.created_at ? 1 : -1))
+  const latest = sorted.find((t) => t.result?.trim())
+
+  return (
+    <div>
+      <h1 className="page-title">规划器</h1>
+      <p className="page-sub">
+        只读查看<b>规划器工作区</b>（role=planner）的目标 / 任务树与回推成果。规划器由外部 core 服务驱动，
+        通过 A2A 向本平台下发任务并回推进展；这里订阅它的中枢事件流，展示其收到的任务与最近一次成果。
+      </p>
+      <div className="nexus-picker" style={{ marginBottom: 12 }}>
+        <NexusWorkspaceSelect list={list} value={selected} onChange={setSelected} showOwner />
+        {selected && (
+          <span className={`nexus-head-status ${pluginOnline ? "on" : "off"}`}>
+            {pluginOnline ? "● online" : "○ offline"}
+          </span>
+        )}
+        {!list.length && (
+          <span className="nexus-empty">
+            暂无规划器工作区 — 用 MCP <code>workspace_add(role="planner")</code> 或把工作区标记为 planner
+          </span>
+        )}
+      </div>
+
+      {selected && (
+        <>
+          <section className="planner-latest">
+            <div className="planner-latest-head">
+              <h3>最近成果</h3>
+              {latest && <span className="planner-latest-time">{fmtTime(latest.done_at ?? latest.created_at, "datetime")}</span>}
+            </div>
+            {latest?.result?.trim() ? (
+              <Md text={latest.result} />
+            ) : (
+              <p style={{ color: "var(--text-weak)", margin: 0 }}>暂无成果 — 等待规划器回推。</p>
+            )}
+          </section>
+
+          <h3 style={{ margin: "20px 0 8px" }}>任务（收到的 A2A 任务）</h3>
+          <table className="grid">
+            <thead>
+              <tr>
+                <th style={{ width: 150 }}>时间</th>
+                <th style={{ width: 110 }}>状态</th>
+                <th>指令</th>
+              </tr>
+            </thead>
+            <tbody>
+              {sorted.map((r) => (
+                <tr key={r.id}>
+                  <td style={{ color: "var(--text-weak)", fontSize: 12 }}>{fmtTime(r.created_at, "datetime")}</td>
+                  <td>
+                    <span className={`status-pill ${r.status === "working" || r.status === "queued" ? "accepted" : r.status}`}>
+                      {r.status}
+                    </span>
+                  </td>
+                  <td><a className="link" onClick={() => setDetail(r)}>{r.instruction || "(空指令)"}</a></td>
+                </tr>
+              ))}
+              {!sorted.length && (
+                <tr>
+                  <td colSpan={3} style={{ color: "var(--text-weak)", textAlign: "center", padding: 32 }}>
+                    [*] 暂无任务
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </>
+      )}
+
+      {detail && (
+        <Modal wide title={`任务 ${detail.id.slice(0, 8)}`} onClose={() => setDetail(null)}>
+          <dl className="dl">
+            <dt>状态</dt>
+            <dd>
+              <span className={`status-pill ${detail.status === "working" || detail.status === "queued" ? "accepted" : detail.status}`}>
+                {detail.status}
+              </span>
+            </dd>
+            <dt>发起方</dt><dd>{detail.caller?.name ?? "-"}</dd>
+            <dt>时间</dt><dd>{fmtTime(detail.created_at, "datetime")}</dd>
+            <dt>指令</dt><dd>{detail.instruction || "-"}</dd>
+            <dt>成果</dt>
+            <dd>
+              {detail.status === "failed" ? (
+                detail.error ?? "-"
+              ) : detail.result?.trim() ? (
+                <Md text={detail.result} />
+              ) : (
+                "-"
+              )}
+            </dd>
+          </dl>
+        </Modal>
+      )}
+    </div>
+  )
 }
 
 function CallsPage({ toast }: { toast: (m: string) => void }) {

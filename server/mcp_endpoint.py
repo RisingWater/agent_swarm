@@ -125,6 +125,7 @@ def workspace_add(
     purpose: str = "",
     capabilities: str = "",
     name: str = "",
+    role: str = "",
 ) -> dict:
     """添加（或更新）当前工作区到 agent_swarm。
 
@@ -137,11 +138,15 @@ def workspace_add(
         purpose: 目录用途的 AI 总结（留空 = 不修改）
         capabilities: 这个工作区能干什么（留空 = 不修改）
         name: 工作区名称，默认取目录名（可选）
+        role: 工作区角色（可选，留空 = 不修改）。普通工作区为 "agent"；
+            规划器（planner）传 "planner"——它会在网页「规划器」只读页中展示。
+            合法值：agent / planner。
     """
     user = get_user()
     session = next(get_session())
     try:
         path = path.strip().rstrip("/") or "/"
+        role = models.normalize_role(role)  # 非法值在此直接抛错（不落库）
 
         ws = session.exec(
             select(models.Workspace).where(
@@ -170,6 +175,8 @@ def workspace_add(
             ws.purpose = "" if purpose_enc else purpose
         if capabilities:
             ws.capabilities = capabilities
+        if role:
+            ws.role = role
         ws.agent_type = "opencode"
         ws.status = "online"
         ws.last_heartbeat = now
@@ -186,6 +193,7 @@ def workspace_add(
             "capabilities": ws.capabilities,
             "name": ws.name,
             "status": ws.status,
+            "role": ws.role or "agent",
         }
     finally:
         session.close()
@@ -346,28 +354,39 @@ def update_info(
     workspace_id: str,
     purpose: str = "",
     capabilities: str = "",
+    role: str = "",
 ) -> dict:
-    """更新工作区用途/能力描述（/swarm-desc 命令）。
+    """更新工作区用途/能力描述 / 角色（/swarm-desc 命令）。
 
     Args:
         workspace_id: 工作区 ID
         purpose: 新的用途描述（空字符串表示不修改）
         capabilities: 新的能力描述（空字符串表示不修改）
+        role: 新的角色（空字符串表示不修改）。合法值：agent / planner；
+            planner 会把该工作区标记为规划器（网页「规划器」只读页据此展示）。
     """
     user = get_user()
     session = next(get_session())
     try:
         ws = _own_workspace(session, user, workspace_id)
+        role = models.normalize_role(role)  # 非法值抛错（不落库）
         if purpose:
             purpose_enc = crypto.encrypt(user.api_key or "", purpose)
             ws.purpose_enc = purpose_enc
             ws.purpose = "" if purpose_enc else purpose
         if capabilities:
             ws.capabilities = capabilities
+        if role:
+            ws.role = role
         ws.updated_at = utcnow()
         session.add(ws)
         session.commit()
-        return {"ok": True, "purpose": crypto.decrypt(user.api_key or "", ws.purpose_enc, ws.purpose), "capabilities": ws.capabilities}
+        return {
+            "ok": True,
+            "purpose": crypto.decrypt(user.api_key or "", ws.purpose_enc, ws.purpose),
+            "capabilities": ws.capabilities,
+            "role": ws.role or "agent",
+        }
     finally:
         session.close()
 
@@ -412,6 +431,7 @@ def list_workspaces(include_offline: bool = False) -> dict:
                     "notes": crypto.decrypt(key, ws.notes_enc, ws.notes),
                     "status": "online" if online else ("disabled" if ws.status == "disabled" else "offline"),
                     "owner": owner.username if owner else None,
+                    "role": ws.role or "agent",
                     "is_self": ws.user_id == user.id,
                     "shared": False,
                     "last_heartbeat": ws.last_heartbeat.isoformat() + "Z" if ws.last_heartbeat else None,
@@ -436,6 +456,7 @@ def list_workspaces(include_offline: bool = False) -> dict:
                     "purpose": crypto.decrypt(owner_key, ws.purpose_enc, ws.purpose),
                     "capabilities": ws.capabilities,
                     "agent_type": ws.agent_type or None,
+                    "role": ws.role or "agent",
                     "status": "online" if online else "offline",
                     "owner": owner.username if owner else None,
                     "is_self": False,

@@ -40,6 +40,20 @@ def api_key_matches(provided_hash: str, stored_hash: str) -> bool:
     return hmac.compare_digest(provided_hash, stored_hash)
 
 
+# 工作区角色取值（2026-10-02）：agent=普通工作区，planner=规划器（特殊工作区）
+WORKSPACE_ROLES = ("agent", "planner")
+
+
+def normalize_role(role: str) -> str:
+    """校验工作区角色。空串/None → 返回空串（约定 = 不修改）。非法值抛 ValueError。"""
+    r = (role or "").strip().lower()
+    if not r:
+        return ""
+    if r not in WORKSPACE_ROLES:
+        raise ValueError(f"invalid role {role!r}; allowed: {', '.join(WORKSPACE_ROLES)}")
+    return r
+
+
 class User(SQLModel, table=True):
     __tablename__ = "users"
 
@@ -120,6 +134,9 @@ class Workspace(SQLModel, table=True):
     notes_enc: Optional[str] = Field(default=None, sa_column=Column(Text))  # 密文
     status: str = Field(default="online", index=True)  # online / offline / disabled
     agent_type: str = Field(default="")  # agent 工具类型（opencode / claude code / ...）
+    # 工作区角色：agent（普通）/ planner（规划器）。独立于 agent_type——只用于标识与
+    # 「规划器」只读页展示，不参与权限应答分派（见 AGENTS.md）。
+    role: str = Field(default="agent", index=True)
     last_heartbeat: Optional[datetime] = None
     session_id: Optional[str] = None
     session_title: Optional[str] = None  # 当前会话标题（心跳上报，web 展示用）

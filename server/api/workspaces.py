@@ -36,6 +36,7 @@ def ws_out(ws: models.Workspace, session: Session) -> dict:
         "status": effective,
         "raw_status": ws.status,
         "agent_type": ws.agent_type or None,
+        "role": ws.role or "agent",
         "owner": {"id": owner.id, "username": owner.username} if owner else None,
         "last_heartbeat": ws.last_heartbeat.isoformat() + "Z" if ws.last_heartbeat else None,
         "session_id": ws.session_id,
@@ -109,6 +110,7 @@ def list_shared_workspaces(
                 "purpose": crypto.decrypt(key, ws.purpose_enc, ws.purpose),
                 "capabilities": ws.capabilities,
                 "agent_type": ws.agent_type or None,
+                "role": ws.role or "agent",
                 "status": "online" if online else ("disabled" if ws.status == "disabled" else "offline"),
                 "owner": {"id": owner.id, "username": owner.username} if owner else None,
                 "teams": sorted(tnames),
@@ -160,6 +162,12 @@ def create_workspace(
     capabilities = str(body.get("capabilities") or "").strip()
     if capabilities:
         ws.capabilities = capabilities
+    try:
+        role = models.normalize_role(str(body.get("role") or ""))
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    if role:
+        ws.role = role
     ws.agent_type = "opencode"
     ws.status = "online"
     ws.last_heartbeat = now
@@ -172,6 +180,7 @@ def create_workspace(
         "name": ws.name,
         "purpose": crypto.decrypt(user.api_key or "", ws.purpose_enc, ws.purpose),
         "status": ws.status,
+        "role": ws.role or "agent",
     }
 
 
@@ -201,6 +210,31 @@ def enable_workspace(
     session.add(ws)
     session.commit()
     return {"ok": True, "status": "offline"}
+
+
+@router.post("/{workspace_id}/role")
+def set_workspace_role(
+    workspace_id: str,
+    body: dict,
+    user: models.User = Depends(get_user_either),
+    session: Session = Depends(get_session),
+):
+    """设置工作区角色（仅属主）。body: {role}，合法值 agent / planner。
+
+    独立于 agent_type：只标识「规划器」等特殊工作区，不参与权限应答分派。
+    """
+    ws = _get_ws_with_perm(workspace_id, user, session)
+    try:
+        role = models.normalize_role(str(body.get("role") or ""))
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    if not role:
+        raise HTTPException(422, "role is required")
+    ws.role = role
+    ws.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    session.add(ws)
+    session.commit()
+    return {"ok": True, "role": ws.role}
 
 
 @router.delete("/{workspace_id}")

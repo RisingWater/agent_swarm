@@ -167,3 +167,11 @@ queued ──(发送+ack 成功)──> working ──> completed | failed
 - **写入时机**：团队生命周期事件在操作同一事务内落一条站内信（`server/notifications.py`，写侧 `add/add_many`）——邀请（收件人=被邀请人）、申请加入（收件人=队长）、加入成功（收件人=本人「已加入」+ 其余活跃成员「有人加入」）、申请被拒（收件人=申请人）、邀请被拒（收件人=队长）、被踢（收件人=被踢者）、退出（收件人=队长）、移交队长（收件人=新队长 + 原队长）、**团队解散（收件人=全部活跃成员）**。
 - **REST**：`GET /api/notifications?limit=&unread_only=`（默认 50 条，倒序）、`GET /api/notifications/unread_count`、`POST /api/notifications/{id}/read`（仅本人，他人 404）、`POST /api/notifications/read_all`、`DELETE /api/notifications/{id}`（仅本人）、`DELETE /api/notifications`（清空我的全部）。
 - **前端**：顶栏铃铛 + 未读红点徽标（20s 轮询未读数）；点开面板列出消息（未读高亮、点击标记已读并跳转「团队」页、`全部已读` / `全部删除`、每条消息带垃圾桶删除按钮）。
+
+## 15. 规划器（Planner，2026-10-02）
+
+- **定位**：`agent-swarm-planner`（外部 core 服务）作为一个**特殊工作区**接入平台，Python 侧只做确定性调度/持久化，目标拆解与重规划由运行在该工作区的 agent 完成；平台侧只提供「planner 标志 + 只读展示页」，不参与规划逻辑。
+- **角色字段**：`workspaces.role`（默认 `agent`，合法值 `agent` / `planner`）。**独立于 `agent_type`**——只做标识与展示，**不**参与权限应答分派（插件按 `agent_type` 判定 opencode/claude/deepseek 渲染与权限应答，勿混用）。`models.normalize_role` 统一校验；`db._migrate` 加列（旧库默认回填 `agent`，幂等）。
+- **设置方式**：MCP `workspace_add(role=...)`（注册时带标志）、`update_info(role=...)`（对已存在工作区改标志）；REST `POST /api/workspaces/{wid}/role`（仅属主，body `{role}`）。非法角色 422。
+- **读回**：`list_workspaces`（自有 + 团队共享项）与 `GET /api/workspaces` / `GET /api/workspaces/shared` 均返回 `role`。
+- **前端**：顶栏「规划器」只读页——用 `NexusWorkspaceSelect` 选择 `role=planner` 的工作区，订阅其 `/ws/nexus` 事件流，展示该工作区**收到的 A2A 任务**（时间/状态/指令）与**最近一次成果**（任务结果 markdown，`react-markdown + remark-gfm`）。第一增量**只读**：不做创建目标/审批/验收（后续再加）。

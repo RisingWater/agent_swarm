@@ -65,6 +65,9 @@ def _migrate() -> None:
             con.execute("ALTER TABLE workspaces ADD COLUMN agent_type TEXT DEFAULT ''")
         if "session_title" not in ws_cols:
             con.execute("ALTER TABLE workspaces ADD COLUMN session_title TEXT DEFAULT ''")
+        # 工作区角色（2026-10-02）：agent（默认）/ planner（规划器只读页用）
+        if "role" not in ws_cols:
+            con.execute("ALTER TABLE workspaces ADD COLUMN role TEXT DEFAULT 'agent'")
         # 内容加密列（server/crypto.py；ENC_KEY 未配置时始终为 NULL）
         for c in ("purpose_enc", "notes_enc", "session_title_enc"):
             if c not in ws_cols:
