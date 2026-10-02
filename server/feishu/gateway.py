@@ -31,7 +31,7 @@ from lark_oapi.ws.const import (
     HEADER_TYPE,
 )
 
-from . import cards, commands, perm_card, state
+from . import cards, commands, perm_card, planner_card, state
 
 
 async def _null_send(_chat_id: str, _payload: str) -> None:
@@ -93,6 +93,9 @@ class FeishuGateway:
         brief.bind_listener()
         perm_card.set_gateway(self)
         perm_card.bind_listener()
+        # 规划器人工待办卡（协议 §7）：pending 推操作卡 / resolved 收尾
+        planner_card.set_gateway(self)
+        planner_card.bind_listener()
         # web 账号页修改窗口设置后主动通知飞书窗口
         state.set_notify_hook(self.send_text)
         handler = lark.EventDispatcherHandler.builder("", "") \
@@ -130,11 +133,12 @@ class FeishuGateway:
     def stop(self) -> None:
         # SDK 未暴露优雅关闭：daemon 线程随进程退出即可；解除事件桥
         try:
-            from . import brief, bridge, perm_card
+            from . import brief, bridge, perm_card, planner_card
 
             bridge.unbind_gateway()
             brief.unbind_listener()
             perm_card.unbind_listener()
+            planner_card.unbind_listener()
         except Exception:  # noqa: BLE001
             pass
         log.info("飞书网关停止（随进程）")
@@ -313,6 +317,8 @@ class FeishuGateway:
                     # 权限单卡：回调替换原卡为"已应答"（其他窗口走 working 事件补提示卡）
                     return self._card_response(perm_card.answered_card(str(value.get("taskId", ""))))
                 return self._toast("已应答")
+            if act == "planner_op":
+                return await self._handle_planner_op(value, operator, chat_id)
             if act == "reply_hint":
                 return self._toast("直接在输入框发送回答即可")
         except Exception:  # noqa: BLE001
@@ -354,6 +360,50 @@ class FeishuGateway:
         rc = bridge.manager().get(task_id)
         if rc is not None:
             rc.abort_result(ok)
+
+    async def _handle_planner_op(self, value: dict, open_id: str, chat_id: str) -> P2CardActionTriggerResponse:
+        """规划器待办按钮回调：下发 plan.approve/revise、task.accept/reject（协议 §7.3）。
+
+        属主校验后调 `planner_channel.dispatch_op`；core 离线 409 → 保留按钮 + toast 提示。
+        成功则用替换卡收起按钮（op_result 结果由 planner_pending 收尾另行推送）。
+        """
+        user_id = state.user_id_by_open_id(open_id)
+        if not user_id:
+            return self._toast("请先绑定账号")
+        wid = str(value.get("workspace_id", ""))
+        op = str(value.get("op", ""))
+        payload = value.get("payload") if isinstance(value.get("payload"), dict) else {}
+        if not wid or not op:
+            return self._toast("参数错误")
+
+        from sqlmodel import Session
+
+        from server import models
+        from server.db import engine
+
+        with Session(engine) as s:
+            ws = s.get(models.Workspace, wid)
+            allowed = ws is not None and ws.user_id == user_id
+        if not allowed:
+            await self.send_text(chat_id, "❌ 无权操作该规划器工作区。")
+            return P2CardActionTriggerResponse()
+
+        from fastapi import HTTPException
+
+        from server import planner_channel
+
+        try:
+            await planner_channel.dispatch_op(wid, op, payload)
+        except HTTPException as exc:
+            if exc.status_code == 409:
+                return self._toast("规划器离线，请稍后重试")  # 不换卡：按钮保留可重试
+            await self.send_text(chat_id, f"❌ 操作失败：{exc.detail}")
+            return P2CardActionTriggerResponse()
+        except Exception as exc:  # noqa: BLE001
+            log.warning("planner op 回调下发失败 op=%s: %s", op, exc)
+            await self.send_text(chat_id, f"❌ 操作失败：{exc}")
+            return P2CardActionTriggerResponse()
+        return self._card_response(planner_card.submitted_card(op))
 
     async def _handle_card_reply(self, value: dict, open_id: str, chat_id: str) -> bool:
         """权限/提问按钮应答：走与 web reply 相同的 DataPart 链路。返回是否成功。"""

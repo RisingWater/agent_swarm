@@ -125,6 +125,34 @@ def permission_text(task_id: str, kind: str, question: str, options: list[str],
     return "\n".join(lines)
 
 
+# ---------------------------------------------------------------- 规划器人工待办（协议 §7）
+
+def planner_pending_text(item: dict) -> str:
+    """规划器待办编号文本：拆解 1.通过拆解/2.重新拆解；验收 1.通过/2.拒绝。"""
+    kind = str(item.get("kind") or "")
+    title = str(item.get("title") or "").strip()
+    detail = str(item.get("detail") or "").strip()
+    if kind == "plan_approval":
+        opts = ["通过拆解", "重新拆解"]
+        fallback = "拆解待审批"
+    else:
+        opts = ["通过", "拒绝"]
+        fallback = "人工验收待处理"
+    lines = ["🗂 **规划器待办**", title or fallback]
+    if detail:
+        lines.append(detail)
+    for i, o in enumerate(opts, 1):
+        lines.append(f"{i}. {o}")
+    lines.append("回复编号处理")
+    return "\n".join(lines)
+
+
+def planner_resolved_text(item: dict) -> str:
+    """待办已处理/状态变化的收尾提示。"""
+    title = str(item.get("title") or "规划器待办")
+    return f"✅ 规划器待办已处理：{title}"
+
+
 # ---------------------------------------------------------------- 事件流解析（监控/任务事件 → 文本）
 
 

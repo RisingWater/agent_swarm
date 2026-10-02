@@ -86,6 +86,15 @@ async def handle_inbound(sess: gateway.UserSession, text: str) -> None:
         await _answer_pending(sess, pending, stripped)
         return
 
+    # 0.5) 规划器人工待办（协议 §7）：权限 pending 之后、菜单之前。独立注册表，不与权限
+    #      pending 抢槽；仅数字 1/2（或 /1 /2）命中并路由到 planner op，其余输入照常下走。
+    pp = state.get_planner_pending(uid)
+    if pp and stripped:
+        idx = _parse_index(stripped, 2)
+        if idx is not None:
+            await _answer_planner_pending(sess, pp, idx)
+            return
+
     # 1) 菜单编号应答（/1 /2 /3… 或纯数字）
     menu = _get_menu(uid)
     idx = _parse_index(stripped, len(menu["items"]) if menu else 0)
@@ -346,6 +355,43 @@ async def _answer_pending(sess: gateway.UserSession, pending: dict, text: str) -
         await reply_text(sess, "✅ 已应答，任务继续执行中。")
     else:
         await reply_text(sess, f"⚠️ 应答失败：{msg}")
+
+
+async def _answer_planner_pending(sess: gateway.UserSession, item: dict, idx: int) -> None:
+    """规划器待办编号应答：1/2 → plan.approve|revise / task.accept|reject（协议 §7.3）。
+
+    core 离线（409）不清待办，提示后用户可重试；其它错误也保留待办。
+    """
+    uid = sess.user_id
+    kind = str(item.get("kind") or "")
+    wid = str(item.get("workspace_id") or "")
+    if kind == "plan_approval":
+        op = "plan.approve" if idx == 0 else "plan.revise"
+        payload = {"goal_id": item.get("goal_id") or ""}
+        label = "通过拆解" if idx == 0 else "重新拆解"
+    else:
+        op = "task.accept" if idx == 0 else "task.reject"
+        payload = {"task_id": item.get("task_id") or ""}
+        label = "通过" if idx == 0 else "拒绝"
+
+    from fastapi import HTTPException
+
+    from server import planner_channel
+
+    try:
+        await planner_channel.dispatch_op(wid, op, payload)
+    except HTTPException as exc:
+        if exc.status_code == 409:
+            await reply_text(sess, "⚠️ 规划器离线，请稍后重试（该待办仍保留）")
+        else:
+            await reply_text(sess, f"⚠️ 操作失败：{exc.detail}")
+        return
+    except Exception as exc:  # noqa: BLE001
+        log.warning("planner op 下发失败 op=%s: %s", op, exc)
+        await reply_text(sess, f"⚠️ 操作失败：{exc}")
+        return
+    state.pop_planner_pending(uid, item.get("key"))
+    await reply_text(sess, f"✅ 已提交：{label}（规划器处理中）")
 
 
 def _parse_index(text: str, size: int) -> int | None:

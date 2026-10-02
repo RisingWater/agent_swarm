@@ -101,6 +101,20 @@ POST /api/auth/login
 
 **④ 终态简报摘要 `payload.brief`（2026-09-25 新增，桌宠简报卡数据源）**：A2A 任务到终态时，completed 帧带 `brief.artifact`（最终回答明文，截 1600）、failed 帧带 `brief.error`（失败原因，截 700）；监控轮 `idle` 帧带 `brief.artifact`。只拼在 WS 推送的内存副本上（落库/回放无此字段，历史需自行解密）。**桌宠简报正文直接取它，不必自己解析 artifact parts**——与飞书简报卡（回答截 1500 / 失败截 600）同源。
 
+**⑤ 规划器人工待办事件**（`type: "planner"`，2026-10-03 新增；**只读提醒，无需应答**）——planner 工作区出现"拆解待审批 `plan_status=draft`"或"人工验收待处理 `waiting_human`"时推送（协议：`agent-swarm-planner/docs/planner-platform-protocol.md` §7.4）：
+
+```jsonc
+{ "type": "planner", "payload": {
+    "kind": "plan_approval",   // 或 "task_acceptance"
+    "workspace_id": "<planner_wid>",
+    "goal_id": "g1",
+    "task_id": "",             // plan_approval 时为空串；task_acceptance 时为任务 id
+    "title": "拆解待审批：...", "detail": "...",
+    "updated_at": "<平台收到 notify 的时间 ISO>" } }
+```
+
+> 桌宠收到后**弹一条待办提醒即可**；真正的审批/验收动作在网页「规划器」页或飞书/微信完成（对应 op 见协议 §7.3）。属主过滤/通配订阅同 §3.1（不跨用户）；`resolved` 不额外推送。
+
 > 去重键 = `requestId`（与 web 权限卡 `perm-${requestId}` 同规则）。**同一轮内第二个权限是新的 requestId**，不可按"轮"去重。
 
 ### 3.3 简报模式（客户端过滤，零服务端改动）
@@ -111,6 +125,7 @@ POST /api/auth/login
 |---|---|
 | `input-required`（event/monitor）且 requestId 未应答 | **弹权限/提问气泡** |
 | `type:"task"` 或 status 终态（completed/failed/canceled） | **播报一句简报**（指令首行 + 最终回答/失败原因） |
+| `type:"planner"`（人工待办） | **弹一条"有拆解/人工验收待处理"提醒**（只读，无需收起） |
 | `replied`（monitor）/ 应答后自持的 `working` | 收起气泡 |
 | text/reasoning/tool 流式帧、artifact 全量 | **忽略**（简报模式不渲染详情流） |
 

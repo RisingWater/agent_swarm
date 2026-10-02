@@ -41,6 +41,16 @@ def _start_feishu():
     return gw
 
 
+def _bind_planner_pending_listeners():
+    """规划器人工待办分发钩子：桌宠（/ws/nexus 只读事件）在此注册。
+
+    飞书/微信的钩子随各自网关的 bind_listener 注册（进程内常驻，无外部进程依赖）。
+    """
+    from server import planner_pet
+
+    planner_pet.bind_listener()
+
+
 def _start_artifact_gc():
     """产物过期清理协程：启动清一次，之后每小时一次（pinned 不清）。"""
     from server import artifacts as _art
@@ -69,6 +79,7 @@ def create_app() -> FastAPI:
         async with mcp_lifespan():
             feishu = _start_feishu()
             _start_artifact_gc()
+            _bind_planner_pending_listeners()
             # 微信 ClawBot：恢复已登录用户的收消息循环（登录本身由用户在账号页扫码触发）
             try:
                 await weixin_gateway.start_all()

@@ -28,6 +28,10 @@ _tool_seen: dict[str, set[str]] = {}
 def bind_listener() -> None:
     if _LISTENER not in internal_listeners:
         internal_listeners.append(_on_event)
+    # 规划器人工待办（协议 §7）：pending 推编号文本、resolved 收尾（独立注册表，不占权限槽）
+    from server import planner_channel
+
+    planner_channel.register_pending_listener(_on_planner_pending)
 
 
 def unbind_listener() -> None:
@@ -35,6 +39,9 @@ def unbind_listener() -> None:
         internal_listeners.remove(_on_event)
     except ValueError:
         pass
+    from server import planner_channel
+
+    planner_channel.unregister_pending_listener(_on_planner_pending)
 
 
 async def _on_event(workspace_id: str, event: dict) -> None:
@@ -306,6 +313,40 @@ async def _push_monitor_input_required(workspace_id: str, round_key: str, event:
                       replies=list(permission_replies(agent_type)))
     await _send(sess, render.permission_text(round_key, itype, q, opts, agent_type))
     log.info("wx-monitor input-required round=%s itype=%s req=%s", round_key[:16], itype, req_id[:16])
+
+
+async def _on_planner_pending(workspace_id: str, action: str, item: dict) -> None:
+    """规划器待办分发钩子（planner_channel.register_pending_listener，协议 §7）。"""
+    try:
+        await _route_planner_pending(workspace_id, action, item)
+    except Exception:  # noqa: BLE001
+        log.exception("weixin planner pending error action=%s", action)
+
+
+async def _route_planner_pending(workspace_id: str, action: str, item: dict) -> None:
+    key = str(item.get("key") or "")
+    with Session(engine) as s:
+        ws = s.get(models.Workspace, workspace_id)
+        uid = (ws.user_id if ws else "") or ""
+        row = s.get(models.WeixinLogin, uid) if uid else None
+        brief_on = bool(row and row.brief_on)
+    if not uid:
+        return
+    if action == "pending":
+        if not brief_on:
+            return  # 随简报开关（与飞书 planner 卡同款语义）
+        sess = gateway.peek_session(uid)
+        if sess is None or not sess.context_token:
+            return
+        state.set_planner_pending(uid, key, item)
+        await _send(sess, render.planner_pending_text(item))
+        log.info("wx planner pending + key=%s", key[:40])
+    elif action == "resolved":
+        had = state.pop_planner_pending(uid, key)
+        sess = gateway.peek_session(uid)
+        if had is not None and sess is not None and sess.context_token:
+            await _send(sess, render.planner_resolved_text(item))
+            log.info("wx planner pending - key=%s", key[:40])
 
 
 def _owner_of(s: Session, workspace_id: str) -> str:

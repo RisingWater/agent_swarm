@@ -117,3 +117,62 @@ def _gc_pending() -> None:
     now = time.time()
     for uid in [u for u, p in _pending.items() if now - p["ts"] > _PENDING_TTL]:
         _pending.pop(uid, None)
+
+
+# ---------------------------------------------------------------- 规划器人工待办（协议 §7）
+#
+# 与权限/提问 pending **分开存**：一个用户可能同时挂着"权限待应答"和"规划器待审批/待验收"，
+# 用独立注册表避免互相覆盖（权限 pending 仍是最高优先级，见 commands.handle_inbound）。
+# 微信无卡片，待办以编号文本呈现；入站数字在此处路由到 planner_channel.dispatch_op。
+
+# user_id → {key: item}（item 为 planner_channel 登记的待办，另附 ts）
+_planner_pending: dict[str, dict[str, dict]] = {}
+_PLANNER_TTL = 24 * 3600.0
+
+
+def set_planner_pending(uid: str, key: str, item: dict) -> None:
+    if not uid or not key:
+        return
+    bucket = _planner_pending.setdefault(uid, {})
+    bucket[key] = {**item, "ts": time.time()}
+    _gc_planner_pending()
+
+
+def get_planner_pending(uid: str) -> dict | None:
+    """返回该用户最新登记的规划器待办（LIFO）；无则 None。"""
+    bucket = _planner_pending.get(uid)
+    if not bucket:
+        return None
+    item = max(bucket.values(), key=lambda x: x.get("ts", 0))
+    if time.time() - item.get("ts", 0) > _PLANNER_TTL:
+        return None
+    return item
+
+
+def pop_planner_pending(uid: str, key: str | None = None) -> dict | None:
+    """移除并返回待办：给 key 按 key 移；不给则移最新一条。"""
+    bucket = _planner_pending.get(uid)
+    if not bucket:
+        return None
+    if key:
+        item = bucket.pop(key, None)
+    else:
+        k = max(bucket, key=lambda k: bucket[k].get("ts", 0))
+        item = bucket.pop(k, None)
+    if not bucket:
+        _planner_pending.pop(uid, None)
+    return item
+
+
+def clear_planner_pending(uid: str) -> None:
+    _planner_pending.pop(uid, None)
+
+
+def _gc_planner_pending() -> None:
+    now = time.time()
+    for uid in list(_planner_pending):
+        bucket = _planner_pending[uid]
+        for k in [k for k, v in bucket.items() if now - v.get("ts", now) > _PLANNER_TTL]:
+            bucket.pop(k, None)
+        if not bucket:
+            _planner_pending.pop(uid, None)
