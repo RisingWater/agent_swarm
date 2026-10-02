@@ -2876,18 +2876,78 @@ table.ws-grid th {
 }
 
 /* 调用记录页清空按钮：浅色背景，hover 变红（danger 语义） */
-.calls-clear-btn {
+/* 通用「图标 + 文字」操作按钮（原调用记录 clear 按钮抽成复用控件，见 ActionBtn） */
+.action-btn {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  padding: 7px 12px;
+  padding: 6px 10px;
   background: none;
   border: 1px solid var(--border);
   border-radius: 6px;
   color: var(--text-weak);
   font-family: inherit;
   font-size: 12px;
+  line-height: 1;
   cursor: pointer;
+  transition: color 0.12s ease, border-color 0.12s ease, background 0.12s ease;
+}
+
+.action-btn:hover:not(:disabled) {
+  color: var(--text-strong);
+  border-color: var(--text-weak);
+}
+
+.action-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.action-btn-icon {
+  display: inline-flex;
+  align-items: center;
+}
+
+.action-btn-danger {
+  color: #d1242f;
+}
+
+.action-btn-danger:hover:not(:disabled) {
+  color: #d1242f;
+  border-color: #ff8182;
+  background: #ffebe9;
+}
+
+/* 规划器：标题带图标 / 任务树折叠 */
+.planner-h3 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tree-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  margin-right: 2px;
+  background: none;
+  border: none;
+  color: var(--text-weak);
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.tree-toggle:hover {
+  color: var(--text-strong);
+}
+
+.tree-toggle-placeholder {
+  display: inline-block;
+  width: 18px;
 }
 
 /* 文档页表格：命令/工具列固定宽度不换行 */

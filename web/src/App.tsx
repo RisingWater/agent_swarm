@@ -207,6 +207,111 @@ function ChevronIcon({ up, size = 14 }: { up?: boolean; size?: number }) {
   )
 }
 
+/** 带图标的操作按钮（复用自「调用记录」页的 clear 按钮样式）：图标 + 文字。 */
+export function ActionBtn({ icon, children, onClick, disabled, danger, title }: {
+  icon?: ReactNode
+  children?: ReactNode
+  onClick?: () => void
+  disabled?: boolean
+  danger?: boolean
+  title?: string
+}) {
+  return (
+    <button
+      type="button"
+      className={`action-btn${danger ? " action-btn-danger" : ""}`}
+      disabled={disabled}
+      title={title}
+      onClick={onClick}
+    >
+      {icon ? <span className="action-btn-icon">{icon}</span> : null}
+      {children}
+    </button>
+  )
+}
+
+function TrophyIcon({ size = 16 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M8 21h8" />
+      <path d="M12 17v4" />
+      <path d="M7 4h10v5a5 5 0 0 1-10 0V4Z" />
+      <path d="M17 4h3v2a3 3 0 0 1-3 3" />
+      <path d="M7 4H4v2a3 3 0 0 0 3 3" />
+    </svg>
+  )
+}
+
+function PlusIcon({ size = 14 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M12 5v14M5 12h14" />
+    </svg>
+  )
+}
+
+function BoltIcon({ size = 14 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M13 2 3 14h7l-1 8 10-12h-7l1-8Z" />
+    </svg>
+  )
+}
+
+function CheckIcon({ size = 14 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M20 6 9 17l-5-5" />
+    </svg>
+  )
+}
+
+function RefreshIcon({ size = 14 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
+      <path d="M3 12a9 9 0 0 1 15-6.7L21 8" />
+      <path d="M21 3v5h-5" />
+      <path d="M3 21v-5h5" />
+    </svg>
+  )
+}
+
+function PencilIcon({ size = 14 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M12 20h9" />
+      <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
+    </svg>
+  )
+}
+
+function ArchiveIcon({ size = 14 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <rect x="3" y="4" width="18" height="4" rx="1" />
+      <path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8" />
+      <path d="M10 12h4" />
+    </svg>
+  )
+}
+
+function XIcon({ size = 14 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M18 6 6 18M6 6l12 12" />
+    </svg>
+  )
+}
+
 function StatusDot({ status }: { status: string }) {
   return (
     <span>
@@ -4248,6 +4353,8 @@ function PlannerPage({ toast }: { toast: (m: string) => void }) {
   const [state, setState] = useState<PlannerState | null>(null)
   const [goalId, setGoalId] = useState<string>("")
   const [busy, setBusy] = useState(false)
+  /** 任务树里被折叠的节点 id 集合 */
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
 
   // 新建/编辑目标表单
   const [form, setForm] = useState<{ goal?: PlannerGoal } | null>(null)
@@ -4349,24 +4456,46 @@ function PlannerPage({ toast }: { toast: (m: string) => void }) {
   const pill = (k?: string) =>
     `status-pill ${k === "running" || k === "ready" || k === "pending" ? "accepted" : (k || "")}`.trim()
 
-  // 任务在依赖树中的层级（缩进展示）；防御环依赖
-  const depthOf = (() => {
+  // 任务树：父 = depends_on 里第一个存在的依赖；据此建 children，再按折叠状态展开成行（含深度）。
+  // 防御环依赖：结构可达集合与渲染遍历分别用 seen/path 保护。
+  const treeRows: { task: PlannerTask; depth: number; hasChildren: boolean }[] = []
+  {
     const byId = new Map(goalTasks.map((t) => [t.id, t]))
-    const memo = new Map<string, number>()
-    const calc = (t: PlannerTask, seen: Set<string>): number => {
-      if (memo.has(t.id)) return memo.get(t.id)!
-      if (seen.has(t.id)) return 0
-      seen.add(t.id)
-      let d = 0
-      for (const dep of t.depends_on ?? []) {
-        const dt = byId.get(dep)
-        if (dt) d = Math.max(d, calc(dt, new Set(seen)) + 1)
-      }
-      memo.set(t.id, d)
-      return d
+    const children = new Map<string, PlannerTask[]>()
+    const roots: PlannerTask[] = []
+    for (const t of goalTasks) {
+      const parent = (t.depends_on ?? []).find((d) => byId.has(d) && d !== t.id)
+      if (parent) {
+        if (!children.has(parent)) children.set(parent, [])
+        children.get(parent)!.push(t)
+      } else roots.push(t)
     }
-    return (t: PlannerTask) => calc(t, new Set())
-  })()
+    const reachable = new Set<string>()
+    const markReach = (t: PlannerTask) => {
+      if (reachable.has(t.id)) return
+      reachable.add(t.id)
+      for (const c of children.get(t.id) ?? []) markReach(c)
+    }
+    roots.forEach(markReach)
+    const path = new Set<string>()
+    const walk = (t: PlannerTask, depth: number) => {
+      if (path.has(t.id)) return
+      path.add(t.id)
+      const kids = children.get(t.id) ?? []
+      treeRows.push({ task: t, depth, hasChildren: kids.length > 0 })
+      if (!collapsed.has(t.id)) for (const c of kids) walk(c, depth + 1)
+      path.delete(t.id)
+    }
+    roots.forEach((r) => walk(r, 0))
+    // 环依赖导致结构不可达的节点：作为根补上（只补一次）
+    for (const t of goalTasks) {
+      if (!reachable.has(t.id)) {
+        path.clear()
+        walk(t, 0)
+        markReach(t)
+      }
+    }
+  }
 
   return (
     <div>
@@ -4384,7 +4513,11 @@ function PlannerPage({ toast }: { toast: (m: string) => void }) {
           </span>
         )}
         {selected && <span style={{ flex: 1 }} />}
-        {selected && <Btn size="sm" onClick={openCreate} disabled={!online}>+ 新建目标</Btn>}
+        {selected && (
+          <ActionBtn icon={<PlusIcon />} onClick={openCreate} disabled={!online} title="新建目标">
+            新建目标
+          </ActionBtn>
+        )}
         {!list.length && (
           <span className="nexus-empty">
             暂无规划器工作区 — 用 <code>/swarm-add-planner</code> 注册
@@ -4396,13 +4529,21 @@ function PlannerPage({ toast }: { toast: (m: string) => void }) {
         <p style={{ color: "var(--text-weak)" }}>
           {online
             ? "planner-core 已连接，等待首个状态快照…"
-            : "planner-core 未连接 — 启动 core（它会连上 /ws/planner）后这里会显示目标与任务树。"}
+            : "planner-core 未连接 — 启动 core（它会主动连上平台 /ws/planner）后这里会显示目标与任务树。"}
+        </p>
+      )}
+      {selected && state?.updated_at && !online && (
+        <p style={{ color: "var(--text-weak)" }}>
+          planner-core 未连接 — 以下是最近一次快照（{fmtTime(state.updated_at, "datetime")}），core 启动后会自动刷新。
         </p>
       )}
 
       {selected && state && (
         <>
-          <h3 style={{ margin: "8px 0" }}>目标</h3>
+          <h3 className="planner-h3" style={{ margin: "8px 0" }}>
+            <TrophyIcon />
+            目标
+          </h3>
           <table className="grid">
             <thead>
               <tr>
@@ -4428,11 +4569,15 @@ function PlannerPage({ toast }: { toast: (m: string) => void }) {
                   <td style={{ fontSize: 12 }}>{g.progress ? `${g.progress.done}/${g.progress.total}` : "-"}</td>
                   <td onClick={(e) => e.stopPropagation()}>
                     <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-                      <Btn size="sm" disabled={busy || !online} onClick={() => runOp("goal.nudge", { goal_id: g.id }, "已催促规划器")}>催促</Btn>
-                      <Btn size="sm" disabled={busy || !online} onClick={() => runOp("plan.approve", { goal_id: g.id }, "已通过拆解")}>通过拆解</Btn>
-                      <Btn size="sm" disabled={busy || !online} onClick={() => { setNoteText(""); setNoteModal({ op: "plan.revise", goalId: g.id, label: "重新拆解" }) }}>重新拆解</Btn>
-                      <Btn size="sm" onClick={() => openEdit(g)}>编辑</Btn>
-                      <Btn size="sm" variant="danger" disabled={busy || !online} onClick={() => runOp("goal.archive", { goal_id: g.id }, "目标已归档")}>归档</Btn>
+                      <ActionBtn icon={<BoltIcon />} disabled={busy || !online} title="催促规划器 agent 决策"
+                        onClick={() => runOp("goal.nudge", { goal_id: g.id }, "已催促规划器")}>催促</ActionBtn>
+                      <ActionBtn icon={<CheckIcon />} disabled={busy || !online} title="审批通过拆解，通知 agent 开始派发"
+                        onClick={() => runOp("plan.approve", { goal_id: g.id }, "已通过拆解")}>通过拆解</ActionBtn>
+                      <ActionBtn icon={<RefreshIcon />} disabled={busy || !online} title="要求重新拆解"
+                        onClick={() => { setNoteText(""); setNoteModal({ op: "plan.revise", goalId: g.id, label: "重新拆解" }) }}>重新拆解</ActionBtn>
+                      <ActionBtn icon={<PencilIcon />} onClick={() => openEdit(g)} title="编辑目标">编辑</ActionBtn>
+                      <ActionBtn icon={<ArchiveIcon />} danger disabled={busy || !online} title="归档目标"
+                        onClick={() => runOp("goal.archive", { goal_id: g.id }, "目标已归档")}>归档</ActionBtn>
                     </div>
                   </td>
                 </tr>
@@ -4460,13 +4605,28 @@ function PlannerPage({ toast }: { toast: (m: string) => void }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {goalTasks.map((t) => (
+                  {treeRows.map(({ task: t, depth, hasChildren }) => (
                     <tr key={t.id}>
                       <td>
-                        <span style={{ paddingLeft: depthOf(t) * 16 }}>
-                          {depthOf(t) > 0 ? "└ " : ""}{t.title}
-                        </span>
-                        {t.acceptance_result ? <div style={{ fontSize: 12, color: "var(--text-weak)" }}>{t.acceptance_result}</div> : null}
+                        <div style={{ paddingLeft: depth * 18, display: "flex", alignItems: "center", gap: 2 }}>
+                          {hasChildren ? (
+                            <button
+                              className="tree-toggle"
+                              title={collapsed.has(t.id) ? "展开子任务" : "折叠子任务"}
+                              onClick={() => setCollapsed((prev) => {
+                                const n = new Set(prev)
+                                if (n.has(t.id)) n.delete(t.id); else n.add(t.id)
+                                return n
+                              })}
+                            >
+                              {collapsed.has(t.id) ? "▸" : "▾"}
+                            </button>
+                          ) : <span className="tree-toggle-placeholder" />}
+                          <span>{t.title}</span>
+                        </div>
+                        {t.acceptance_result ? (
+                          <div style={{ fontSize: 12, color: "var(--text-weak)", paddingLeft: depth * 18 + 18 }}>{t.acceptance_result}</div>
+                        ) : null}
                       </td>
                       <td><span className={pill(t.status)}>{t.status || "-"}</span></td>
                       <td style={{ fontSize: 12, color: "var(--text-weak)" }}>{(t.depends_on ?? []).join("、") || "-"}</td>
@@ -4475,9 +4635,10 @@ function PlannerPage({ toast }: { toast: (m: string) => void }) {
                       <td>
                         {t.acceptance_type === "manual" && t.status !== "done" ? (
                           <div style={{ display: "flex", gap: 4 }}>
-                            <Btn size="sm" disabled={busy || !online} onClick={() => runOp("task.accept", { task_id: t.id }, "已验收通过")}>通过</Btn>
-                            <Btn size="sm" variant="danger" disabled={busy || !online}
-                              onClick={() => { setNoteText(""); setNoteModal({ op: "task.reject", taskId: t.id, label: "验收拒绝" }) }}>拒绝</Btn>
+                            <ActionBtn icon={<CheckIcon />} disabled={busy || !online} title="人工验收通过"
+                              onClick={() => runOp("task.accept", { task_id: t.id }, "已验收通过")}>通过</ActionBtn>
+                            <ActionBtn icon={<XIcon />} danger disabled={busy || !online} title="人工验收拒绝"
+                              onClick={() => { setNoteText(""); setNoteModal({ op: "task.reject", taskId: t.id, label: "验收拒绝" }) }}>拒绝</ActionBtn>
                           </div>
                         ) : <span style={{ color: "var(--text-weak)", fontSize: 12 }}>—</span>}
                       </td>
@@ -4611,20 +4772,14 @@ function CallsPage({ toast }: { toast: (m: string) => void }) {
           value={wsFilter}
           onChange={setWsFilter}
         />
-        <button
-          className="calls-clear-btn"
+        <ActionBtn
+          icon={<TrashIcon size={12} />}
           title="清空该工作区的全部调用记录"
           disabled={!wsFilter || clearingAll}
           onClick={() => setConfirmClear(true)}
         >
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-            <path d="M3 6h18" />
-            <path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2" />
-            <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
-            <path d="M10 11v6M14 11v6" />
-          </svg>
           clear
-        </button>
+        </ActionBtn>
       </div>
       {wsFilter && (
         <>
