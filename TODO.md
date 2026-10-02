@@ -131,6 +131,17 @@
 - [x] 测试 `test_planner_channel.py` 5 例（WS hello/错误、state 缓存+op 往返+回执、离线 409/422/401、属主 404、迁移幂等）；全套 91 例通过、web build 通过
 - [x] 文档：README/README_CN、web 文档页「规划器」节、AGENTS.md、requirements §15 同步
 
+### P10 规划器：拆解审批状态 + 专家工作区（追加，2026-10-03）
+
+> 均为 core 推送、平台透传展示（后端 state 原样存储返回，无需改接口）。
+
+- [x] **拆解审批**：`goals[].plan_status`（draft/approved）目标列表徽标；`通过拆解` 仅 draft 时显示、`重新拆解` 常显；draft 时任务树提示「待审批，通过后 agent 才会派发」；缺失按 draft 兼容
+- [x] **专家工作区**：建目标表单用 `NexusWorkspaceSelect` 选专家（自有 + 团队共享，排除当前 planner 自身），`goal.create` 带 `expert_workspace_id`/`expert_name`；目标列表显示「专家：名字」
+- [x] **专家验收点**：`acceptance_type=expert` 行标「专家验收点」徽标；`status=waiting_expert` 显示「待专家验收」（橙色）；该类任务不显示人工「通过/拒绝」（专家裁决由 planner agent 自动完成）
+- [x] 类型：`PlannerGoal` 加 `plan_status`/`expert_workspace_id`/`expert_name`
+- [x] 测试 `test_planner_channel.py` 扩展断言（plan_status + 专家字段 + expert/waiting_expert 任务透传）；全套通过、web build 通过
+- [x] 文档：requirements §15、README/README_CN、web 文档页「规划器」节
+
 ## 已完成（除注明外均已进 git）
 
 ### deepseek harness（dsh）全功能对齐 + 跨工作区长任务完成提醒（2026-09-30 ~ 10-01，E2E 实测）

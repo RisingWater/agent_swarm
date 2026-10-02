@@ -131,6 +131,9 @@ export interface PlannerGoal {
   status?: string
   /** 拆解审批状态：draft（已拆解待审批）/ approved（已通过）。缺失按 draft 处理 */
   plan_status?: string
+  /** 专家工作区（有专家时任务树由专家拆解、含专家验收点） */
+  expert_workspace_id?: string
+  expert_name?: string
   priority?: string
   deadline?: string
   success_criteria?: string

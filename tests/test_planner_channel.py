@@ -59,9 +59,12 @@ def test_planner_state_cache_and_op_roundtrip(client, ws):
             "workspace_id": wid,
             "updated_at": "2026-10-03T00:00:00Z",
             "goals": [{"id": "g1", "title": "目标一", "status": "planning",
-                       "plan_status": "draft", "progress": {"done": 1, "total": 3}}],
+                       "plan_status": "draft", "expert_workspace_id": "w-expert",
+                       "expert_name": "专家WS", "progress": {"done": 1, "total": 3}}],
             "tasks": [{"id": "t1", "goal_id": "g1", "title": "任务一",
-                       "status": "pending", "depends_on": [], "acceptance_type": "manual"}],
+                       "status": "pending", "depends_on": [], "acceptance_type": "manual"},
+                      {"id": "t2", "goal_id": "g1", "title": "任务二",
+                       "status": "waiting_expert", "depends_on": ["t1"], "acceptance_type": "expert"}],
         }})
         wsc.send_json({"type": "ping"})  # ping/pong 同步：确保 state 帧已落库
         assert wsc.receive_json()["type"] == "pong"
@@ -72,6 +75,12 @@ def test_planner_state_cache_and_op_roundtrip(client, ws):
         assert b["goals"][0]["id"] == "g1" and b["tasks"][0]["title"] == "任务一"
         # 拆解审批状态原样透传（前端按 draft/approved 展示徽标并门控 plan.approve）
         assert b["goals"][0]["plan_status"] == "draft"
+        # 专家工作区字段透传
+        assert b["goals"][0]["expert_workspace_id"] == "w-expert"
+        assert b["goals"][0]["expert_name"] == "专家WS"
+        # 专家验收点：acceptance_type=expert + status=waiting_expert 原样透传
+        expert_task = next(t for t in b["tasks"] if t["id"] == "t2")
+        assert expert_task["acceptance_type"] == "expert" and expert_task["status"] == "waiting_expert"
 
         # 下发操作 → core 侧收到 op 帧
         r = client.post(f"/api/planner/{wid}/op", headers=_auth(),

@@ -2086,6 +2086,7 @@ agent: (a2a_call) → 对方 TUI 实时出现任务 → 执行 → 结果自动�
             <li><b>任务树</b>：选中目标后按依赖层级折叠 / 展开展示任务（状态 / 依赖 / 执行 agent / 验收）</li>
             <li><b>操作</b>：<code>催促</code>（让 agent 干活）、<code>通过拆解</code>（仅拆解状态为 <code>draft</code> 时出现）/ <code>重新拆解</code>（审批计划）、<code>通过</code> / <code>拒绝</code>（人工验收）；离线时全部禁用</li>
             <li><b>拆解审批</b>：目标的 <code>plan_status</code> 为 <code>draft</code>（草稿，待审批）/ <code>approved</code>（已通过）；draft 时任务树提示「待审批，通过后 agent 才会开始派发」，点 <code>通过拆解</code> 后才开始派发</li>
+            <li><b>专家工作区</b>：建目标时可选一个专家工作区（自有 + 团队共享，排除当前 planner 自身）；指定后由该专家拆解任务树并设<b>专家验收点</b>（<code>acceptance_type=expert</code>，状态 <code>waiting_expert</code> 显示「待专家验收」）。专家裁决由 planner agent 汇总后自动完成、平台不介入，故这类任务<b>没有</b>人工「通过 / 拒绝」按钮</li>
           </ul>
           <p>
             数据来自 planner-core 经控制通道推回的快照（<code>GET /api/planner/&#123;wid&#125;/state</code>，页面每 2.5s 轮询），
@@ -4369,6 +4370,10 @@ function PlannerPage({ toast }: { toast: (m: string) => void }) {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
   /** 工作区 id → 名字（把任务的 assigned_agent 显示成名字而非 id） */
   const [wsName, setWsName] = useState<Record<string, string>>({})
+  /** 专家工作区候选（自有 + 团队共享；建目标时可选，排除当前 planner 工作区自身） */
+  const [expertOptions, setExpertOptions] = useState<
+    Array<{ id: string; name: string; path: string; agent_type?: string | null; owner?: string | { username: string } | null }>
+  >([])
 
   // 新建/编辑目标表单
   const [form, setForm] = useState<{ goal?: PlannerGoal } | null>(null)
@@ -4377,6 +4382,7 @@ function PlannerPage({ toast }: { toast: (m: string) => void }) {
   const [fPriority, setFPriority] = useState("")
   const [fDeadline, setFDeadline] = useState("")
   const [fCriteria, setFCriteria] = useState("")
+  const [fExpert, setFExpert] = useState("")  // expert_workspace_id（空 = 无专家）
   // 需要备注的操作弹窗（plan.revise / task.reject）
   const [noteModal, setNoteModal] = useState<{ op: string; goalId?: string; taskId?: string; label: string } | null>(null)
   const [noteText, setNoteText] = useState("")
@@ -4387,6 +4393,11 @@ function PlannerPage({ toast }: { toast: (m: string) => void }) {
       setList(mine.filter((w) => w.role === "planner"))
       // 自有 + 团队共享工作区的 id → 名字（任务 assigned_agent 展示用）
       setWsName(Object.fromEntries([...mine, ...shared.workspaces].map((w) => [w.id, w.name])))
+      // 专家工作区候选：自有（含路径）/ 团队共享（无路径，补空串以保证选择器字段完整）
+      setExpertOptions([
+        ...mine.map((w) => ({ id: w.id, name: w.name, path: w.path, agent_type: w.agent_type, owner: w.owner })),
+        ...shared.workspaces.map((w) => ({ id: w.id, name: w.name, path: "", agent_type: w.agent_type, owner: w.owner })),
+      ])
     } catch { /* 静默 */ }
   }, [])
   useEffect(() => {
@@ -4439,7 +4450,7 @@ function PlannerPage({ toast }: { toast: (m: string) => void }) {
   }
 
   const openCreate = () => {
-    setFTitle(""); setFDesc(""); setFPriority(""); setFDeadline(""); setFCriteria("")
+    setFTitle(""); setFDesc(""); setFPriority(""); setFDeadline(""); setFCriteria(""); setFExpert("")
     setForm({})
   }
   const openEdit = (g: PlannerGoal) => {
@@ -4453,8 +4464,16 @@ function PlannerPage({ toast }: { toast: (m: string) => void }) {
       title: fTitle.trim(), description: fDesc.trim(), priority: fPriority.trim(),
       deadline: fDeadline.trim(), success_criteria: fCriteria.trim(),
     }
-    if (form?.goal) runOp("goal.update", { goal_id: form.goal.id, ...payload }, "目标已更新")
-    else runOp("goal.create", payload, "目标已创建")
+    if (form?.goal) {
+      runOp("goal.update", { goal_id: form.goal.id, ...payload }, "目标已更新")
+    } else {
+      // 建目标时可指定专家工作区（core 据此让专家拆解、设专家验收点）
+      if (fExpert) {
+        payload.expert_workspace_id = fExpert
+        payload.expert_name = expertOptions.find((w) => w.id === fExpert)?.name || ""
+      }
+      runOp("goal.create", payload, "目标已创建")
+    }
     setForm(null)
   }
   const submitNote = () => {
@@ -4475,9 +4494,16 @@ function PlannerPage({ toast }: { toast: (m: string) => void }) {
   const taskTitle: Record<string, string> = {}
   for (const t of state?.tasks ?? []) taskTitle[t.id] = t.title
   const online = !!state?.online
-  /** 状态 → status-pill 类名（running/ready/pending 复用蓝色） */
-  const pill = (k?: string) =>
-    `status-pill ${k === "running" || k === "ready" || k === "pending" ? "accepted" : (k || "")}`.trim()
+  /** 状态 → status-pill 类名（running/ready/pending 复用蓝色；待验收类用橙色） */
+  const pill = (k?: string) => {
+    if (k === "waiting_expert" || k === "waiting_human") return "status-pill pending"
+    return `status-pill ${k === "running" || k === "ready" || k === "pending" ? "accepted" : (k || "")}`.trim()
+  }
+  /** 状态展示文案（waiting_expert 友好化为「待专家验收」） */
+  const statusLabel = (k?: string) => (k === "waiting_expert" ? "待专家验收" : (k || "-"))
+  /** 目标专家展示：优先 core 推的 expert_name，回退工作区名/ id */
+  const expertLabel = (g: PlannerGoal) =>
+    g.expert_name || (g.expert_workspace_id ? (wsName[g.expert_workspace_id] || g.expert_workspace_id) : "")
 
   // 任务树：父 = depends_on 里第一个存在的依赖；据此建 children，再按折叠状态展开成行（含深度）。
   // 防御环依赖：结构可达集合与渲染遍历分别用 seen/path 保护。
@@ -4584,6 +4610,11 @@ function PlannerPage({ toast }: { toast: (m: string) => void }) {
                   onClick={() => setGoalId(g.id)}>
                   <td className="strong">
                     <a className="link">{g.title}</a>
+                    {g.expert_workspace_id ? (
+                      <div style={{ fontSize: 12, color: "var(--text-weak)" }} title={g.expert_workspace_id}>
+                        专家：{expertLabel(g)}
+                      </div>
+                    ) : null}
                     {g.success_criteria ? <div style={{ fontSize: 12, color: "var(--text-weak)" }}>{g.success_criteria}</div> : null}
                   </td>
                   <td><span className={pill(g.status)}>{g.status || "-"}</span></td>
@@ -4669,14 +4700,18 @@ function PlannerPage({ toast }: { toast: (m: string) => void }) {
                           <div style={{ fontSize: 12, color: "var(--text-weak)", paddingLeft: depth * 18 + 26 }}>{t.acceptance_result}</div>
                         ) : null}
                       </td>
-                      <td><span className={pill(t.status)}>{t.status || "-"}</span></td>
+                      <td><span className={pill(t.status)}>{statusLabel(t.status)}</span></td>
                       <td style={{ fontSize: 12, color: "var(--text-weak)" }}>
                         {(t.depends_on ?? []).map((d) => taskTitle[d] || d).join("、") || "-"}
                       </td>
                       <td style={{ fontSize: 12, color: "var(--text-weak)" }} title={t.assigned_agent || undefined}>
                         {t.assigned_agent ? (wsName[t.assigned_agent] || t.assigned_agent) : "-"}
                       </td>
-                      <td style={{ fontSize: 12, color: "var(--text-weak)" }}>{t.acceptance_type || "-"}</td>
+                      <td style={{ fontSize: 12, color: "var(--text-weak)" }}>
+                        {t.acceptance_type === "expert" ? (
+                          <span className="status-pill accepted" title="专家验收点：由 planner agent 汇总情况请专家裁决，平台不介入">专家验收点</span>
+                        ) : (t.acceptance_type || "-")}
+                      </td>
                       <td>
                         {t.acceptance_type === "manual" && t.status !== "done" ? (
                           <div style={{ display: "flex", gap: 4 }}>
@@ -4724,6 +4759,24 @@ function PlannerPage({ toast }: { toast: (m: string) => void }) {
               成功标准
               <textarea className="field" rows={2} value={fCriteria} onChange={(e) => setFCriteria(e.target.value)} />
             </label>
+            {!form.goal ? (
+              <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                专家工作区（可选）
+                <NexusWorkspaceSelect
+                  list={expertOptions.filter((w) => w.id !== selected)}
+                  value={fExpert}
+                  onChange={setFExpert}
+                  showOwner
+                />
+                <span style={{ fontSize: 12, color: "var(--text-weak)" }}>
+                  指定后由该专家拆解任务树并设专家验收点；留空 = 无专家。
+                </span>
+              </label>
+            ) : form.goal.expert_workspace_id ? (
+              <p style={{ margin: 0, fontSize: 12, color: "var(--text-weak)" }}>
+                专家工作区：{form.goal.expert_name || form.goal.expert_workspace_id}（暂不支持修改）
+              </p>
+            ) : null}
           </div>
           <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
             <Btn size="sm" variant="ghost" onClick={() => setForm(null)}>取消</Btn>
