@@ -4784,6 +4784,7 @@ function WorkspacesPage({ toast }: { toast: (m: string) => void }) {
 // ---------------- 产物 ----------------
 
 function ArtifactsPage({ toast }: { toast: (m: string) => void }) {
+  const { t } = useI18n()
   const [list, setList] = useState<Artifact[]>([])
   const [loaded, setLoaded] = useState(false)
   const [query, setQuery] = useState("")
@@ -4795,8 +4796,8 @@ function ArtifactsPage({ toast }: { toast: (m: string) => void }) {
   }, [])
   useEffect(() => {
     load()
-    const t = setInterval(load, 30_000)
-    return () => clearInterval(t)
+    const timer = setInterval(load, 30_000)
+    return () => clearInterval(timer)
   }, [load])
 
   const togglePin = async (a: Artifact) => {
@@ -4804,9 +4805,9 @@ function ArtifactsPage({ toast }: { toast: (m: string) => void }) {
     try {
       const updated = await api.pinArtifact(a.id, !a.pinned)
       setList((prev) => prev.map((x) => (x.id === a.id ? updated : x)))
-      toast(a.pinned ? "已取消固定，将随 7 天保留期自动清理" : "已固定，不再自动清理")
+      toast(a.pinned ? t("已取消固定，将随 7 天保留期自动清理", "Unpinned; it will be auto-cleaned after the 7-day retention") : t("已固定，不再自动清理", "Pinned; it will no longer be auto-cleaned"))
     } catch (e) {
-      toast(e instanceof Error ? e.message : "操作失败")
+      toast(e instanceof Error ? e.message : t("操作失败", "Operation failed"))
     } finally {
       setBusy(null)
     }
@@ -4817,9 +4818,9 @@ function ArtifactsPage({ toast }: { toast: (m: string) => void }) {
     try {
       await api.deleteArtifact(a.id)
       setList((prev) => prev.filter((x) => x.id !== a.id))
-      toast("产物已删除")
+      toast(t("产物已删除", "Artifact deleted"))
     } catch (e) {
-      toast(e instanceof Error ? e.message : "删除失败")
+      toast(e instanceof Error ? e.message : t("删除失败", "Delete failed"))
     } finally {
       setBusy(null)
     }
@@ -4833,20 +4834,24 @@ function ArtifactsPage({ toast }: { toast: (m: string) => void }) {
 
   return (
     <>
-      <h1 className="page-title">产物</h1>
+      <h1 className="page-title">{t("产物", "Artifacts")}</h1>
       <p className="page-sub">
-        agent 通过 MCP 上传的产出文件（默认保留 7 天，固定后不自动清理；上传后也会按简报规则推送到飞书/微信窗口）。
-        产物归属上传时所在的工作区——该工作区被共享给团队后，团队成员也能在这里看到并下载（只读）。
+        <L
+          zh={<>agent 通过 MCP 上传的产出文件（默认保留 7 天，固定后不自动清理；上传后也会按简报规则推送到飞书/微信窗口）。
+            产物归属上传时所在的工作区——该工作区被共享给团队后，团队成员也能在这里看到并下载（只读）。</>}
+          en={<>Output files uploaded by agents over MCP (kept 7 days by default; pinned ones are not auto-cleaned; on upload they are also pushed to Feishu/WeChat windows per the brief rules).
+            An artifact belongs to the workspace it was uploaded from — once that workspace is shared with a team, team members can also see and download it here (read-only).</>}
+        />
       </p>
-      <SearchBox value={query} onChange={setQuery} placeholder="搜索文件名 / 备注 / 类型…" />
+      <SearchBox value={query} onChange={setQuery} placeholder={t("搜索文件名 / 备注 / 类型…", "Search filename / note / type…")} />
       <table className="grid">
         <thead>
           <tr>
-            <th>文件</th>
-            <th style={{ width: 160 }}>来源</th>
-            <th style={{ width: 90 }}>大小</th>
-            <th style={{ width: 150 }}>上传时间</th>
-            <th style={{ width: 130 }}>保留</th>
+            <th>{t("文件", "File")}</th>
+            <th style={{ width: 160 }}>{t("来源", "Source")}</th>
+            <th style={{ width: 90 }}>{t("大小", "Size")}</th>
+            <th style={{ width: 150 }}>{t("上传时间", "Uploaded")}</th>
+            <th style={{ width: 130 }}>{t("保留", "Retention")}</th>
             <th style={{ width: 170 }}></th>
           </tr>
         </thead>
@@ -4859,23 +4864,23 @@ function ArtifactsPage({ toast }: { toast: (m: string) => void }) {
               </td>
               <td style={{ fontSize: 12, color: "var(--text-weak)" }}>
                 {a.workspace_name || "-"}
-                {a.shared && <div title="来自团队共享工作区">来自 {a.owner || "队友"}（团队共享）</div>}
+                {a.shared && <div title={t("来自团队共享工作区", "From a team-shared workspace")}>{t("来自", "From")} {a.owner || t("队友", "teammate")}{t("（团队共享）", " (team-shared)")}</div>}
               </td>
               <td style={{ color: "var(--text-weak)", fontSize: 12 }}>{fmtSize(a.size)}</td>
               <td style={{ color: "var(--text-weak)", fontSize: 12 }}>{fmtTime(a.created_at, "datetime")}</td>
               <td>
                 {a.pinned ? (
-                  <span className="status-pill accepted" title="固定后不参与自动清理">已固定</span>
+                  <span className="status-pill accepted" title={t("固定后不参与自动清理", "Pinned artifacts are not auto-cleaned")}>{t("已固定", "Pinned")}</span>
                 ) : (
                   <span style={{ fontSize: 12, color: "var(--text-weak)" }}>
-                    {a.remain_days > 0 ? `${a.remain_days} 天后清理` : "即将清理"}
+                    {a.remain_days > 0 ? t(`${a.remain_days} 天后清理`, `cleaned in ${a.remain_days} day${a.remain_days > 1 ? "s" : ""}`) : t("即将清理", "about to be cleaned")}
                   </span>
                 )}
               </td>
               <td>
                 <div style={{ display: "flex", gap: 4, justifyContent: "flex-end" }}>
                   {!a.shared && (
-                    <Btn variant="icon" size="sm" title={a.pinned ? "取消固定（恢复自动清理）" : "固定（不自动清理）"}
+                    <Btn variant="icon" size="sm" title={a.pinned ? t("取消固定（恢复自动清理）", "Unpin (resume auto-cleanup)") : t("固定（不自动清理）", "Pin (no auto-cleanup)")}
                       disabled={busy === a.id} onClick={() => togglePin(a)}>
                       <svg width="14" height="14" viewBox="0 0 24 24" fill={a.pinned ? "currentColor" : "none"}
                         stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
@@ -4884,7 +4889,7 @@ function ArtifactsPage({ toast }: { toast: (m: string) => void }) {
                       </svg>
                     </Btn>
                   )}
-                  <a className="btn-icon" href={a.download_url} download={a.name} title="下载"
+                  <a className="btn-icon" href={a.download_url} download={a.name} title={t("下载", "Download")}
                     style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 28, height: 28 }}>
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
                       strokeLinecap="round" strokeLinejoin="round" aria-hidden>
@@ -4894,7 +4899,7 @@ function ArtifactsPage({ toast }: { toast: (m: string) => void }) {
                     </svg>
                   </a>
                   {!a.shared && (
-                    <Btn variant="icon" size="sm" className="btn-danger-hover" title="删除该产物"
+                    <Btn variant="icon" size="sm" className="btn-danger-hover" title={t("删除该产物", "Delete this artifact")}
                       disabled={busy === a.id} onClick={() => setConfirmDel(a)}>
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
                         strokeLinecap="round" strokeLinejoin="round" aria-hidden>
@@ -4911,19 +4916,19 @@ function ArtifactsPage({ toast }: { toast: (m: string) => void }) {
           ))}
           {loaded && !shown.length && (
             <tr><td colSpan={6} style={{ color: "var(--text-weak)", textAlign: "center", padding: 32 }}>
-              {list.length ? `[*] 没有匹配「${query.trim()}」的产物` : "[*] 暂无产物——让 agent 调用 artifact_upload 工具上传文件"}
+              {list.length ? t(`[*] 没有匹配「${query.trim()}」的产物`, `[*] No artifacts match "${query.trim()}"`) : t("[*] 暂无产物——让 agent 调用 artifact_upload 工具上传文件", "[*] No artifacts yet — have an agent call the artifact_upload tool to upload a file")}
             </td></tr>
           )}
         </tbody>
       </table>
       {confirmDel && (
-        <Modal title="删除产物？" onClose={() => setConfirmDel(null)}>
+        <Modal title={t("删除产物？", "Delete artifact?")} onClose={() => setConfirmDel(null)}>
           <p style={{ margin: "0 0 16px", fontSize: 14 }}>
-            将删除产物 <b>{confirmDel.name}</b>，该操作不可恢复。
+            {t("将删除产物", "The artifact")} <b>{confirmDel.name}</b>{t("，该操作不可恢复。", " will be deleted; this cannot be undone.")}
           </p>
           <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-            <Btn size="sm" variant="ghost" onClick={() => setConfirmDel(null)}>取消</Btn>
-            <Btn size="sm" variant="danger" onClick={() => { const t = confirmDel; setConfirmDel(null); if (t) remove(t) }}>删除</Btn>
+            <Btn size="sm" variant="ghost" onClick={() => setConfirmDel(null)}>{t("取消", "Cancel")}</Btn>
+            <Btn size="sm" variant="danger" onClick={() => { const target = confirmDel; setConfirmDel(null); if (target) remove(target) }}>{t("删除", "Delete")}</Btn>
           </div>
         </Modal>
       )}
