@@ -111,6 +111,34 @@ body {
   gap: 5px;
 }
 
+/* 顶栏中英文切换（覆盖 .topnav-links button 的通用样式） */
+.lang-switch {
+  display: inline-flex;
+  align-items: stretch;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.topnav-links .lang-switch button {
+  padding: 1px 8px;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--text-weak);
+  background: none;
+  border: none;
+}
+
+.topnav-links .lang-switch button:hover {
+  color: var(--text-strong);
+  text-decoration: none;
+}
+
+.topnav-links .lang-switch button.on {
+  background: var(--bg-strong);
+  color: var(--bg);
+}
+
 /* ---------- 站内信 ---------- */
 
 .notif-wrap {

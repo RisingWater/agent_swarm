@@ -212,6 +212,16 @@
 - [x] 插件补 `mode`（2026-10-03）：opencode V2 `emitStream` 监控分支透传 append/replace；opencode V1 与 deepseek 监控 reasoning/text 固定 `replace`（全量快照）；`feishu/bridge` 监控 text 也按 mode 拼接；web 监控渲染按 mode 拼接/覆盖。**改插件需重装 + 重启 opencode 才生效**
 - [ ] 待用户真机验证：飞书思考卡连续增长（不再一段一段）、无逐字慢放
 
+### P19 前端中英文双语（阶段一：公开页，追加，2026-10-02）
+
+> 用户需求：前端网页增加英文版本，顶栏加 EN/CN 切换，默认中文。分阶段推进，第一批覆盖公开页；文档页全部正文翻译、代码/命令不动。
+
+- [x] 新增轻量 i18n `web/src/i18n.tsx`（`LangProvider` + `useI18n().t(zh,en)` + 富文本 `<L zh en>`；语言存 localStorage `swarm_lang`，默认 zh；同步 `<html lang>`）；`main.tsx` 包 Provider
+- [x] 顶栏新增 **中 / EN 切换** `LangSwitch`（`.lang-switch`，登录与否都可见）
+- [x] 翻译公开页：顶栏导航、首页（Hero / 安装 / 关于 10 张特点卡 / 能做什么 / 文档 CTA）、文档页全 10 章正文、登录注册弹窗、SupportedAgents
+- [x] web build 通过；pytest 132 passed（服务端未改）
+- [ ] 阶段二：逐页翻译登录后的管理页（中枢 / 工作区 / 调用记录 / 产物 / 账号 / 团队 / 规划器）与站内信
+
 ## 已完成（除注明外均已进 git）
 
 ### deepseek harness（dsh）全功能对齐 + 跨工作区长任务完成提醒（2026-09-30 ~ 10-01，E2E 实测）

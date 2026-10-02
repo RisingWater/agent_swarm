@@ -24,6 +24,7 @@ import {
 } from "./api"
 import { copyText } from "./copy"
 import { AdminPage } from "./AdminPage"
+import { useI18n, L, type Lang } from "./i18n"
 
 const maskKey = (k: string) => "*".repeat(k.length - 2) + k.slice(-2)
 
@@ -476,7 +477,22 @@ function NotificationBell({ onOpenTeam }: { onOpenTeam: (teamId?: string) => voi
 
 export type Page = "home" | "docs" | "workspaces" | "calls" | "artifacts" | "account" | "nexus" | "teams" | "planner" | "login"
 
+/** 顶栏中英文切换：中 / EN 两段，当前语言高亮。 */
+function LangSwitch() {
+  const { lang, setLang } = useI18n()
+  const pick = (l: Lang) => () => setLang(l)
+  return (
+    <span className="lang-switch" role="group" aria-label="Language / 语言">
+      <button type="button" className={lang === "zh" ? "on" : ""} aria-pressed={lang === "zh"}
+        title="中文" onClick={pick("zh")}>中</button>
+      <button type="button" className={lang === "en" ? "on" : ""} aria-pressed={lang === "en"}
+        title="English" onClick={pick("en")}>EN</button>
+    </span>
+  )
+}
+
 export default function App() {
+  const { t } = useI18n()
   const { msg, show: toast } = useToast()
   const [token, setToken] = useState(localStorage.getItem("swarm_token"))
   const [page, setPage] = useState<Page>("home")
@@ -515,27 +531,27 @@ export default function App() {
   return (
     <>
       <header className="topnav">
-        <a className="topnav-logo" href="#" onClick={(e) => { e.preventDefault(); goto("home") }} title="首页">
+        <a className="topnav-logo" href="#" onClick={(e) => { e.preventDefault(); goto("home") }} title={t("首页", "Home")}>
           <Logo />
         </a>
         <nav className="topnav-links">
-          <a className={effectivePage === "home" ? "active" : ""} onClick={() => goto("home")}>首页</a>
-          <a className={effectivePage === "docs" ? "active" : ""} onClick={() => goto("docs")}>文档</a>
+          <a className={effectivePage === "home" ? "active" : ""} onClick={() => goto("home")}>{t("首页", "Home")}</a>
+          <a className={effectivePage === "docs" ? "active" : ""} onClick={() => goto("docs")}>{t("文档", "Docs")}</a>
           {loggedIn && (
             <>
-              <a className={effectivePage === "nexus" ? "active" : ""} onClick={() => goto("nexus")}>中枢</a>
-              <a className={effectivePage === "teams" ? "active" : ""} onClick={() => goto("teams")}>团队</a>
-              <a className={effectivePage === "planner" ? "active" : ""} onClick={() => goto("planner")}>规划器</a>
-              <a className={effectivePage === "workspaces" ? "active" : ""} onClick={() => goto("workspaces")}>工作区</a>
-              <a className={effectivePage === "calls" ? "active" : ""} onClick={() => goto("calls")}>调用记录</a>
-              <a className={effectivePage === "artifacts" ? "active" : ""} onClick={() => goto("artifacts")}>产物</a>
+              <a className={effectivePage === "nexus" ? "active" : ""} onClick={() => goto("nexus")}>{t("中枢", "Nexus")}</a>
+              <a className={effectivePage === "teams" ? "active" : ""} onClick={() => goto("teams")}>{t("团队", "Teams")}</a>
+              <a className={effectivePage === "planner" ? "active" : ""} onClick={() => goto("planner")}>{t("规划器", "Planner")}</a>
+              <a className={effectivePage === "workspaces" ? "active" : ""} onClick={() => goto("workspaces")}>{t("工作区", "Workspaces")}</a>
+              <a className={effectivePage === "calls" ? "active" : ""} onClick={() => goto("calls")}>{t("调用记录", "Calls")}</a>
+              <a className={effectivePage === "artifacts" ? "active" : ""} onClick={() => goto("artifacts")}>{t("产物", "Artifacts")}</a>
             </>
           )}
           {loggedIn && <NotificationBell onOpenTeam={openTeam} />}
           {loggedIn ? (
             <a
               className={`user${effectivePage === "account" ? " active" : ""}`}
-              title="账号：API Key / 修改密码"
+              title={t("账号：API Key / 修改密码", "Account: API Key / password")}
               onClick={() => goto("account")}
             >
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -546,14 +562,15 @@ export default function App() {
               {username}
             </a>
           ) : (
-            <a className="user" title="登录或注册" onClick={() => setPage("login")}>登录 / 注册</a>
+            <a className="user" title={t("登录或注册", "Log in or sign up")} onClick={() => setPage("login")}>{t("登录 / 注册", "Log in / Sign up")}</a>
           )}
+          <LangSwitch />
           <a
             className="github-link"
             href="https://github.com/RisingWater/agent_swarm"
             target="_blank"
             rel="noreferrer"
-            title="GitHub 仓库"
+            title={t("GitHub 仓库", "GitHub repository")}
           >
             <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden>
               <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z" />
@@ -568,7 +585,7 @@ export default function App() {
                 setPage("home")
               }}
             >
-              退出
+              {t("退出", "Log out")}
             </button>
           )}
         </nav>
@@ -609,6 +626,7 @@ export default function App() {
 // ---------------- 登录/注册（弹窗形式，覆盖在当前页上） ----------------
 
 function LoginPage({ onLogin, onClose }: { onLogin: (token: string) => void; onClose: () => void }) {
+  const { t } = useI18n()
   const [mode, setMode] = useState<"login" | "register">("login")
   const [username, setUsername] = useState("")
   const [password, setPassword] = useState("")
@@ -645,32 +663,32 @@ function LoginPage({ onLogin, onClose }: { onLogin: (token: string) => void; onC
           <h1 style={{ fontSize: 26, margin: 0 }}>agent_swarm</h1>
         </div>
         <div className="tablist tablist-inline" style={{ marginBottom: 0 }}>
-          <button role="tab" aria-selected={mode === "login"} onClick={() => setMode("login")}>登录</button>
-          <button role="tab" aria-selected={mode === "register"} onClick={() => setMode("register")}>注册</button>
+          <button role="tab" aria-selected={mode === "login"} onClick={() => setMode("login")}>{t("登录", "Log in")}</button>
+          <button role="tab" aria-selected={mode === "register"} onClick={() => setMode("register")}>{t("注册", "Sign up")}</button>
         </div>
         <div className="tabpanel">
           <div style={{ display: "grid", gap: 12 }}>
-            <input className="field" placeholder="用户名（2-32 位）" value={username} onChange={(e) => setUsername(e.target.value)} />
-            <input className="field" type="password" placeholder="密码（至少 6 位）" value={password}
+            <input className="field" placeholder={t("用户名（2-32 位）", "Username (2-32 chars)")} value={username} onChange={(e) => setUsername(e.target.value)} />
+            <input className="field" type="password" placeholder={t("密码（至少 6 位）", "Password (min 6 chars)")} value={password}
               onChange={(e) => setPassword(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && submit()} />
             {err && <div style={{ color: "#d4494b", fontSize: 12 }}>{err}</div>}
             <button className="btn btn-primary" style={{ justifyContent: "center" }} disabled={loading} onClick={submit}>
-              {loading ? "请稍候…" : mode === "login" ? "登录" : "注册"}
+              {loading ? t("请稍候…", "Please wait…") : mode === "login" ? t("登录", "Log in") : t("注册", "Sign up")}
             </button>
           </div>
         </div>
       </div>
       {apiKeyShow && (
-        <Modal title="你的 API Key" onClose={() => { setApiKeyShow(null); onLogin(pendingToken) }}>
+        <Modal title={t("你的 API Key", "Your API Key")} onClose={() => { setApiKeyShow(null); onLogin(pendingToken) }}>
           <p style={{ fontSize: 13, color: "var(--text-weak)", marginTop: 0 }}>
-            key 可以随时在「账号 → API Key」查看，但请妥善保管：
+            {t("key 可以随时在「账号 → API Key」查看，但请妥善保管：", "You can always find this key under Account → API Key, but keep it safe:")}
           </p>
           <div className="keybox" style={{ fontSize: 12, wordBreak: "break-all", whiteSpace: "normal" }}>
             {apiKeyShow}
           </div>
           <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 16 }}>
-            <Btn variant="primary" onClick={() => { setApiKeyShow(null); onLogin(pendingToken) }}>我已保存</Btn>
+            <Btn variant="primary" onClick={() => { setApiKeyShow(null); onLogin(pendingToken) }}>{t("我已保存", "I've saved it")}</Btn>
           </div>
         </Modal>
       )}
@@ -1178,6 +1196,7 @@ export function ConfirmWrap({ text, onOk, children }: { text: string; onOk: () =
 // ---------------- 首页 ----------------
 
 function HomePage({ toast, loggedIn, onGoAccount, onOpenLogin, onGoDocs }: { toast: (m: string) => void; loggedIn: boolean; onGoAccount: () => void; onOpenLogin: () => void; onGoDocs: () => void }) {
+  const { t } = useI18n()
   const [me, setMe] = useState<(User & { api_key: string }) | null>(null)
   const [plat, setPlat] = useState<"sh" | "ps1">(
     /Win/i.test(navigator.platform) ? "ps1" : "sh",
@@ -1204,13 +1223,16 @@ function HomePage({ toast, loggedIn, onGoAccount, onOpenLogin, onGoDocs }: { toa
           <h1>agent_swarm</h1>
         </div>
         <p className="home-tagline">
-          多 agent 协作中枢 —— 把你的 AI 编程工具组成一个虫群，让它们互相调用、协同完成任务。
+          {t(
+            "多 agent 协作中枢 —— 把你的 AI 编程工具组成一个虫群，让它们互相调用、协同完成任务。",
+            "A multi-agent collaboration hub — turn your AI coding tools into a swarm that calls one another and gets tasks done together.",
+          )}
         </p>
       </section>
 
       {/* 2. 马上安装 */}
       <section className="home-install">
-        <h2>马上安装</h2>
+        <h2>{t("马上安装", "Install now")}</h2>
         <div className="tablist tablist-inline">
           <button role="tab" aria-selected={plat === "sh"} onClick={() => setPlat("sh")}>
             macOS / linux
@@ -1232,12 +1254,17 @@ function HomePage({ toast, loggedIn, onGoAccount, onOpenLogin, onGoDocs }: { toa
         </div>
         {loggedIn ? (
           <p className="home-hint" style={{ marginTop: 10 }}>
-            命令中的 API Key 可在 <a className="link" onClick={onGoAccount}>账号</a> 页查看或重置。
+            <L
+              zh={<>命令中的 API Key 可在 <a className="link" onClick={onGoAccount}>账号</a> 页查看或重置。</>}
+              en={<>The API Key in the command can be viewed or reset on the <a className="link" onClick={onGoAccount}>Account</a> page.</>}
+            />
           </p>
         ) : (
           <p className="home-hint" style={{ marginTop: 10 }}>
-            <a className="link" onClick={onOpenLogin}>注册</a>或者
-            <a className="link" onClick={onOpenLogin}>登录</a>账号即可安装。
+            <L
+              zh={<><a className="link" onClick={onOpenLogin}>注册</a>或者<a className="link" onClick={onOpenLogin}>登录</a>账号即可安装。</>}
+              en={<><a className="link" onClick={onOpenLogin}>Sign up</a> or <a className="link" onClick={onOpenLogin}>log in</a> to install.</>}
+            />
           </p>
         )}
         <SupportedAgents />
@@ -1250,108 +1277,145 @@ function HomePage({ toast, loggedIn, onGoAccount, onOpenLogin, onGoDocs }: { toa
 
       {/* 4. 什么是 agent_swarm？ */}
       <section className="home-about">
-        <h2>什么是 agent_swarm？</h2>
+        <h2>{t("什么是 agent_swarm？", "What is agent_swarm?")}</h2>
         <p>
-          agent_swarm 是一个自托管的多 agent 协作平台。每个 AI 编程工具（如 opencode）作为一个
-          <b> agent 工作区</b>注册到中枢，虫群中的任何 agent 都可以把任务派发给其他 agent 执行——
-          就像一群工蜂协作：你写代码，它跑测试，另一个整理文档。你还可以<b>组建团队、把工作区共享给团队</b>，
-          让队友的 agent 也能调用它——共享的只是"调用权"，执行过程仍只对你可见。
-          对于需要长期推进的目标，还可以交给<b>规划器</b>工作区：把目标拆成任务树、自动调度虫群执行并追踪验收。
+          <L
+            zh={<>agent_swarm 是一个自托管的多 agent 协作平台。每个 AI 编程工具（如 opencode）作为一个
+              <b> agent 工作区</b>注册到中枢，虫群中的任何 agent 都可以把任务派发给其他 agent 执行——
+              就像一群工蜂协作：你写代码，它跑测试，另一个整理文档。你还可以<b>组建团队、把工作区共享给团队</b>，
+              让队友的 agent 也能调用它——共享的只是"调用权"，执行过程仍只对你可见。
+              对于需要长期推进的目标，还可以交给<b>规划器</b>工作区：把目标拆成任务树、自动调度虫群执行并追踪验收。</>}
+            en={<>agent_swarm is a self-hosted multi-agent collaboration platform. Each AI coding tool (e.g. opencode) registers as
+              an <b>agent workspace</b> on the hub, and any agent in the swarm can dispatch tasks to the others —
+              like a hive of worker bees: one writes code, another runs tests, a third tidies the docs. You can also <b>form teams and share workspaces</b>
+              so that teammates' agents can call them too — only the <b>right to call</b> is shared; the execution stays visible only to you.
+              For long-running goals you can hand them to a <b>planner</b> workspace: it breaks the goal into a task tree, dispatches the swarm and tracks acceptance.</>}
+          />
         </p>
         <div className="home-grid">
           <div className="home-card">
             <div className="home-card-head">
               <FeatureIcon kind="mcp" />
-              <h3>开放架构，逐步支持更多 agent</h3>
+              <h3>{t("开放架构，逐步支持更多 agent", "Open architecture, more agents over time")}</h3>
             </div>
-            <p>面向 agent 的操作走标准 MCP 工具，工作区之间的任务派发走标准 <b>A2A 协议</b>（Linux Foundation 开放标准）。基于开放协议，claude code、deepseek harness、pi 等更多 agent 客户端得以逐步接入。</p>
+            <p><L
+              zh={<>面向 agent 的操作走标准 MCP 工具，工作区之间的任务派发走标准 <b>A2A 协议</b>（Linux Foundation 开放标准）。基于开放协议，claude code、deepseek harness、pi 等更多 agent 客户端得以逐步接入。</>}
+              en={<>Agent-facing operations use standard MCP tools, and task dispatch between workspaces uses the standard <b>A2A protocol</b> (a Linux Foundation open standard). Because it's built on open protocols, claude code, deepseek harness, pi and more clients can be added over time.</>}
+            /></p>
           </div>
           <div className="home-card">
             <div className="home-card-head">
               <FeatureIcon kind="swarm" />
-              <h3>跨 agent 任务派发</h3>
+              <h3>{t("跨 agent 任务派发", "Cross-agent task dispatch")}</h3>
             </div>
-            <p>一条指令把任务交给另一个工作区的 agent：支持<b>前台注入</b>（任务直接进入对方当前会话，实时可见）与<b>后台会话</b>（独立会话静默执行，按来源归组）两种方式，结果自动回传。</p>
+            <p><L
+              zh={<>一条指令把任务交给另一个工作区的 agent：支持<b>前台注入</b>（任务直接进入对方当前会话，实时可见）与<b>后台会话</b>（独立会话静默执行，按来源归组）两种方式，结果自动回传。</>}
+              en={<>Hand a task to an agent in another workspace with one instruction: supports <b>foreground injection</b> (the task enters the peer's current session, visible in real time) and <b>background sessions</b> (an isolated session runs silently, grouped by caller). Results are returned automatically.</>}
+            /></p>
           </div>
           <div className="home-card">
             <div className="home-card-head">
               <FeatureIcon kind="team" />
-              <h3>团队与工作区共享</h3>
+              <h3>{t("团队与工作区共享", "Teams & workspace sharing")}</h3>
             </div>
-            <p>创建团队、邀请成员，把自己的工作区<b>共享</b>给团队当工具调用：队友（或用他们的 agent）只能拿到<b>最终答复</b>，看不到你的监控流、产物与调用细节。共享的是<b>调用权</b>，不是可见权。</p>
+            <p><L
+              zh={<>创建团队、邀请成员，把自己的工作区<b>共享</b>给团队当工具调用：队友（或用他们的 agent）只能拿到<b>最终答复</b>，看不到你的监控流、产物与调用细节。共享的是<b>调用权</b>，不是可见权。</>}
+              en={<>Create teams, invite members, and <b>share</b> your workspaces to the team as callable tools: teammates (or their agents) get only the <b>final answer</b> — they can't see your monitor stream, artifacts or call details. You share the <b>right to call</b>, not the right to see.</>}
+            /></p>
           </div>
           <div className="home-card">
             <div className="home-card-head">
               <FeatureIcon kind="planner" />
-              <h3>规划器：把目标拆成任务树</h3>
+              <h3>{t("规划器：把目标拆成任务树", "Planner: turn goals into a task tree")}</h3>
             </div>
-            <p>把一个模糊的<b>长期目标</b>交给规划器工作区：由规划 agent 拆解成带依赖的<b>任务树</b>，逐个派发给其他 agent 执行、持续追踪验收。支持<b>专家拆解</b>与专家验收点、在网页上<b>审批拆解</b>与人工验收，关键待办还能外推到飞书 / 微信 / 桌宠。</p>
+            <p><L
+              zh={<>把一个模糊的<b>长期目标</b>交给规划器工作区：由规划 agent 拆解成带依赖的<b>任务树</b>，逐个派发给其他 agent 执行、持续追踪验收。支持<b>专家拆解</b>与专家验收点、在网页上<b>审批拆解</b>与人工验收，关键待办还能外推到飞书 / 微信 / 桌宠。</>}
+              en={<>Give a fuzzy <b>long-term goal</b> to a planner workspace: a planning agent breaks it into a dependency-aware <b>task tree</b>, dispatches tasks to other agents and tracks acceptance. Supports <b>expert decomposition</b> and expert acceptance points, <b>plan approval</b> and manual acceptance on the web, and pushes key to-dos to Feishu / WeChat / desktop pet.</>}
+            /></p>
           </div>
           <div className="home-card">
             <div className="home-card-head">
               <FeatureIcon kind="terminal" />
-              <h3>中枢 Nexus</h3>
+              <h3>{t("中枢 Nexus", "Nexus")}</h3>
             </div>
-            <p>在网页上选择在线工作区直接下达指令，实时观看 agent 的思考、工具调用与答复，权限请求和提问可直接点选应答。</p>
+            <p>{t(
+              "在网页上选择在线工作区直接下达指令，实时观看 agent 的思考、工具调用与答复，权限请求和提问可直接点选应答。",
+              "Pick an online workspace on the web and send instructions directly; watch the agent's reasoning, tool calls and answers live, and answer permission requests or questions with a click.",
+            )}</p>
           </div>
           <div className="home-card">
             <div className="home-card-head">
               <FeatureIcon kind="eye" />
-              <h3>监控模式</h3>
+              <h3>{t("监控模式", "Monitor mode")}</h3>
             </div>
-            <p>你在 agent 里的日常对话会按轮次实时同步到网页中枢：提问、思考、工具调用、回答全程可见，权限请求远程应答，历史随时回溯——像给 agent 开了一扇观察窗。</p>
+            <p>{t(
+              "你在 agent 里的日常对话会按轮次实时同步到网页中枢：提问、思考、工具调用、回答全程可见，权限请求远程应答，历史随时回溯——像给 agent 开了一扇观察窗。",
+              "Your everyday conversations with the agent sync to the web Nexus round by round: questions, reasoning, tool calls and answers are all visible, permission requests can be answered remotely, and history is always replayable — like an observation window into your agent.",
+            )}</p>
           </div>
           <div className="home-card">
             <div className="home-card-head">
               <FeatureIcon kind="chat" />
-              <h3>即时聊天工具接入</h3>
+              <h3>{t("即时聊天工具接入", "Chat app integration")}</h3>
             </div>
-            <p>绑定飞书或微信后，直接在聊天里给 agent 派任务：按轮次时间线实时围观思考与工具调用，任务完成后收到<b>结果简报</b>，权限请求远程点选/回复应答。</p>
+            <p><L
+              zh={<>绑定飞书或微信后，直接在聊天里给 agent 派任务：按轮次时间线实时围观思考与工具调用，任务完成后收到<b>结果简报</b>，权限请求远程点选/回复应答。</>}
+              en={<>After binding Feishu or WeChat, dispatch tasks to your agent right from chat: watch reasoning and tool calls as a live timeline, get a <b>result brief</b> when a task finishes, and answer permission requests by tapping or replying.</>}
+            /></p>
           </div>
           <div className="home-card">
             <div className="home-card-head">
               <FeatureIcon kind="package" />
-              <h3>产物管理</h3>
+              <h3>{t("产物管理", "Artifact management")}</h3>
             </div>
-            <p>agent 通过 MCP 把产出文件（构建包、报告、数据集…）上传到中枢：飞书/微信<b>直接收到文件</b>，网页「产物」页集中管理、随时下载，默认保留 7 天，重要产物可一键固定永不清理。产物归属上传时所在的工作区，该工作区共享给团队后，队友也能看到并下载（只读）。</p>
+            <p><L
+              zh={<>agent 通过 MCP 把产出文件（构建包、报告、数据集…）上传到中枢：飞书/微信<b>直接收到文件</b>，网页「产物」页集中管理、随时下载，默认保留 7 天，重要产物可一键固定永不清理。产物归属上传时所在的工作区，该工作区共享给团队后，队友也能看到并下载（只读）。</>}
+              en={<>Agents upload output files (builds, reports, datasets…) to the hub over MCP: Feishu/WeChat <b>receive the file directly</b>, and the web Artifacts page manages and downloads them anytime. Kept 7 days by default; important artifacts can be pinned so they're never auto-cleaned. Artifacts belong to the workspace they were uploaded from; once that workspace is shared with a team, teammates can view and download them (read-only).</>}
+            /></p>
           </div>
           <div className="home-card">
             <div className="home-card-head">
               <FeatureIcon kind="pulse" />
-              <h3>在线状态与心跳</h3>
+              <h3>{t("在线状态与心跳", "Online status & heartbeat")}</h3>
             </div>
-            <p>插件每 30 秒心跳保活，工作区看板实时展示每个 agent 的在线/离线状态与当前会话。</p>
+            <p>{t(
+              "插件每 30 秒心跳保活，工作区看板实时展示每个 agent 的在线/离线状态与当前会话。",
+              "Plugins heartbeat every 30 seconds; the workspace board shows each agent's online/offline status and current session in real time.",
+            )}</p>
           </div>
           <div className="home-card">
             <div className="home-card-head">
               <FeatureIcon kind="shield" />
-              <h3>自托管 & 轻量</h3>
+              <h3>{t("自托管 & 轻量", "Self-hosted & lightweight")}</h3>
             </div>
-            <p>单个 FastAPI 服务 + SQLite，一条命令启动，数据完全留在你自己的机器上。</p>
+            <p>{t(
+              "单个 FastAPI 服务 + SQLite，一条命令启动，数据完全留在你自己的机器上。",
+              "A single FastAPI service + SQLite, started with one command; your data stays entirely on your own machine.",
+            )}</p>
           </div>
         </div>
       </section>
 
       {/* 5. 它可以做什么？ */}
       <section className="home-about">
-        <h2>它可以做什么？</h2>
+        <h2>{t("它可以做什么？", "What can it do?")}</h2>
         <ul className="home-list">
-          <li>让前端 agent 把后端 bug 派发给后端工作区的 agent 修复</li>
-          <li>让一个 agent 去另一个仓库执行测试、汇总结果</li>
-          <li>组建团队、把工作区共享给团队：队友的 agent 像调用工具一样调用它，只回结果、不暴露过程</li>
-          <li>给规划器一个长期目标，让它自动拆成任务树、调度虫群里的 agent 执行并追踪验收</li>
-          <li>在网页「中枢」里给任意在线 agent 直接下达指令，实时围观它干活</li>
-          <li>把你在 agent 里的日常对话实时同步到网页，随时远程回看</li>
-          <li>绑定飞书 / 微信等即时聊天工具，在聊天里派活、看进度、收完成简报</li>
-          <li>让 agent 把构建包 / 报告等产物上传到中枢，聊天收文件、网页集中管理下载</li>
-          <li>集中管理所有 AI 工作区的用途说明、备注与在线状态</li>
-          <li>回溯每一次跨 agent 调用的指令与结果（调用记录）</li>
+          <li>{t("让前端 agent 把后端 bug 派发给后端工作区的 agent 修复", "Have a frontend agent dispatch a backend bug to an agent in the backend workspace to fix")}</li>
+          <li>{t("让一个 agent 去另一个仓库执行测试、汇总结果", "Have one agent run tests in another repo and summarize the results")}</li>
+          <li>{t("组建团队、把工作区共享给团队：队友的 agent 像调用工具一样调用它，只回结果、不暴露过程", "Build teams and share workspaces: teammates' agents call it like a tool and get only the result, never the process")}</li>
+          <li>{t("给规划器一个长期目标，让它自动拆成任务树、调度虫群里的 agent 执行并追踪验收", "Give the planner a long-term goal and let it break it into a task tree, dispatch agents across the swarm and track acceptance")}</li>
+          <li>{t("在网页「中枢」里给任意在线 agent 直接下达指令，实时围观它干活", "Send instructions to any online agent from the web Nexus and watch it work live")}</li>
+          <li>{t("把你在 agent 里的日常对话实时同步到网页，随时远程回看", "Sync your everyday agent conversations to the web and replay them remotely anytime")}</li>
+          <li>{t("绑定飞书 / 微信等即时聊天工具，在聊天里派活、看进度、收完成简报", "Bind Feishu / WeChat and dispatch, watch progress and get completion briefs right in chat")}</li>
+          <li>{t("让 agent 把构建包 / 报告等产物上传到中枢，聊天收文件、网页集中管理下载", "Have agents upload builds / reports to the hub: receive files in chat and manage downloads on the web")}</li>
+          <li>{t("集中管理所有 AI 工作区的用途说明、备注与在线状态", "Centrally manage purpose notes, comments and online status of all AI workspaces")}</li>
+          <li>{t("回溯每一次跨 agent 调用的指令与结果（调用记录）", "Replay the instruction and result of every cross-agent call (call records)")}</li>
         </ul>
       </section>
 
       {/* 6. 阅读文档 */}
       <section className="home-docs-cta">
-        <a className="btn btn-primary docs-btn" onClick={onGoDocs}>阅读文档 →</a>
+        <a className="btn btn-primary docs-btn" onClick={onGoDocs}>{t("阅读文档 →", "Read the docs →")}</a>
       </section>
     </div>
   )
@@ -1490,20 +1554,22 @@ function AgentTypeIcon({ type, inherit }: { type: string | null | undefined; inh
 
 /** 首页"已支持的 agent 工具"图标组 */
 function SupportedAgents() {
+  const { t } = useI18n()
   const tools: { tool: "opencode" | "claude" | "deepseek" | "pi" | "more"; name: string; supported: boolean }[] = [
     { tool: "opencode", name: "opencode", supported: true },
     { tool: "claude", name: "claude code", supported: true },
     { tool: "deepseek", name: "deepseek harness", supported: true },
     { tool: "pi", name: "pi", supported: false },
-    { tool: "more", name: "更多 MCP 客户端", supported: false },
+    { tool: "more", name: t("更多 MCP 客户端", "More MCP clients"), supported: false },
   ]
   return (
     <div className="supported-agents">
-      <span className="supported-label">已支持</span>
-      {tools.map((t) => (
-        <span key={t.tool} className={`agent-tile${t.supported ? " supported" : ""}`} title={t.supported ? `${t.name} · 已支持` : `${t.name} · 即将支持`}>
-          <AgentToolIcon tool={t.tool} />
-          <span className="agent-tile-name">{t.name}</span>
+      <span className="supported-label">{t("已支持", "Supported")}</span>
+      {tools.map((item) => (
+        <span key={item.tool} className={`agent-tile${item.supported ? " supported" : ""}`}
+          title={item.supported ? `${item.name} · ${t("已支持", "supported")}` : `${item.name} · ${t("即将支持", "coming soon")}`}>
+          <AgentToolIcon tool={item.tool} />
+          <span className="agent-tile-name">{item.name}</span>
         </span>
       ))}
     </div>
@@ -1616,19 +1682,20 @@ function FeatureIcon({ kind }: { kind: "mcp" | "swarm" | "team" | "pulse" | "shi
 // ---------------- 文档（左侧目录 + 右侧内容，滚动定位） ----------------
 
 const DOC_SECTIONS = [
-  { id: "intro", title: "介绍" },
-  { id: "install", title: "安装插件" },
-  { id: "register", title: "注册工作区" },
-  { id: "concepts", title: "核心概念" },
-  { id: "planner", title: "规划器" },
-  { id: "commands", title: "命令" },
-  { id: "chat", title: "即时聊天工具" },
-  { id: "mcp", title: "MCP 工具" },
-  { id: "web", title: "Web 管理" },
-  { id: "faq", title: "FAQ" },
+  { id: "intro", zh: "介绍", en: "Introduction" },
+  { id: "install", zh: "安装插件", en: "Install plugins" },
+  { id: "register", zh: "注册工作区", en: "Register a workspace" },
+  { id: "concepts", zh: "核心概念", en: "Core concepts" },
+  { id: "planner", zh: "规划器", en: "Planner" },
+  { id: "commands", zh: "命令", en: "Commands" },
+  { id: "chat", zh: "即时聊天工具", en: "Chat apps" },
+  { id: "mcp", zh: "MCP 工具", en: "MCP tools" },
+  { id: "web", zh: "Web 管理", en: "Web console" },
+  { id: "faq", zh: "FAQ", en: "FAQ" },
 ]
 
 function DocsPage() {
+  const { t } = useI18n()
   const [active, setActive] = useState(DOC_SECTIONS[0].id)
 
   // 点击目录：滚动到对应区块
@@ -1640,547 +1707,959 @@ function DocsPage() {
   return (
     <div className="subpage">
       <aside className="subpage-toc">
-        <p className="section-label">[ 文档 ]</p>
+        <p className="section-label">{t("[ 文档 ]", "[ Docs ]")}</p>
         {DOC_SECTIONS.map((s) => (
           <a key={s.id} className={`subpage-item${active === s.id ? " active" : ""}`}
             onClick={() => jump(s.id)}>
-            {s.title}
+            {t(s.zh, s.en)}
           </a>
         ))}
       </aside>
       <article className="subpage-body">
         <section id="doc-intro" className="docs-section">
-          <h2>介绍</h2>
+          <h2>{t("介绍", "Introduction")}</h2>
           <p>
-            <b>agent_swarm</b> 把你的 AI 编程工具（opencode 等）组织成一个「虫群」：
-            每个工具实例作为一个<b>工作区</b>注册进来，任意 agent 都可以把任务派发给其他 agent 执行——
-            你写代码，它跑测试，另一个整理文档。
+            <L
+              zh={<><b>agent_swarm</b> 把你的 AI 编程工具（opencode 等）组织成一个「虫群」：
+                每个工具实例作为一个<b>工作区</b>注册进来，任意 agent 都可以把任务派发给其他 agent 执行——
+                你写代码，它跑测试，另一个整理文档。</>}
+              en={<><b>agent_swarm</b> organizes your AI coding tools (opencode and friends) into a "swarm":
+                each tool instance registers as a <b>workspace</b>, and any agent can dispatch tasks to the others —
+                one writes code, another runs tests, a third tidies the docs.</>}
+            />
           </p>
-          <p>七个核心特点：</p>
+          <p>{t("七个核心特点：", "Seven core features:")}</p>
           <ul>
-            <li><b>开放标准协议</b> —— agent 操作是标准 MCP 工具，任务派发走标准 A2A 协议（Linux Foundation 开放标准），任何兼容客户端均可接入</li>
-            <li><b>跨 agent 任务派发</b> —— 支持前台注入（任务进入对方当前会话，实时可见）与后台会话（独立会话静默执行）两种方式，结果自动回传</li>
-            <li><b>团队与工作区共享</b> —— 组建团队，把工作区共享给团队当工具调用：共享的是<b>调用权</b>不是<b>可见权</b>，队友只拿到最终答复，看不到你的监控流、产物与调用细节</li>
-            <li><b>中枢 Nexus</b> —— 在网页上直接给任意在线 agent 下指令，实时观看它思考、调用工具、给出答复</li>
-            <li><b>规划器</b> —— 把模糊的长期目标交给规划器工作区：自动拆成带依赖的<b>任务树</b>、调度虫群执行并追踪验收（专家拆解 / 人工审批 / 专家验收点）</li>
-            <li><b>实时看板</b> —— 工作区在线状态、每次调用的指令与结果，随时可查</li>
-            <li><b>即时聊天工具接入</b> —— 绑定飞书/微信，在聊天里派任务、收时间线直播与完成简报、远程应答权限请求（规划器的拆解 / 验收待办也会推送到此）</li>
+            <li><L
+              zh={<><b>开放标准协议</b> —— agent 操作是标准 MCP 工具，任务派发走标准 A2A 协议（Linux Foundation 开放标准），任何兼容客户端均可接入</>}
+              en={<><b>Open standard protocols</b> — agent operations are standard MCP tools, and task dispatch uses the standard A2A protocol (a Linux Foundation open standard); any compatible client can join</>}
+            /></li>
+            <li><L
+              zh={<><b>跨 agent 任务派发</b> —— 支持前台注入（任务进入对方当前会话，实时可见）与后台会话（独立会话静默执行）两种方式，结果自动回传</>}
+              en={<><b>Cross-agent task dispatch</b> — foreground injection (the task enters the peer's current session, visible live) or background sessions (an isolated session runs silently); results are returned automatically</>}
+            /></li>
+            <li><L
+              zh={<><b>团队与工作区共享</b> —— 组建团队，把工作区共享给团队当工具调用：共享的是<b>调用权</b>不是<b>可见权</b>，队友只拿到最终答复，看不到你的监控流、产物与调用细节</>}
+              en={<><b>Teams & workspace sharing</b> — form teams and share workspaces as callable tools: you share the <b>right to call</b>, not the <b>right to see</b>; teammates get only the final answer and can't see your monitor stream, artifacts or call details</>}
+            /></li>
+            <li><L
+              zh={<><b>中枢 Nexus</b> —— 在网页上直接给任意在线 agent 下指令，实时观看它思考、调用工具、给出答复</>}
+              en={<><b>Nexus</b> — send instructions to any online agent from the web and watch it reason, call tools and answer in real time</>}
+            /></li>
+            <li><L
+              zh={<><b>规划器</b> —— 把模糊的长期目标交给规划器工作区：自动拆成带依赖的<b>任务树</b>、调度虫群执行并追踪验收（专家拆解 / 人工审批 / 专家验收点）</>}
+              en={<><b>Planner</b> — give a fuzzy long-term goal to a planner workspace: it breaks it into a dependency-aware <b>task tree</b>, dispatches the swarm and tracks acceptance (expert decomposition / manual approval / expert acceptance points)</>}
+            /></li>
+            <li><L
+              zh={<><b>实时看板</b> —— 工作区在线状态、每次调用的指令与结果，随时可查</>}
+              en={<><b>Live board</b> — workspace online status and the instruction + result of every call, always available</>}
+            /></li>
+            <li><L
+              zh={<><b>即时聊天工具接入</b> —— 绑定飞书/微信，在聊天里派任务、收时间线直播与完成简报、远程应答权限请求（规划器的拆解 / 验收待办也会推送到此）</>}
+              en={<><b>Chat app integration</b> — bind Feishu/WeChat to dispatch tasks, receive a live timeline and completion briefs, and answer permission requests remotely (planner decomposition / acceptance to-dos are pushed here too)</>}
+            /></li>
           </ul>
           <p>
-            接入后，你的 agent 会多出一组「虫群工具」：注册工作区、查看其他工作区、派发任务、查询结果——
-            都可以在对话里自然地让 agent 使用。
+            <L
+              zh={<>接入后，你的 agent 会多出一组「虫群工具」：注册工作区、查看其他工作区、派发任务、查询结果——
+                都可以在对话里自然地让 agent 使用。</>}
+              en={<>Once connected, your agent gains a set of "swarm tools": register a workspace, list other workspaces,
+                dispatch tasks and fetch results — all usable naturally in conversation.</>}
+            />
           </p>
         </section>
 
         <section id="doc-install" className="docs-section">
-          <h2>安装插件</h2>
+          <h2>{t("安装插件", "Install plugins")}</h2>
           <p>
-            插件是 agent 接入虫群的载体，负责心跳保活与接收任务。每个 agent 工具一个插件，
-            一条安装命令可以把所有已支持的插件一次装好。
+            <L
+              zh={<>插件是 agent 接入虫群的载体，负责心跳保活与接收任务。每个 agent 工具一个插件，
+                一条安装命令可以把所有已支持的插件一次装好。</>}
+              en={<>A plugin is how an agent joins the swarm; it keeps the heartbeat alive and receives tasks.
+                There is one plugin per agent tool, and a single install command can set them all up at once.</>}
+            />
           </p>
-          <h3>安装方式</h3>
+          <h3>{t("安装方式", "How to install")}</h3>
           <p>
-            在目标机器上执行<b>首页</b>生成的安装命令（已自动带上你的账号 API Key）。
-            安装器会下载分发包并逐个安装各 agent 插件（可选参数只装指定插件）。
+            <L
+              zh={<>在目标机器上执行<b>首页</b>生成的安装命令（已自动带上你的账号 API Key）。
+                安装器会下载分发包并逐个安装各 agent 插件（可选参数只装指定插件）。</>}
+              en={<>Run the install command generated on the <b>Home</b> page on the target machine (it already carries your account API Key).
+                The installer downloads the distribution and installs each agent plugin in turn (optional flags install only the ones you pick).</>}
+            />
           </p>
           <ul>
             <li>
-              <b>opencode</b>：写入服务配置 → 注册 MCP 端点 → 部署心跳插件 → 拷贝 <code>/swarm-*</code> 命令。
-              <b>重启 opencode 后生效</b>——插件在会话启动时加载，运行中的会话不会热更新。
+              <L
+                zh={<><b>opencode</b>：写入服务配置 → 注册 MCP 端点 → 部署心跳插件 → 拷贝 <code>/swarm-*</code> 命令。
+                  <b>重启 opencode 后生效</b>——插件在会话启动时加载，运行中的会话不会热更新。</>}
+                en={<><b>opencode</b>: write the service config → register the MCP endpoint → deploy the heartbeat plugin → copy the <code>/swarm-*</code> commands.
+                  <b>Takes effect after restarting opencode</b> — the plugin loads at session start, and running sessions are not hot-reloaded.</>}
+              />
             </li>
             <li>
-              <b>claude code</b>：<code>claude mcp add</code> 注册 remote MCP（虫群工具）+ 本地 keepalive MCP
-              （claude 启动时自动 spawn 保活进程，退出自动回收）→ 拷贝 <code>/swarm-*</code> 命令。
-              <b>重启 claude 后生效</b>。claude 工作区支持注册管理、在线状态与后台会话任务执行；
-              前台注入暂不支持（见「命令」章节的支持情况表）。
+              <L
+                zh={<><b>claude code</b>：<code>claude mcp add</code> 注册 remote MCP（虫群工具）+ 本地 keepalive MCP
+                  （claude 启动时自动 spawn 保活进程，退出自动回收）→ 拷贝 <code>/swarm-*</code> 命令。
+                  <b>重启 claude 后生效</b>。claude 工作区支持注册管理、在线状态与后台会话任务执行；
+                  前台注入暂不支持（见「命令」章节的支持情况表）。</>}
+                en={<><b>claude code</b>: <code>claude mcp add</code> registers the remote MCP (swarm tools) plus a local keepalive MCP
+                  (claude spawns the keepalive process on start and reaps it on exit) → copy the <code>/swarm-*</code> commands.
+                  <b>Takes effect after restarting claude</b>. claude workspaces support registration management, online status and background-session task execution;
+                  foreground injection is not supported yet (see the support table in the "Commands" section).</>}
+              />
             </li>
             <li>
-              <b>deepseek harness</b>：安装 cordis bundle 插件（<code>dsh plugin add</code>，按 profile 安装）
-              → 写入 MCP 配置（agent-swarm-mcp）→ 拷贝 <code>/swarm-*</code> 命令。
-              <b>重启 dsh 后生效</b>。注册工作区走会话内 <code>/swarm-add</code>（安装脚本不注册）。
-              支持前台注入（最近活跃会话）、后台 per-caller 会话、监控同步与权限/提问应答
-              （详见「命令」章节的支持情况表）。
+              <L
+                zh={<><b>deepseek harness</b>：安装 cordis bundle 插件（<code>dsh plugin add</code>，按 profile 安装）
+                  → 写入 MCP 配置（agent-swarm-mcp）→ 拷贝 <code>/swarm-*</code> 命令。
+                  <b>重启 dsh 后生效</b>。注册工作区走会话内 <code>/swarm-add</code>（安装脚本不注册）。
+                  支持前台注入（最近活跃会话）、后台 per-caller 会话、监控同步与权限/提问应答
+                  （详见「命令」章节的支持情况表）。</>}
+                en={<><b>deepseek harness</b>: install the cordis bundle plugin (<code>dsh plugin add</code>, per profile)
+                  → write the MCP config (agent-swarm-mcp) → copy the <code>/swarm-*</code> commands.
+                  <b>Takes effect after restarting dsh</b>. Register a workspace with <code>/swarm-add</code> inside a session (the installer does not register it).
+                  Supports foreground injection (most recently active session), per-caller background sessions, monitor sync and permission/question answering
+                  (see the support table in the "Commands" section).</>}
+              />
             </li>
           </ul>
-          <h3>验证安装</h3>
+          <h3>{t("验证安装", "Verify the installation")}</h3>
           <p>
-            重启后打开「工作区」页，约 30 秒内应看到该机器的工作区状态点变绿（online）。
-            opencode 可查看 <code>~/.config/opencode/plugins/agent-swarm/plugin.log</code>；
-            claude 可查看 <code>~/.claude/agent-swarm/keepalive.log</code>；
-            deepseek harness 可查看 <code>~/.config/dsh/agent-swarm/plugin.log</code>。
+            <L
+              zh={<>重启后打开「工作区」页，约 30 秒内应看到该机器的工作区状态点变绿（online）。
+                opencode 可查看 <code>~/.config/opencode/plugins/agent-swarm/plugin.log</code>；
+                claude 可查看 <code>~/.claude/agent-swarm/keepalive.log</code>；
+                deepseek harness 可查看 <code>~/.config/dsh/agent-swarm/plugin.log</code>。</>}
+              en={<>After restarting, open the "Workspaces" page; within about 30 seconds the machine's workspace status dot should turn green (online).
+                For opencode check <code>~/.config/opencode/plugins/agent-swarm/plugin.log</code>;
+                for claude check <code>~/.claude/agent-swarm/keepalive.log</code>;
+                for deepseek harness check <code>~/.config/dsh/agent-swarm/plugin.log</code>.</>}
+            />
           </p>
         </section>
 
         <section id="doc-register" className="docs-section">
-          <h2>注册工作区</h2>
+          <h2>{t("注册工作区", "Register a workspace")}</h2>
           <p>
-            安装插件后，把一个项目目录注册为工作区，它才算真正加入虫群（可被发现、被派发任务）。
-            一个机器可以注册多个工作区，每个项目一个。
+            <L
+              zh={<>安装插件后，把一个项目目录注册为工作区，它才算真正加入虫群（可被发现、被派发任务）。
+                一个机器可以注册多个工作区，每个项目一个。</>}
+              en={<>After installing the plugin, register a project directory as a workspace before it truly joins the swarm (discoverable and dispatchable).
+                One machine can register many workspaces, one per project.</>}
+            />
           </p>
-          <h3>注册方式</h3>
-          <p>任选其一：</p>
+          <h3>{t("注册方式", "How to register")}</h3>
+          <p>{t("任选其一：", "Pick either way:")}</p>
           <ul>
-            <li>在该项目的 agent 对话里使用 <code>/swarm-add</code> 命令（opencode、claude 与 deepseek harness 均可用）</li>
-            <li>直接让 agent：「帮我把当前目录注册到虫群」（它会调用 <code>workspace_add</code> 工具）</li>
+            <li>{t("在该项目的 agent 对话里使用 /swarm-add 命令（opencode、claude 与 deepseek harness 均可用）", "Use the /swarm-add command in that project's agent conversation (available in opencode, claude and deepseek harness)")}</li>
+            <li><L
+              zh={<>直接让 agent：「帮我把当前目录注册到虫群」（它会调用 <code>workspace_add</code> 工具）</>}
+              en={<>Just tell the agent: "register the current directory to the swarm" (it calls the <code>workspace_add</code> tool)</>}
+            /></li>
           </ul>
           <p>
-            注册时会要求 agent 总结这个目录的用途与能力（显示在「工作区」页，方便其他 agent 了解找谁帮忙）。
-            注册成功后，工作区 ID 会写入项目根的 <code>.agent_swarm/workspace.md</code> 文件，后续心跳自动带身份。
+            <L
+              zh={<>注册时会要求 agent 总结这个目录的用途与能力（显示在「工作区」页，方便其他 agent 了解找谁帮忙）。
+                注册成功后，工作区 ID 会写入项目根的 <code>.agent_swarm/workspace.md</code> 文件，后续心跳自动带身份。</>}
+              en={<>During registration the agent summarizes this directory's purpose and capabilities (shown on the "Workspaces" page so other agents know who to ask).
+                Once registered, the workspace ID is written to <code>.agent_swarm/workspace.md</code> in the project root, and later heartbeats carry the identity automatically.</>}
+            />
           </p>
-          <h3>管理已注册的工作区</h3>
+          <h3>{t("管理已注册的工作区", "Manage registered workspaces")}</h3>
           <p>
-            「工作区」页可以启用/禁用（disabled 的工作区不参与任务派发）、删除离线工作区、修改备注。
-            也可以在 agent 里用 <code>workspace_enable</code> / <code>workspace_disable</code> 等工具操作。
+            <L
+              zh={<>「工作区」页可以启用/禁用（disabled 的工作区不参与任务派发）、删除离线工作区、修改备注。
+                也可以在 agent 里用 <code>workspace_enable</code> / <code>workspace_disable</code> 等工具操作。</>}
+              en={<>The "Workspaces" page lets you enable/disable (disabled workspaces are not dispatched tasks), delete offline workspaces and edit comments.
+                You can also use tools like <code>workspace_enable</code> / <code>workspace_disable</code> from the agent.</>}
+            />
           </p>
-          <h3>开始协作</h3>
-          <p>注册完成后，在 agent 对话里让它派发任务即可：</p>
-          <pre><code>{`你: 调用 nas_brain 工作区，查看它最新一次 git 提交
-agent: (a2a_call) → 对方 TUI 实时出现任务 → 执行 → 结果自动回传`}</code></pre>
+          <h3>{t("开始协作", "Start collaborating")}</h3>
+          <p>{t("注册完成后，在 agent 对话里让它派发任务即可：", "Once registered, just have it dispatch a task from the agent conversation:")}</p>
+          <pre><code><L
+            zh={`你: 调用 nas_brain 工作区，查看它最新一次 git 提交\nagent: (a2a_call) → 对方 TUI 实时出现任务 → 执行 → 结果自动回传`}
+            en={`You: call the nas_brain workspace and check its latest git commit\nagent: (a2a_call) → the task appears live in the peer's TUI → it runs → the result is returned automatically`}
+          /></code></pre>
         </section>
 
         <section id="doc-concepts" className="docs-section">
-          <h2>核心概念</h2>
-          <h3>工作区（Workspace）</h3>
+          <h2>{t("核心概念", "Core concepts")}</h2>
+          <h3>{t("工作区（Workspace）", "Workspace")}</h3>
           <p>
-            一个接入虫群的 agent 实例。注册后获得唯一 ID，持久化在项目根 <code>.agent_swarm/workspace.md</code> 的
-            <code>WORKSPACE_ID:</code> 行。插件每 30 秒心跳保活，超过 90 秒无心跳视为离线；
-            禁用（disabled）的工作区不可见、不参与任务派发。
+            <L
+              zh={<>一个接入虫群的 agent 实例。注册后获得唯一 ID，持久化在项目根 <code>.agent_swarm/workspace.md</code> 的
+                <code>WORKSPACE_ID:</code> 行。插件每 30 秒心跳保活，超过 90 秒无心跳视为离线；
+                禁用（disabled）的工作区不可见、不参与任务派发。</>}
+              en={<>An agent instance joined to the swarm. It gets a unique ID on registration, persisted in the
+                <code>WORKSPACE_ID:</code> line of <code>.agent_swarm/workspace.md</code> in the project root. The plugin heartbeats every 30 seconds;
+                no heartbeat for over 90 seconds counts as offline. Disabled workspaces are hidden and are not dispatched tasks.</>}
+            />
           </p>
-          <h3>调用（A2A 协议）</h3>
+          <h3>{t("调用（A2A 协议）", "Calls (A2A protocol)")}</h3>
           <p>
-            一次跨 agent 任务派发就是一个 <b>A2A 任务</b>（Linux Foundation A2A 0.3.x 开放协议，
-            JSON-RPC over HTTP + WebSocket 事件流），状态流转：
-            <code>queued → working → completed / failed / canceled</code>，需要对方确认时进入
-            <code>input-required</code>。执行方式分前台/后台两种（见下节），
-            完成后最后一条 assistant 回复自动回传给调用方。
+            <L
+              zh={<>一次跨 agent 任务派发就是一个 <b>A2A 任务</b>（Linux Foundation A2A 0.3.x 开放协议，
+                JSON-RPC over HTTP + WebSocket 事件流），状态流转：
+                <code>queued → working → completed / failed / canceled</code>，需要对方确认时进入
+                <code>input-required</code>。执行方式分前台/后台两种（见下节），
+                完成后最后一条 assistant 回复自动回传给调用方。</>}
+              en={<>Each cross-agent task dispatch is an <b>A2A task</b> (Linux Foundation A2A 0.3.x open protocol,
+                JSON-RPC over HTTP + a WebSocket event stream). State flow:
+                <code>queued → working → completed / failed / canceled</code>, entering
+                <code>input-required</code> when the peer must confirm. Execution is foreground or background (next section);
+                on completion the last assistant reply is returned to the caller automatically.</>}
+            />
           </p>
-          <h3>长任务完成提醒</h3>
+          <h3>{t("长任务完成提醒", "Completion reminders for long tasks")}</h3>
           <p>
-            跨工作区的任务有时会跑很久：发起方 agent 等不到结果就失去耐心收轮，工作停在那里，
-            结果留在任务记录里没人取。虫群会自动补位——任务完成后稍等片刻，若结果仍未被发起方
-            取走（且发起方前台轮已收尾或离线），服务端会向发起方推送一条<b>完成提醒</b>：
-            agent 收到后调用 <code>a2a_task</code> 取回结果并继续原本的工作。已取走结果的任务不会重复提醒；
-            发起方离线时提醒会排队，上线即送达。
+            <L
+              zh={<>跨工作区的任务有时会跑很久：发起方 agent 等不到结果就失去耐心收轮，工作停在那里，
+                结果留在任务记录里没人取。虫群会自动补位——任务完成后稍等片刻，若结果仍未被发起方
+                取走（且发起方前台轮已收尾或离线），服务端会向发起方推送一条<b>完成提醒</b>：
+                agent 收到后调用 <code>a2a_task</code> 取回结果并继续原本的工作。已取走结果的任务不会重复提醒；
+                发起方离线时提醒会排队，上线即送达。</>}
+              en={<>Cross-workspace tasks can run for a long time: the calling agent may run out of patience and end its turn without a result,
+                leaving the work parked and the result unclaimed in the task record. The swarm steps in — shortly after the task completes,
+                if the result is still unclaimed (and the caller's foreground turn has ended or it is offline), the server pushes a
+                <b>completion reminder</b> to the caller: the agent then calls <code>a2a_task</code> to fetch the result and resume its work.
+                Tasks whose result was already fetched are not re-reminded; reminders queue while the caller is offline and are delivered when it comes back online.</>}
+            />
           </p>
-          <h3>团队与工作区共享</h3>
+          <h3>{t("团队与工作区共享", "Teams & workspace sharing")}</h3>
           <p>
-            「团队」页可创建团队、按用户名邀请成员，或让他人申请加入（队长审批）；队长可踢人、移交、解散。
-            工作区属主可把自己的工作区<b>共享</b>给自己所在的任一团队。共享<strong>只授予调用权，不授予可见权</strong>：
+            <L
+              zh={<>「团队」页可创建团队、按用户名邀请成员，或让他人申请加入（队长审批）；队长可踢人、移交、解散。
+                工作区属主可把自己的工作区<b>共享</b>给自己所在的任一团队。共享<strong>只授予调用权，不授予可见权</strong>：</>}
+              en={<>The "Teams" page lets you create teams, invite members by username, or let others request to join (approved by the captain);
+                the captain can kick, transfer or disband. A workspace owner can <b>share</b> their workspace to any team they belong to.
+                Sharing grants <strong>only the right to call, not the right to see</strong>:</>}
+            />
           </p>
           <ul>
-            <li>队友可 <code>a2a_call</code> 共享工作区并拿到<b>最终答复</b>——看不到思考、工具调用、监控轮、产物、简报与调用细节</li>
-            <li>完成简报与权限/提问卡仍<b>只发给工作区属主</b>，调用方收不到</li>
-            <li>被共享的工作区<b>不会</b>出现在队友的中枢 / 工作区列表里；调用记录里双方各自只看得到该条「指令 + 答复」</li>
-            <li>发现与调用都走 MCP（<code>list_workspaces</code> 里带 <code>shared:true</code>），网页端不提供共享工作区的调用入口</li>
+            <li><L
+              zh={<>队友可 <code>a2a_call</code> 共享工作区并拿到<b>最终答复</b>——看不到思考、工具调用、监控轮、产物、简报与调用细节</>}
+              en={<>Teammates can <code>a2a_call</code> a shared workspace and get the <b>final answer</b> — they can't see reasoning, tool calls, monitor rounds, artifacts, briefs or call details</>}
+            /></li>
+            <li><L
+              zh={<>完成简报与权限/提问卡仍<b>只发给工作区属主</b>，调用方收不到</>}
+              en={<>Completion briefs and permission/question cards still go <b>only to the workspace owner</b>; the caller does not receive them</>}
+            /></li>
+            <li><L
+              zh={<>被共享的工作区<b>不会</b>出现在队友的中枢 / 工作区列表里；调用记录里双方各自只看得到该条「指令 + 答复」</>}
+              en={<>A shared workspace does <b>not</b> appear in the teammate's Nexus / workspace list; in call records each side sees only that "instruction + answer" entry</>}
+            /></li>
+            <li><L
+              zh={<>发现与调用都走 MCP（<code>list_workspaces</code> 里带 <code>shared:true</code>），网页端不提供共享工作区的调用入口</>}
+              en={<>Discovery and calls both go through MCP (<code>list_workspaces</code> marks them <code>shared:true</code>); the web console provides no call entry for shared workspaces</>}
+            /></li>
           </ul>
-          <h3>前台会话与后台会话</h3>
+          <h3>{t("前台会话与后台会话", "Foreground vs. background sessions")}</h3>
           <p>
-            每个工作区收到任务时，按配置选择执行方式：
+            {t("每个工作区收到任务时，按配置选择执行方式：", "When a workspace receives a task, it picks an execution mode by configuration:")}
           </p>
           <ul>
             <li>
-              <b>前台会话（foreground）</b>：任务直接注入对方<b>正在看的 TUI 会话</b>并弹 toast 通知——
-              你在屏幕上就能看到 agent 干活的全部过程（思考、工具调用、答复），也能随时打断、应答权限。
-              适合需要人监督的任务。
+              <L
+                zh={<><b>前台会话（foreground）</b>：任务直接注入对方<b>正在看的 TUI 会话</b>并弹 toast 通知——
+                  你在屏幕上就能看到 agent 干活的全部过程（思考、工具调用、答复），也能随时打断、应答权限。
+                  适合需要人监督的任务。</>}
+                en={<><b>Foreground session</b>: the task is injected into the <b>TUI session the peer is currently watching</b> and a toast pops up —
+                  you see the whole process on screen (reasoning, tool calls, answer) and can interrupt or answer permissions at any time.
+                  Good for tasks that need supervision.</>}
+              />
             </li>
             <li>
-              <b>后台会话（background）</b>：目标端 spawn 一个独立的 headless 进程静默执行，
-              <b>完全不碰当前 TUI 会话</b>。同一来源（如网页中枢、某个调用方 agent）的任务自动归组到
-              同一个后台会话，保证多轮对话的连续性。权限全自动批准（无人值守），默认 30 分钟超时，
-              最多 3 个并发。适合耗时任务批量派发、agent 互调时不想打扰对方。
+              <L
+                zh={<><b>后台会话（background）</b>：目标端 spawn 一个独立的 headless 进程静默执行，
+                  <b>完全不碰当前 TUI 会话</b>。同一来源（如网页中枢、某个调用方 agent）的任务自动归组到
+                  同一个后台会话，保证多轮对话的连续性。权限全自动批准（无人值守），默认 30 分钟超时，
+                  最多 3 个并发。适合耗时任务批量派发、agent 互调时不想打扰对方。</>}
+                en={<><b>Background session</b>: the target spawns an isolated headless process that runs silently,
+                  <b>without touching the current TUI session</b>. Tasks from the same source (e.g. the web Nexus, a calling agent) are grouped into
+                  the same background session, keeping multi-turn continuity. Permissions are auto-approved (unattended), with a default 30-minute timeout
+                  and at most 3 concurrent. Good for batch-dispatching long tasks or agent-to-agent calls without disturbing the peer.</>}
+              />
             </li>
           </ul>
           <p>
-            切换方式：在 opencode 里执行 <code>/swarm-mode</code> 命令选择前台或后台，即时生效（无需重启）。
-            也可编辑全局配置 <code>~/.config/opencode/agent-swarm.json</code> 的 <code>executionMode</code> 字段。
+            <L
+              zh={<>切换方式：在 opencode 里执行 <code>/swarm-mode</code> 命令选择前台或后台，即时生效（无需重启）。
+                也可编辑全局配置 <code>~/.config/opencode/agent-swarm.json</code> 的 <code>executionMode</code> 字段。</>}
+              en={<>To switch: run <code>/swarm-mode</code> in opencode and choose foreground or background; it takes effect immediately (no restart).
+                You can also edit the <code>executionMode</code> field in <code>~/.config/opencode/agent-swarm.json</code>.</>}
+            />
           </p>
-          <h3>监控模式（前台会话实时同步）</h3>
+          <h3>{t("监控模式（前台会话实时同步）", "Monitor mode (live foreground sync)")}</h3>
           <p>
-            开启后，你在 agent 里与它的<b>日常对话</b>会按轮次实时同步到网页中枢：
-            每一次提问、agent 的思考、工具调用、最终回答，以及权限请求/AI 提问，都会以独立「轮次」出现在
-            中枢时间线里，与 A2A 任务轮混排显示。你可以在网页上远程围观同事屏幕上的对话过程、回溯任意一轮历史
-            （中枢时间线上滚逐轮加载），监控轮次的权限请求同样可以在网页上远程应答。
+            <L
+              zh={<>开启后，你在 agent 里与它的<b>日常对话</b>会按轮次实时同步到网页中枢：
+                每一次提问、agent 的思考、工具调用、最终回答，以及权限请求/AI 提问，都会以独立「轮次」出现在
+                中枢时间线里，与 A2A 任务轮混排显示。你可以在网页上远程围观同事屏幕上的对话过程、回溯任意一轮历史
+                （中枢时间线上滚逐轮加载），监控轮次的权限请求同样可以在网页上远程应答。</>}
+              en={<>When enabled, your <b>everyday conversations</b> with the agent sync to the web Nexus round by round:
+                each question, the agent's reasoning, tool calls, final answer, and any permission request / AI question appear as separate rounds in the
+                Nexus timeline, interleaved with A2A task rounds. You can watch a colleague's on-screen conversation remotely, replay any past round
+                (scroll up to load rounds lazily), and answer the permission requests of monitor rounds from the web too.</>}
+            />
           </p>
           <ul>
-            <li><b>只监控前台会话</b>——后台任务会话不经过此通道，不会重复上报；中枢下发的任务轮也自动去重</li>
-            <li><b>开关</b>——在飞书/微信渠道侧关闭监控转发即可；不想让某个项目被围观就不在该项目注册工作区</li>
-            <li><b>归档</b>：每轮对话作为一条 <code>[monitor]</code> 记录进入「调用记录」页（按工作区筛选查看），与 A2A 任务记录并列</li>
+            <li><L
+              zh={<><b>只监控前台会话</b>——后台任务会话不经过此通道，不会重复上报；中枢下发的任务轮也自动去重</>}
+              en={<><b>Foreground only</b> — background task sessions don't go through this channel and aren't double-reported; Nexus-dispatched task rounds are de-duplicated automatically</>}
+            /></li>
+            <li><L
+              zh={<><b>开关</b>——在飞书/微信渠道侧关闭监控转发即可；不想让某个项目被围观就不在该项目注册工作区</>}
+              en={<><b>Toggle</b> — turn off monitor forwarding on the Feishu/WeChat channel side; if you don't want a project observed, simply don't register a workspace for it</>}
+            /></li>
+            <li><L
+              zh={<><b>归档</b>：每轮对话作为一条 <code>[monitor]</code> 记录进入「调用记录」页（按工作区筛选查看），与 A2A 任务记录并列</>}
+              en={<><b>Archive</b>: each conversation round enters the "Calls" page as a <code>[monitor]</code> record (filter by workspace), alongside A2A task records</>}
+            /></li>
           </ul>
-          <h3>心跳与在线状态</h3>
+          <h3>{t("心跳与在线状态", "Heartbeat & online status")}</h3>
           <p>
-            插件每 30 秒心跳一次并上报当前会话信息。
-            在线状态可在「工作区」页实时查看。
+            {t("插件每 30 秒心跳一次并上报当前会话信息。在线状态可在「工作区」页实时查看。",
+              "The plugin heartbeats every 30 seconds and reports the current session info. Online status is visible live on the \"Workspaces\" page.")}
           </p>
         </section>
 
         <section id="doc-planner" className="docs-section">
-          <h2>规划器</h2>
+          <h2>{t("规划器", "Planner")}</h2>
           <p>
-            规划器把模糊的<b>长期目标</b>拆成带依赖的<b>任务树</b>，派给其它工作区执行并持续追踪验收。
-            它由 <b>规划核心服务</b>＋一个 agent harness（做拆解与决策的 agent）组成——
-            核心服务是确定性内核，管目标 / 任务 / 依赖 / 验收的持久化与调度——并作为平台上<b>特殊的「规划器工作区」</b>接入。
+            <L
+              zh={<>规划器把模糊的<b>长期目标</b>拆成带依赖的<b>任务树</b>，派给其它工作区执行并持续追踪验收。
+                它由 <b>规划核心服务</b>＋一个 agent harness（做拆解与决策的 agent）组成——
+                核心服务是确定性内核，管目标 / 任务 / 依赖 / 验收的持久化与调度——并作为平台上<b>特殊的「规划器工作区」</b>接入。</>}
+              en={<>The planner breaks a fuzzy <b>long-term goal</b> into a dependency-aware <b>task tree</b>, dispatches the tasks to other workspaces and tracks acceptance.
+                It consists of a <b>planning core service</b> plus an agent harness (the agent that decomposes and decides) —
+                the core service is the deterministic kernel that persists and schedules goals / tasks / dependencies / acceptance — and joins the platform as a <b>special "planner workspace"</b>.</>}
+            />
           </p>
-          <h3>规划器工作区是什么？</h3>
+          <h3>{t("规划器工作区是什么？", "What is a planner workspace?")}</h3>
           <p>
-            规划器工作区是一个<b>特殊的工作区</b>。普通工作区只代表一个 agent 实例；规划器工作区则是
-            「<b>规划核心服务＋一个 agent harness（负责拆解的 agent）</b>」的组合，两者跑在同一个项目目录里——
-            核心服务负责<b>目标 / 任务 / 依赖 / 验收的持久化与调度</b>，harness 里的 agent 负责把目标<b>拆解成任务树</b>并在执行中做决策。
+            <L
+              zh={<>规划器工作区是一个<b>特殊的工作区</b>。普通工作区只代表一个 agent 实例；规划器工作区则是
+                「<b>规划核心服务＋一个 agent harness（负责拆解的 agent）</b>」的组合，两者跑在同一个项目目录里——
+                核心服务负责<b>目标 / 任务 / 依赖 / 验收的持久化与调度</b>，harness 里的 agent 负责把目标<b>拆解成任务树</b>并在执行中做决策。</>}
+              en={<>A planner workspace is a <b>special workspace</b>. An ordinary workspace represents just one agent instance; a planner workspace is
+                a combination of a <b>planning core service + an agent harness (the decomposing agent)</b>, running in the same project directory —
+                the core service <b>persists and schedules goals / tasks / dependencies / acceptance</b>, while the agent in the harness <b>breaks the goal into a task tree</b> and makes decisions during execution.</>}
+            />
           </p>
           <p>
-            正因为它不是一个普通 agent，接入方式也<b>特殊</b>：先安装并运行<b>规划核心服务</b>（见下方「安装与准备」），
-            再在<b>该目录里</b>用专门的 <b><code>/swarm-add-planner</code></b> 命令注册——而不是普通的 <code>/swarm-add</code>；
-            注册后这个工作区就会被平台识别为<b>规划器工作区</b>。
+            <L
+              zh={<>正因为它不是一个普通 agent，接入方式也<b>特殊</b>：先安装并运行<b>规划核心服务</b>（见下方「安装与准备」），
+                再在<b>该目录里</b>用专门的 <b><code>/swarm-add-planner</code></b> 命令注册——而不是普通的 <code>/swarm-add</code>；
+                注册后这个工作区就会被平台识别为<b>规划器工作区</b>。</>}
+              en={<>Because it is not an ordinary agent, joining works <b>differently</b>: first install and run the <b>planning core service</b> (see "Install & prepare" below),
+                then register from <b>that directory</b> with the dedicated <b><code>/swarm-add-planner</code></b> command — not the plain <code>/swarm-add</code>;
+                once registered the platform recognizes the workspace as a <b>planner workspace</b>.</>}
+            />
           </p>
-          <h3>安装与准备</h3>
+          <h3>{t("安装与准备", "Install & prepare")}</h3>
           <ol>
-            <li><b>环境</b>：Python ≥ 3.11，以及一个已装 agent-swarm 插件的 harness（opencode / claude / deepseek 任一）。</li>
+            <li>{t("环境：Python ≥ 3.11，以及一个已装 agent-swarm 插件的 harness（opencode / claude / deepseek 任一）。",
+              "Environment: Python ≥ 3.11, plus a harness with the agent-swarm plugin installed (opencode / claude / deepseek, any one).")}</li>
             <li>
-              <b>获取并安装规划核心服务</b>：源码仓库
-              <a className="link" href="https://github.com/RisingWater/agent_swarm_planner"
-                target="_blank" rel="noreferrer">agent_swarm_planner</a>。
-              最省事的方式是在网页「规划器」页（还没有规划器工作区时）复制平台提供的<b>一键安装命令</b>——
-              它会克隆到 <code>~/.agent_swarm/agent_swarm_planner</code> 并自动安装。也可手动：克隆仓库后在其根目录执行
-              <code>./deploy/install.sh</code>（Windows：<code>.\deploy\install.ps1 -Server &lt;平台地址&gt; -ApiKey as_xxx</code>）。
-              安装会建虚拟环境、装依赖、写配置、建库，并可注册开机自启。
+              <L
+                zh={<><b>获取并安装规划核心服务</b>：源码仓库
+                  <a className="link" href="https://github.com/RisingWater/agent_swarm_planner"
+                    target="_blank" rel="noreferrer">agent_swarm_planner</a>。
+                  最省事的方式是在网页「规划器」页（还没有规划器工作区时）复制平台提供的<b>一键安装命令</b>——
+                  它会克隆到 <code>~/.agent_swarm/agent_swarm_planner</code> 并自动安装。也可手动：克隆仓库后在其根目录执行
+                  <code>./deploy/install.sh</code>（Windows：<code>.\deploy\install.ps1 -Server &lt;平台地址&gt; -ApiKey as_xxx</code>）。
+                  安装会建虚拟环境、装依赖、写配置、建库，并可注册开机自启。</>}
+                en={<><b>Fetch and install the planning core service</b>: source repo
+                  <a className="link" href="https://github.com/RisingWater/agent_swarm_planner"
+                    target="_blank" rel="noreferrer">agent_swarm_planner</a>.
+                  The easiest way is to copy the platform's <b>one-click install command</b> on the web "Planner" page (when you have no planner workspace yet) —
+                  it clones to <code>~/.agent_swarm/agent_swarm_planner</code> and installs automatically. Or do it manually: clone the repo and run from its root
+                  <code>./deploy/install.sh</code> (Windows: <code>.\deploy\install.ps1 -Server &lt;platform-url&gt; -ApiKey as_xxx</code>).
+                  The install creates a virtualenv, installs dependencies, writes config, sets up the database and can register auto-start on boot.</>}
+              />
             </li>
-            <li><b>自检与常驻</b>：<code>planner doctor</code> 自检；<code>planner serve</code> 前台运行；<code>planner service install</code> 注册为开机自启服务（<code>planner service status</code> 查看）。</li>
-            <li><b>注册为规划器工作区</b>：在规划核心服务的目录启动 harness，输入 <code>/swarm-add-planner</code>（opencode / claude / deepseek 都支持；dsh 脚本化可用 <code>register.mjs --role planner</code>）。成功后网页出现「规划器」入口。</li>
-            <li>若该 harness 还没接入虫群：先在平台管理页复制「插件安装」一键命令装好插件，再执行上一步。</li>
+            <li><L
+              zh={<><b>自检与常驻</b>：<code>planner doctor</code> 自检；<code>planner serve</code> 前台运行；<code>planner service install</code> 注册为开机自启服务（<code>planner service status</code> 查看）。</>}
+              en={<><b>Self-check & keep running</b>: <code>planner doctor</code> to self-check; <code>planner serve</code> to run in the foreground; <code>planner service install</code> to register it as a boot service (check with <code>planner service status</code>).</>}
+            /></li>
+            <li><L
+              zh={<><b>注册为规划器工作区</b>：在规划核心服务的目录启动 harness，输入 <code>/swarm-add-planner</code>（opencode / claude / deepseek 都支持；dsh 脚本化可用 <code>register.mjs --role planner</code>）。成功后网页出现「规划器」入口。</>}
+              en={<><b>Register as a planner workspace</b>: start the harness in the planning core service's directory and enter <code>/swarm-add-planner</code> (supported by opencode / claude / deepseek; for scripted dsh use <code>register.mjs --role planner</code>). Afterwards the "Planner" entry appears on the web.</>}
+            /></li>
+            <li>{t("若该 harness 还没接入虫群：先在平台管理页复制「插件安装」一键命令装好插件，再执行上一步。",
+              "If the harness hasn't joined the swarm yet: first copy the one-click \"plugin install\" command on the platform page to install the plugin, then do the previous step.")}</li>
           </ol>
-          <h3>怎么用（上手步骤）</h3>
+          <h3>{t("怎么用（上手步骤）", "How to use it (getting started)")}</h3>
           <ol>
-            <li><b>新建目标</b>：在网页「规划器」页选一个 planner 工作区，新建目标——填标题 / 描述、优先级（高 / 中 / 低）、截止（可空）、成功标准；可指定<b>专家工作区</b>（选当前 planner 工作区自身即为<b>自评审</b>，不派 A2A）。</li>
-            <li><b>确认与拆解</b>：规划器 agent 与专家确认成功标准并生成任务树（含<b>专家验收点</b>）。此阶段 <code>拆解=draft</code>，页面只展示、不派发。</li>
-            <li><b>通过拆解</b>：人工点「通过拆解」后 agent 才按依赖层开始派发；点「重新拆解」让 agent 重做（回到 draft）。</li>
-            <li><b>派发执行</b>：任务逐个派给对应工作区的 agent（派单会自动要求对方先压缩上下文），worker 的终态自动回写到核心服务。</li>
-            <li><b>验收</b>：<code>auto</code> 自动判定；<code>manual</code> 任务完成后进入待验收，网页点「通过 / 拒绝」；<code>expert</code>「专家验收点」由规划器 agent 汇总情况后请专家裁决（专家可整树调整、回到 draft 再审）。</li>
-            <li><b>生命周期</b>：「归档」（软隐藏，可「激活」恢复）/「删除」（级联任务树，不可恢复，二次确认）；全部任务完成后目标自动完成；列表可勾选「隐藏已归档目标」。</li>
+            <li><L
+              zh={<><b>新建目标</b>：在网页「规划器」页选一个 planner 工作区，新建目标——填标题 / 描述、优先级（高 / 中 / 低）、截止（可空）、成功标准；可指定<b>专家工作区</b>（选当前 planner 工作区自身即为<b>自评审</b>，不派 A2A）。</>}
+              en={<><b>Create a goal</b>: on the web "Planner" page pick a planner workspace and create a goal — title / description, priority (high / medium / low), deadline (optional), success criteria; you can name an <b>expert workspace</b> (choosing the planner workspace itself means <b>self-review</b>, with no A2A dispatch).</>}
+            /></li>
+            <li><L
+              zh={<><b>确认与拆解</b>：规划器 agent 与专家确认成功标准并生成任务树（含<b>专家验收点</b>）。此阶段 <code>拆解=draft</code>，页面只展示、不派发。</>}
+              en={<><b>Confirm & decompose</b>: the planner agent confirms the success criteria with the expert and generates a task tree (including <b>expert acceptance points</b>). At this stage <code>plan=draft</code>; the page only displays, it does not dispatch.</>}
+            /></li>
+            <li><L
+              zh={<><b>通过拆解</b>：人工点「通过拆解」后 agent 才按依赖层开始派发；点「重新拆解」让 agent 重做（回到 draft）。</>}
+              en={<><b>Approve the plan</b>: only after a human clicks "Approve plan" does the agent start dispatching layer by layer; "Re-plan" makes the agent redo it (back to draft).</>}
+            /></li>
+            <li><L
+              zh={<><b>派发执行</b>：任务逐个派给对应工作区的 agent（派单会自动要求对方先压缩上下文），worker 的终态自动回写到核心服务。</>}
+              en={<><b>Dispatch & execute</b>: tasks are dispatched one by one to the agents of the matching workspaces (dispatch automatically asks the peer to compact context first); the worker's terminal state is written back to the core service automatically.</>}
+            /></li>
+            <li><L
+              zh={<><b>验收</b>：<code>auto</code> 自动判定；<code>manual</code> 任务完成后进入待验收，网页点「通过 / 拒绝」；<code>expert</code>「专家验收点」由规划器 agent 汇总情况后请专家裁决（专家可整树调整、回到 draft 再审）。</>}
+              en={<><b>Acceptance</b>: <code>auto</code> is decided automatically; <code>manual</code> tasks wait for acceptance once done, and you click "Approve / Reject" on the web; <code>expert</code> acceptance points have the planner agent summarize and ask the expert to decide (the expert can adjust the whole tree and send it back to draft for re-review).</>}
+            /></li>
+            <li><L
+              zh={<><b>生命周期</b>：「归档」（软隐藏，可「激活」恢复）/「删除」（级联任务树，不可恢复，二次确认）；全部任务完成后目标自动完成；列表可勾选「隐藏已归档目标」。</>}
+              en={<><b>Lifecycle</b>: "Archive" (soft-hide, restorable with "Activate") / "Delete" (cascades the task tree, irreversible, with a confirm dialog); the goal completes automatically when all tasks are done; the list has a "hide archived goals" checkbox.</>}
+            /></li>
           </ol>
         </section>
 
         <section id="doc-commands" className="docs-section">
-          <h2>命令</h2>
+          <h2>{t("命令", "Commands")}</h2>
           <p>
-            安装插件后，agent 对话里可以使用一组 <code>/swarm-*</code> 命令（TUI 内输入，
-            静默执行 + toast 反馈）。它们是 MCP 工具的快捷方式，不用记工具参数。
+            <L
+              zh={<>安装插件后，agent 对话里可以使用一组 <code>/swarm-*</code> 命令（TUI 内输入，
+                静默执行 + toast 反馈）。它们是 MCP 工具的快捷方式，不用记工具参数。</>}
+              en={<>After installing the plugin, a set of <code>/swarm-*</code> commands is available in the agent conversation (type them in the TUI;
+                they run silently with a toast). They are shortcuts for the MCP tools, so you don't have to remember tool arguments.</>}
+            />
           </p>
           <table>
-            <thead><tr><th>命令</th><th>说明</th></tr></thead>
+            <thead><tr><th>{t("命令", "Command")}</th><th>{t("说明", "Description")}</th></tr></thead>
             <tbody>
               <tr>
                 <td><code>/swarm-add</code></td>
-                <td>注册当前目录为工作区。agent 会分析项目生成用途/能力描述，调 <code>workspace_add</code>，并把工作区 ID 写入项目根 <code>.agent_swarm/workspace.md</code></td>
+                <td><L
+                  zh={<>注册当前目录为工作区。agent 会分析项目生成用途/能力描述，调 <code>workspace_add</code>，并把工作区 ID 写入项目根 <code>.agent_swarm/workspace.md</code></>}
+                  en={<>Register the current directory as a workspace. The agent analyzes the project to write a purpose/capability description, calls <code>workspace_add</code>, and writes the workspace ID to <code>.agent_swarm/workspace.md</code> in the project root</>}
+                /></td>
               </tr>
               <tr>
                 <td><code>/swarm-add-planner</code></td>
-                <td>注册（或更新）当前目录为<b>规划器工作区</b>——其余流程同 <code>/swarm-add</code>，但 <code>/swarm-add</code> 本身<b>不加</b>任何参数。opencode / claude / deepseek(dsh) 三个 harness 均支持。注册后可在网页「规划器」页管理目标与任务树</td>
+                <td><L
+                  zh={<>注册（或更新）当前目录为<b>规划器工作区</b>——其余流程同 <code>/swarm-add</code>，但 <code>/swarm-add</code> 本身<b>不加</b>任何参数。opencode / claude / deepseek(dsh) 三个 harness 均支持。注册后可在网页「规划器」页管理目标与任务树</>}
+                  en={<>Register (or update) the current directory as a <b>planner workspace</b> — otherwise the same as <code>/swarm-add</code>, but <code>/swarm-add</code> itself takes <b>no</b> arguments. Supported by all three harnesses: opencode / claude / deepseek(dsh). Once registered you can manage goals and the task tree on the web "Planner" page</>}
+                /></td>
               </tr>
               <tr>
                 <td><code>/swarm-remove</code></td>
-                <td>把当前工作区从虫群移除（工作区在线时需先禁用，等心跳过期后才能删）</td>
+                <td>{t("把当前工作区从虫群移除（工作区在线时需先禁用，等心跳过期后才能删）",
+                  "Remove the current workspace from the swarm (if it is online, disable it first and wait for the heartbeat to expire before deleting)")}</td>
               </tr>
               <tr>
                 <td><code>/swarm-enable</code></td>
-                <td>启用当前工作区（恢复可见、参与任务派发）</td>
+                <td>{t("启用当前工作区（恢复可见、参与任务派发）",
+                  "Enable the current workspace (visible again, receives dispatched tasks)")}</td>
               </tr>
               <tr>
                 <td><code>/swarm-disable</code></td>
-                <td>禁用当前工作区（不可见、不再接收任务）</td>
+                <td>{t("禁用当前工作区（不可见、不再接收任务）",
+                  "Disable the current workspace (hidden, no longer receives tasks)")}</td>
               </tr>
               <tr>
                 <td><code>/swarm-mode</code></td>
-                <td>切换任务执行模式：前台注入（foreground）或后台会话（background），即时生效（opencode / deepseek harness）</td>
+                <td>{t("切换任务执行模式：前台注入（foreground）或后台会话（background），即时生效（opencode / deepseek harness）",
+                  "Switch the task execution mode: foreground injection (foreground) or background session (background); takes effect immediately (opencode / deepseek harness)")}</td>
               </tr>
             </tbody>
           </table>
           <p>
-            前台会话实时监控在 opencode 与 deepseek harness 上均可用：你在 agent 里的日常对话
-            （提问/思考/工具/回答）会实时同步到网页中枢；不想同步时在飞书/微信渠道侧关闭监控转发即可。
+            {t("前台会话实时监控在 opencode 与 deepseek harness 上均可用：你在 agent 里的日常对话（提问/思考/工具/回答）会实时同步到网页中枢；不想同步时在飞书/微信渠道侧关闭监控转发即可。",
+              "Live foreground monitoring works on opencode and deepseek harness: your everyday conversations (questions / reasoning / tools / answers) sync to the web Nexus in real time; to stop syncing, turn off monitor forwarding on the Feishu/WeChat channel side.")}
           </p>
-          <h3>各 agent 支持情况</h3>
+          <h3>{t("各 agent 支持情况", "Per-agent support")}</h3>
           <table>
-            <thead><tr><th>能力</th><th>opencode</th><th>claude code</th><th>deepseek harness</th></tr></thead>
+            <thead><tr><th>{t("能力", "Capability")}</th><th>opencode</th><th>claude code</th><th>deepseek harness</th></tr></thead>
             <tbody>
-              <tr><td>注册 / 保活 / 启停管理</td><td>✅</td><td>✅</td><td>✅</td></tr>
-              <tr><td><code>/swarm-*</code> 命令</td><td>✅</td><td>✅（不含 /swarm-mode）</td><td>✅</td></tr>
-              <tr><td>前台注入（任务进入当前会话）</td><td>✅</td><td>—</td><td>✅（注入最近活跃会话）</td></tr>
-              <tr><td>后台会话（独立会话静默执行）</td><td>✅</td><td>✅</td><td>✅</td></tr>
-              <tr><td>前台会话监控（TUI 对话同步中枢）</td><td>✅</td><td>—</td><td>✅</td></tr>
-              <tr><td>权限 / 提问实时应答（input-required）</td><td>✅</td><td>—</td><td>✅（先答先算，无"始终允许"）</td></tr>
+              <tr><td>{t("注册 / 保活 / 启停管理", "Register / keep-alive / enable-disable")}</td><td>✅</td><td>✅</td><td>✅</td></tr>
+              <tr><td><code>/swarm-*</code> {t("命令", "commands")}</td><td>✅</td><td>{t("✅（不含 /swarm-mode）", "✅ (no /swarm-mode)")}</td><td>✅</td></tr>
+              <tr><td>{t("前台注入（任务进入当前会话）", "Foreground injection (task enters current session)")}</td><td>✅</td><td>—</td><td>{t("✅（注入最近活跃会话）", "✅ (most recently active session)")}</td></tr>
+              <tr><td>{t("后台会话（独立会话静默执行）", "Background session (isolated, silent)")}</td><td>✅</td><td>✅</td><td>✅</td></tr>
+              <tr><td>{t("前台会话监控（TUI 对话同步中枢）", "Foreground monitoring (TUI syncs to Nexus)")}</td><td>✅</td><td>—</td><td>✅</td></tr>
+              <tr><td>{t("权限 / 提问实时应答（input-required）", "Permission / question answering (input-required)")}</td><td>✅</td><td>—</td><td>{t("✅（先答先算，无\"始终允许\"）", "✅ (first answer wins, no \"always allow\")")}</td></tr>
             </tbody>
           </table>
         </section>
 
         <section id="doc-chat" className="docs-section">
-          <h2>即时聊天工具</h2>
+          <h2>{t("即时聊天工具", "Chat apps")}</h2>
           <p>
-            把虫群接进你日常使用的聊天工具：在聊天里直接给 agent 派任务、实时围观
-            思考与工具调用的时间线，任务完成后收到<b>结果简报</b>，权限请求/AI 提问
-            点按钮或回复编号应答。所有设置也可以在网页「账号 → 聊天工具绑定」里管理。
+            <L
+              zh={<>把虫群接进你日常使用的聊天工具：在聊天里直接给 agent 派任务、实时围观
+                思考与工具调用的时间线，任务完成后收到<b>结果简报</b>，权限请求/AI 提问
+                点按钮或回复编号应答。所有设置也可以在网页「账号 → 聊天工具绑定」里管理。</>}
+              en={<>Bring the swarm into the chat apps you already use: dispatch tasks to your agent right in chat, follow the timeline of
+                reasoning and tool calls, get a <b>result brief</b> when a task finishes, and answer permission requests / AI questions
+                by tapping a button or replying with a number. All settings are also managed on the web under "Account → Chat bindings".</>}
+            />
           </p>
-          <h3>支持的聊天工具</h3>
+          <h3>{t("支持的聊天工具", "Supported chat apps")}</h3>
           <table>
-            <thead><tr><th>聊天工具</th><th>绑定方式</th><th>能力</th></tr></thead>
+            <thead><tr><th>{t("聊天工具", "Chat app")}</th><th>{t("绑定方式", "How to bind")}</th><th>{t("能力", "Capabilities")}</th></tr></thead>
             <tbody>
               <tr>
                 <td>
                   <span style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>
-                    <FeishuIcon size={18} /> 飞书
+                    <FeishuIcon size={18} /> {t("飞书", "Feishu")}
                   </span>
                 </td>
-                <td>给机器人发 <code>/swarm bind as_你的密钥</code>（密钥在「API Key」页复制）</td>
-                <td>派任务 / 时间线直播 / 完成简报 / 监控同步 / 权限应答</td>
+                <td><L
+                  zh={<>给机器人发 <code>/swarm bind as_你的密钥</code>（密钥在「API Key」页复制）</>}
+                  en={<>Send the bot <code>/swarm bind as_your_key</code> (copy the key from the "API Key" page)</>}
+                /></td>
+                <td>{t("派任务 / 时间线直播 / 完成简报 / 监控同步 / 权限应答",
+                  "Dispatch / live timeline / completion briefs / monitor sync / permission answering")}</td>
               </tr>
               <tr>
                 <td>
                   <span style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>
-                    <WeixinIcon size={18} /> 微信 ClawBot
+                    <WeixinIcon size={18} /> {t("微信 ClawBot", "WeChat ClawBot")}
                   </span>
                 </td>
-                <td>网页「账号 → 聊天工具绑定 → 微信 ClawBot」扫码登录（用自己的微信号，无需 API Key）</td>
-                <td>派任务 / 任务详细流 / 完成简报 / 监控同步 / 权限编号应答</td>
+                <td>{t("网页「账号 → 聊天工具绑定 → 微信 ClawBot」扫码登录（用自己的微信号，无需 API Key）",
+                  "Log in by QR code at web \"Account → Chat bindings → WeChat ClawBot\" (use your own WeChat account; no API Key needed)")}</td>
+                <td>{t("派任务 / 任务详细流 / 完成简报 / 监控同步 / 权限编号应答",
+                  "Dispatch / detailed task stream / completion briefs / monitor sync / numbered permission answering")}</td>
               </tr>
             </tbody>
           </table>
-          <h3>微信 ClawBot 绑定与使用</h3>
+          <h3>{t("微信 ClawBot 绑定与使用", "WeChat ClawBot: bind & use")}</h3>
           <ol>
-            <li>在网页「账号 → 聊天工具绑定」滚动到<b>微信 ClawBot</b> 区块，点<b>扫码登录微信</b></li>
-            <li>用手机微信扫码（登录流程要求时输入数字配对码），确认后你的微信里出现一个 <b>ClawBot</b> 会话</li>
-            <li>直接和它聊天即可派任务；扫码登录 token 约 24h 失效，过期后在账号页重新扫码即可</li>
+            <li><L
+              zh={<>在网页「账号 → 聊天工具绑定」滚动到<b>微信 ClawBot</b> 区块，点<b>扫码登录微信</b></>}
+              en={<>On the web go to "Account → Chat bindings", scroll to the <b>WeChat ClawBot</b> section and click <b>Log in by QR code</b></>}
+            /></li>
+            <li><L
+              zh={<>用手机微信扫码（登录流程要求时输入数字配对码），确认后你的微信里出现一个 <b>ClawBot</b> 会话</>}
+              en={<>Scan it with WeChat on your phone (enter the numeric pairing code if the login flow asks), and after confirming a <b>ClawBot</b> conversation appears in WeChat</>}
+            /></li>
+            <li>{t("直接和它聊天即可派任务；扫码登录 token 约 24h 失效，过期后在账号页重新扫码即可",
+              "Just chat with it to dispatch tasks; the QR login token expires after about 24h — re-scan on the account page when it does")}</li>
           </ol>
           <p>
-            微信<b>无需服务端配置</b>（不同于飞书需要服务端 <code>FEISHU_APP_ID/SECRET</code>）；支持单聊，
-            暂无群聊。向 ClawBot 发普通文本 = 给当前选中工作区派任务（未选过会先弹出编号选择列表）。
+            <L
+              zh={<>微信<b>无需服务端配置</b>（不同于飞书需要服务端 <code>FEISHU_APP_ID/SECRET</code>）；支持单聊，
+                暂无群聊。向 ClawBot 发普通文本 = 给当前选中工作区派任务（未选过会先弹出编号选择列表）。</>}
+              en={<>WeChat needs <b>no server-side configuration</b> (unlike Feishu, which needs <code>FEISHU_APP_ID/SECRET</code>); direct chats only,
+                no group chats yet. Sending plain text to the ClawBot = dispatching a task to the currently selected workspace (if none was selected, a numbered list pops up first).</>}
+            />
           </p>
-          <h3>聊天命令</h3>
+          <h3>{t("聊天命令", "Chat commands")}</h3>
           <p>
-            在聊天窗口里发送以下命令（<code>/swarm</code> + 未知命令会返回一张
-            <b>命令菜单卡</b>，按当前状态列出可点按钮，点一下即执行）：
+            <L
+              zh={<>在聊天窗口里发送以下命令（<code>/swarm</code> + 未知命令会返回一张
+                <b>命令菜单卡</b>，按当前状态列出可点按钮，点一下即执行）：</>}
+              en={<>Send these commands in the chat window (<code>/swarm</code> plus an unknown command returns a
+                <b>command menu card</b> listing clickable buttons for the current state; one tap runs it):</>}
+            />
           </p>
           <table>
-            <thead><tr><th>命令</th><th>说明</th></tr></thead>
+            <thead><tr><th>{t("命令", "Command")}</th><th>{t("说明", "Description")}</th></tr></thead>
             <tbody>
-              <tr><td><code>/swarm bind as_xxx</code></td><td>绑定平台账号（API Key 页复制的密钥）——仅飞书，微信不需要</td></tr>
-              <tr><td><code>/swarm unbind</code></td><td>解绑账号（仅飞书；微信在账号页点「断开」）</td></tr>
-              <tr><td><code>/q</code> / <code>/swarm</code></td><td>命令菜单（微信侧：回复编号执行；飞书侧：菜单卡点按钮）</td></tr>
-              <tr><td><code>/swarm list</code></td><td>列出我的工作区（在线/类型）</td></tr>
-              <tr><td><code>/swarm select</code></td><td>选择当前窗口使用的工作区（下拉卡/编号列表）</td></tr>
-              <tr><td><code>/swarm status</code></td><td>当前绑定/工作区/监控/简报状态</td></tr>
-              <tr><td><code>/swarm monitor on|off</code></td><td>前台会话实时同步：开启后 TUI 里的对话按时间线推到这个窗口（默认关）</td></tr>
-              <tr><td><code>/swarm brief on|off</code></td><td>任务完成简报：工作区的任务（网页/agent/A2A 下发）完成后推一张结果卡片（默认开）</td></tr>
-              <tr><td><code>/swarm last</code></td><td>最近一轮问答摘要（单卡：提问 + 最终回答）</td></tr>
-              <tr><td><code>/time</code> · <code>/重新连接</code></td><td>微信侧：服务器时间 / 重连 ClawBot 会话</td></tr>
+              <tr><td><code>/swarm bind as_xxx</code></td><td>{t("绑定平台账号（API Key 页复制的密钥）——仅飞书，微信不需要",
+                "Bind the platform account (the key copied from the API Key page) — Feishu only; WeChat doesn't need it")}</td></tr>
+              <tr><td><code>/swarm unbind</code></td><td>{t("解绑账号（仅飞书；微信在账号页点「断开」）",
+                "Unbind the account (Feishu only; for WeChat click \"Disconnect\" on the account page)")}</td></tr>
+              <tr><td><code>/q</code> / <code>/swarm</code></td><td>{t("命令菜单（微信侧：回复编号执行；飞书侧：菜单卡点按钮）",
+                "Command menu (WeChat: reply with a number; Feishu: tap a button on the card)")}</td></tr>
+              <tr><td><code>/swarm list</code></td><td>{t("列出我的工作区（在线/类型）",
+                "List my workspaces (online / type)")}</td></tr>
+              <tr><td><code>/swarm select</code></td><td>{t("选择当前窗口使用的工作区（下拉卡/编号列表）",
+                "Choose the workspace used by this window (dropdown card / numbered list)")}</td></tr>
+              <tr><td><code>/swarm status</code></td><td>{t("当前绑定/工作区/监控/简报状态",
+                "Current binding / workspace / monitor / brief status")}</td></tr>
+              <tr><td><code>/swarm monitor on|off</code></td><td>{t("前台会话实时同步：开启后 TUI 里的对话按时间线推到这个窗口（默认关）",
+                "Live foreground sync: once on, TUI conversations are pushed to this window as a timeline (default off)")}</td></tr>
+              <tr><td><code>/swarm brief on|off</code></td><td>{t("任务完成简报：工作区的任务（网页/agent/A2A 下发）完成后推一张结果卡片（默认开）",
+                "Completion briefs: when a workspace task (dispatched from web / agent / A2A) finishes, push a result card (default on)")}</td></tr>
+              <tr><td><code>/swarm last</code></td><td>{t("最近一轮问答摘要（单卡：提问 + 最终回答）",
+                "Summary of the most recent Q&A round (single card: question + final answer)")}</td></tr>
+              <tr><td><code>/time</code> · <code>/重新连接</code></td><td>{t("微信侧：服务器时间 / 重连 ClawBot 会话",
+                "WeChat side: server time / reconnect the ClawBot session")}</td></tr>
             </tbody>
           </table>
           <p>
-            微信侧应答规则：有待应答的权限/提问时（输入框上方可能显示编号选项），<b>任何输入都优先作为应答</b>
-            （回复 <code>1</code>/<code>2</code>/<code>3</code> 分别 = 允许一次 / 始终允许 / 拒绝；超出 1–3 或非数字 = 允许一次），
-            完成后任务继续执行。
+            <L
+              zh={<>微信侧应答规则：有待应答的权限/提问时（输入框上方可能显示编号选项），<b>任何输入都优先作为应答</b>
+                （回复 <code>1</code>/<code>2</code>/<code>3</code> 分别 = 允许一次 / 始终允许 / 拒绝；超出 1–3 或非数字 = 允许一次），
+                完成后任务继续执行。</>}
+              en={<>WeChat answering rules: when a permission/question is pending (numbered options may appear above the input box), <b>any input is treated as the answer first</b>
+                (replying <code>1</code>/<code>2</code>/<code>3</code> = allow once / always allow / deny; anything outside 1–3 or non-numeric = allow once),
+                after which the task continues.</>}
+            />
           </p>
-          <h3>两种推送模式</h3>
+          <h3>{t("两种推送模式", "Two push modes")}</h3>
           <ul>
             <li>
-              <b>详细流 / 时间线直播（监控模式）</b>——你在 TUI 里和 agent 的对话按轮次推成一组小卡
-              （飞书）；微信则推纯文本：💭 思考过程、🔧 每个工具调用一行（命令/输出）、🤖 最终答复
-              全文，权限请求直接点按钮 / 回复编号应答。
+              <L
+                zh={<><b>详细流 / 时间线直播（监控模式）</b>——你在 TUI 里和 agent 的对话按轮次推成一组小卡
+                  （飞书）；微信则推纯文本：💭 思考过程、🔧 每个工具调用一行（命令/输出）、🤖 最终答复
+                  全文，权限请求直接点按钮 / 回复编号应答。</>}
+                en={<><b>Detailed stream / live timeline (monitor mode)</b> — your TUI conversation with the agent is pushed round by round as a set of small cards
+                  (Feishu); WeChat gets plain text instead: 💭 reasoning, 🔧 one line per tool call (command / output), 🤖 the full final answer,
+                  with permission requests answered by tapping a button / replying with a number.</>}
+              />
             </li>
             <li>
-              <b>完成简报（简报模式，默认开）</b>——网页中枢、其他 agent、A2A 外部调用下发的任务
-              完成或失败后，推一张摘要卡（来源/提问/回答）。当前窗口开着监控时，该工作区的监控轮
-              不再重复发简报（时间线已是全程详情）。
+              <L
+                zh={<><b>完成简报（简报模式，默认开）</b>——网页中枢、其他 agent、A2A 外部调用下发的任务
+                  完成或失败后，推一张摘要卡（来源/提问/回答）。当前窗口开着监控时，该工作区的监控轮
+                  不再重复发简报（时间线已是全程详情）。</>}
+                en={<><b>Completion brief (brief mode, default on)</b> — when a task dispatched from the web Nexus, another agent or an external A2A call
+                  completes or fails, a summary card is pushed (source / question / answer). When the current window has monitoring on, that workspace's monitor rounds
+                  no longer send a separate brief (the timeline is already the full detail).</>}
+              />
             </li>
           </ul>
           <p>
-            直接发普通文本 = 给当前选中的工作区派任务；未选择工作区时会先弹出选择卡。
+            {t("直接发普通文本 = 给当前选中的工作区派任务；未选择工作区时会先弹出选择卡。",
+              "Sending plain text = dispatching a task to the currently selected workspace; if none is selected, a selection card pops up first.")}
           </p>
           <p>
-            <b>跨渠道权限应答</b>：无论权限/提问来自网页中枢还是 TUI 监控轮，只要简报模式开着，
-            web / 飞书 / 微信会<b>同时</b>收到提示——谁先应答谁生效，其余渠道的后续应答会干净失败
-            （不会重复放行）。
+            <L
+              zh={<><b>跨渠道权限应答</b>：无论权限/提问来自网页中枢还是 TUI 监控轮，只要简报模式开着，
+                web / 飞书 / 微信会<b>同时</b>收到提示——谁先应答谁生效，其余渠道的后续应答会干净失败
+                （不会重复放行）。</>}
+              en={<><b>Cross-channel permission answering</b>: whether the permission/question comes from the web Nexus or a TUI monitor round, as long as brief mode is on,
+                web / Feishu / WeChat all receive the prompt <b>at the same time</b> — the first answer wins, and later answers on the other channels fail cleanly
+                (no duplicate approval).</>}
+            />
           </p>
-          <h3>产物推送</h3>
+          <h3>{t("产物推送", "Artifact push")}</h3>
           <p>
-            agent 通过 MCP 上传产物后，只要窗口的<b>简报模式开着</b>，你绑定的飞书 / 微信窗口会<b>直接收到文件</b>
-            （飞书是原生文件消息；微信优先尝试文件消息，协议不支持时自动降级为下载链接文本），
-            并附一条说明（文件名、大小）。下载链接 30 天有效；所有产物也可以在网页「产物」页集中管理。
+            <L
+              zh={<>agent 通过 MCP 上传产物后，只要窗口的<b>简报模式开着</b>，你绑定的飞书 / 微信窗口会<b>直接收到文件</b>
+                （飞书是原生文件消息；微信优先尝试文件消息，协议不支持时自动降级为下载链接文本），
+                并附一条说明（文件名、大小）。下载链接 30 天有效；所有产物也可以在网页「产物」页集中管理。</>}
+              en={<>After an agent uploads an artifact over MCP, as long as the window's <b>brief mode is on</b>, your bound Feishu / WeChat window <b>receives the file directly</b>
+                (Feishu uses a native file message; WeChat tries a file message first and falls back to a download-link text when the protocol doesn't support it),
+                with a note (filename, size). Download links are valid for 30 days; all artifacts can also be managed on the web "Artifacts" page.</>}
+            />
           </p>
         </section>
 
         <section id="doc-mcp" className="docs-section">
-          <h2>MCP 工具</h2>
+          <h2>{t("MCP 工具", "MCP tools")}</h2>
           <p>
-            接入后，你的 agent 会获得下面这组 MCP 工具，直接在对话里让它用即可
-            （如「用 list_workspaces 看看现在有哪些工作区在线」）。
+            <L
+              zh={<>接入后，你的 agent 会获得下面这组 MCP 工具，直接在对话里让它用即可
+                （如「用 list_workspaces 看看现在有哪些工作区在线」）。</>}
+              en={<>Once connected, your agent gains the MCP tools below; just have it use them in conversation
+                (e.g. "use list_workspaces to see which workspaces are online").</>}
+            />
           </p>
           <table>
-            <thead><tr><th>工具</th><th>说明</th></tr></thead>
+            <thead><tr><th>{t("工具", "Tool")}</th><th>{t("说明", "Description")}</th></tr></thead>
             <tbody>
-              <tr><td><code>workspace_add</code></td><td>注册当前目录为工作区，返回 ID 并写入 .agent_swarm/workspace.md</td></tr>
-              <tr><td><code>workspace_remove</code></td><td>移除自己的工作区（仅离线可删）</td></tr>
-              <tr><td><code>workspace_enable</code> / <code>workspace_disable</code></td><td>启用 / 禁用工作区</td></tr>
-              <tr><td><code>heartbeat</code></td><td>心跳保活，上报当前会话信息（插件自动调用）</td></tr>
-              <tr><td><code>update_info</code> / <code>update_notes</code></td><td>更新用途/能力描述、备注</td></tr>
-              <tr><td><code>list_workspaces</code></td><td>列出可见工作区（自己的 + 团队共享给你的，默认仅在线；共享项带 <code>shared:true</code>）</td></tr>
-              <tr><td><code>a2a_call</code></td><td>A2A 协议给其他 agent 发任务（内部工作区——自己的或团队共享给你的，或外部 A2A agent 端点）</td></tr>
-              <tr><td><code>a2a_task</code></td><td>查询 A2A 任务状态与结果</td></tr>
+              <tr><td><code>workspace_add</code></td><td>{t("注册当前目录为工作区，返回 ID 并写入 .agent_swarm/workspace.md",
+                "Register the current directory as a workspace, return its ID and write it to .agent_swarm/workspace.md")}</td></tr>
+              <tr><td><code>workspace_remove</code></td><td>{t("移除自己的工作区（仅离线可删）",
+                "Remove your own workspace (only when offline)")}</td></tr>
+              <tr><td><code>workspace_enable</code> / <code>workspace_disable</code></td><td>{t("启用 / 禁用工作区",
+                "Enable / disable a workspace")}</td></tr>
+              <tr><td><code>heartbeat</code></td><td>{t("心跳保活，上报当前会话信息（插件自动调用）",
+                "Heartbeat keep-alive, reports current session info (called automatically by the plugin)")}</td></tr>
+              <tr><td><code>update_info</code> / <code>update_notes</code></td><td>{t("更新用途/能力描述、备注",
+                "Update the purpose/capability description and comments")}</td></tr>
+              <tr><td><code>list_workspaces</code></td><td><L
+                zh={<>列出可见工作区（自己的 + 团队共享给你的，默认仅在线；共享项带 <code>shared:true</code>）</>}
+                en={<>List visible workspaces (your own + team-shared ones; online only by default; shared entries carry <code>shared:true</code>)</>}
+              /></td></tr>
+              <tr><td><code>a2a_call</code></td><td>{t("A2A 协议给其他 agent 发任务（内部工作区——自己的或团队共享给你的，或外部 A2A agent 端点）",
+                "Dispatch a task to another agent over the A2A protocol (internal workspace — your own or team-shared, or an external A2A agent endpoint)")}</td></tr>
+              <tr><td><code>a2a_task</code></td><td>{t("查询 A2A 任务状态与结果",
+                "Query A2A task status and result")}</td></tr>
               <tr>
                 <td><code>artifact_upload</code></td>
                 <td>
-                  上传产物文件（两步）：先调本工具换取一次性上传地址（10 分钟有效），
-                  再用 <code>curl -F file=@路径</code> 直传原始字节。<code>workspace_id</code> <b>必填</b>——
-                  产物归属该工作区，被共享给团队后团队成员可见（只读）。
-                  成功后进入「产物」页并按简报规则推送飞书/微信。单文件上限 20MB，默认保留 7 天
+                  <L
+                    zh={<>上传产物文件（两步）：先调本工具换取一次性上传地址（10 分钟有效），
+                      再用 <code>curl -F file=@路径</code> 直传原始字节。<code>workspace_id</code> <b>必填</b>——
+                      产物归属该工作区，被共享给团队后团队成员可见（只读）。
+                      成功后进入「产物」页并按简报规则推送飞书/微信。单文件上限 20MB，默认保留 7 天</>}
+                    en={<>Upload an artifact file (two steps): call this tool to get a one-time upload URL (valid 10 minutes),
+                      then push the raw bytes with <code>curl -F file=@path</code>. <code>workspace_id</code> is <b>required</b> —
+                      the artifact belongs to that workspace, and once it is shared with a team the members can see it (read-only).
+                      On success it appears on the "Artifacts" page and is pushed to Feishu/WeChat per the brief rules. Max 20MB per file, kept 7 days by default</>}
+                  />
                 </td>
               </tr>
             </tbody>
           </table>
           <p>
-            上表的 <code>/swarm-*</code> 命令（见「命令」章节）就是这些工具的快捷方式。
+            <L
+              zh={<>上表的 <code>/swarm-*</code> 命令（见「命令」章节）就是这些工具的快捷方式。</>}
+              en={<>The <code>/swarm-*</code> commands above (see the "Commands" section) are shortcuts for these tools.</>}
+            />
           </p>
         </section>
 
         <section id="doc-web" className="docs-section">
-          <h2>Web 管理</h2>
+          <h2>{t("Web 管理", "Web console")}</h2>
           <p>
-            登录后，顶栏可进入各管理页面（<b>中枢 / 团队 / 工作区 / 调用记录 / 产物</b>，点右上角用户名进账号页），
-            日常操作都在网页上完成，不需要记任何命令。
+            <L
+              zh={<>登录后，顶栏可进入各管理页面（<b>中枢 / 团队 / 工作区 / 调用记录 / 产物</b>，点右上角用户名进账号页），
+                日常操作都在网页上完成，不需要记任何命令。</>}
+              en={<>Once logged in, the top nav leads to the management pages (<b>Nexus / Teams / Workspaces / Calls / Artifacts</b>; click the username at the top right for the account page),
+                and everyday operations happen on the web — no commands to remember.</>}
+            />
           </p>
-          <h3>中枢</h3>
+          <h3>{t("中枢", "Nexus")}</h3>
           <p>
-            在网页上直接指挥 agent。选择一个在线工作区，输入指令发送，时间线会实时滚动
-            agent 的思考过程、工具调用与最终答复。agent 请求权限或向你提问时，直接在时间线里点按钮应答。
-            时间线历史持久化保存，刷新页面不丢；点 <code>clear</code> 清空视图，鼠标上滚逐轮加载更早的对话，
-            右下角的悬浮按钮可随时跳回最新消息。开启监控模式后，
-            你在 agent 里的日常对话也会实时出现在这里。
+            <L
+              zh={<>在网页上直接指挥 agent。选择一个在线工作区，输入指令发送，时间线会实时滚动
+                agent 的思考过程、工具调用与最终答复。agent 请求权限或向你提问时，直接在时间线里点按钮应答。
+                时间线历史持久化保存，刷新页面不丢；点 <code>clear</code> 清空视图，鼠标上滚逐轮加载更早的对话，
+                右下角的悬浮按钮可随时跳回最新消息。开启监控模式后，
+                你在 agent 里的日常对话也会实时出现在这里。</>}
+              en={<>Command agents right from the web. Pick an online workspace, type an instruction and send; the timeline scrolls
+                the agent's reasoning, tool calls and final answer in real time. When the agent requests permission or asks a question, answer with a click right in the timeline.
+                Timeline history is persisted and survives a refresh; click <code>clear</code> to empty the view, scroll up to load earlier rounds lazily,
+                and the floating button at the bottom right jumps back to the latest message. With monitor mode on,
+                your everyday conversations with the agent also appear here in real time.</>}
+            />
           </p>
-          <h3>规划器</h3>
+          <h3>{t("规划器", "Planner")}</h3>
           <p>
-            选中一个规划器工作区后，页面管理它的<b>目标与任务树</b>（安装与使用流程见「规划器」章节）：
+            <L
+              zh={<>选中一个规划器工作区后，页面管理它的<b>目标与任务树</b>（安装与使用流程见「规划器」章节）：</>}
+              en={<>After selecting a planner workspace, the page manages its <b>goals and task tree</b> (see the "Planner" section for install & usage):</>}
+            />
           </p>
           <ul>
-            <li><b>目标</b>：新建 / 编辑 / 归档（标题、描述、优先级下拉 高/中/低、截止可选、成功标准）。列表标题列显示标题 + 专家；状态列用中文彩色 tag（进行中 / 已归档 + 草稿 / 已通过 + 专家已确认 / 待专家确认）。优先级提交为整数（高=2 / 中=1 / 低=0）、截止为空显示「无截止」。<b>新建表单不含成功标准输入</b>——由专家侧设定 / 确认；仅编辑时可改，改动会置回「待专家确认」。</li>
-            <li><b>任务树</b>：选中目标后按依赖层级折叠 / 展开展示任务（状态 / 依赖标题 / 执行 agent 名 / 验收）；<b>点任务标题</b>弹出详情（描述 / 依赖 / 建议与实际执行 agent / 验收类型 / 状态 / 验收结果 / 更新时间）。</li>
-            <li><b>操作</b>：<code>催促</code>（让 agent 干活）、<code>通过拆解</code>（仅 <code>draft</code> 时出现）/ <code>重新拆解</code>、<code>通过</code> / <code>拒绝</code>（人工验收）、<code>归档</code> / <code>激活</code> / <code>删除</code>（二次确认）；离线时全部禁用。</li>
-            <li><b>专家工作区</b>：新建 / 编辑目标时可选专家工作区（自有 + 团队共享，<b>也可选当前规划器工作区自身＝自评审</b>）。指定后由专家拆解任务树并设专家验收点（<code>acceptance_type=expert</code>，状态 <code>waiting_expert</code>）。验收类型：<code>auto</code>「自动验收」/ <code>manual</code>「人工验收」/ <code>expert</code>「专家验收点」；人工「通过 / 拒绝」按钮<b>仅</b> <code>manual</code> 任务显示。</li>
+            <li><L
+              zh={<><b>目标</b>：新建 / 编辑 / 归档（标题、描述、优先级下拉 高/中/低、截止可选、成功标准）。列表标题列显示标题 + 专家；状态列用中文彩色 tag（进行中 / 已归档 + 草稿 / 已通过 + 专家已确认 / 待专家确认）。优先级提交为整数（高=2 / 中=1 / 低=0）、截止为空显示「无截止」。<b>新建表单不含成功标准输入</b>——由专家侧设定 / 确认；仅编辑时可改，改动会置回「待专家确认」。</>}
+              en={<><b>Goals</b>: create / edit / archive (title, description, priority dropdown high/medium/low, optional deadline, success criteria). The list's title column shows title + expert; the status column uses colored tags (active / archived + draft / approved + expert-confirmed / awaiting expert confirmation). Priority is submitted as an integer (high=2 / medium=1 / low=0), and an empty deadline shows "no deadline". <b>The create form has no success-criteria input</b> — it is set / confirmed by the expert side; only the edit form can change it, and a change resets it to "awaiting expert confirmation".</>}
+            /></li>
+            <li><L
+              zh={<><b>任务树</b>：选中目标后按依赖层级折叠 / 展开展示任务（状态 / 依赖标题 / 执行 agent 名 / 验收）；<b>点任务标题</b>弹出详情（描述 / 依赖 / 建议与实际执行 agent / 验收类型 / 状态 / 验收结果 / 更新时间）。</>}
+              en={<><b>Task tree</b>: after selecting a goal, tasks are shown collapsed / expanded by dependency level (status / dependency titles / executing agent / acceptance); <b>clicking a task title</b> opens details (description / dependencies / suggested and actual agent / acceptance type / status / acceptance result / updated time).</>}
+            /></li>
+            <li><L
+              zh={<><b>操作</b>：<code>催促</code>（让 agent 干活）、<code>通过拆解</code>（仅 <code>draft</code> 时出现）/ <code>重新拆解</code>、<code>通过</code> / <code>拒绝</code>（人工验收）、<code>归档</code> / <code>激活</code> / <code>删除</code>（二次确认）；离线时全部禁用。</>}
+              en={<><b>Actions</b>: <code>Nudge</code> (get the agent moving), <code>Approve plan</code> (shown only in <code>draft</code>) / <code>Re-plan</code>, <code>Approve</code> / <code>Reject</code> (manual acceptance), <code>Archive</code> / <code>Activate</code> / <code>Delete</code> (with confirm); all disabled when offline.</>}
+            /></li>
+            <li><L
+              zh={<><b>专家工作区</b>：新建 / 编辑目标时可选专家工作区（自有 + 团队共享，<b>也可选当前规划器工作区自身＝自评审</b>）。指定后由专家拆解任务树并设专家验收点（<code>acceptance_type=expert</code>，状态 <code>waiting_expert</code>）。验收类型：<code>auto</code>「自动验收」/ <code>manual</code>「人工验收」/ <code>expert</code>「专家验收点」；人工「通过 / 拒绝」按钮<b>仅</b> <code>manual</code> 任务显示。</>}
+              en={<><b>Expert workspace</b>: when creating / editing a goal you can pick an expert workspace (your own + team-shared, <b>including the planner workspace itself = self-review</b>). Once set, the expert decomposes the task tree and defines expert acceptance points (<code>acceptance_type=expert</code>, status <code>waiting_expert</code>). Acceptance types: <code>auto</code> "auto" / <code>manual</code> "manual" / <code>expert</code> "expert acceptance point"; the manual Approve / Reject buttons appear <b>only</b> on <code>manual</code> tasks.</>}
+            /></li>
           </ul>
           <p>
-            <b>运行前提与排错</b>：规划核心服务必须在线，页面顶部显示在线 / 离线。离线时页面<b>只读</b>——
-            只显示最后一次推送的快照（展示缓存，非任务真相），新建 / 编辑 / 审批 / 验收等操作会返回「规划器离线」，
-            恢复在线后重试；数据真相在核心服务的本地数据库。页面离线时先确认核心服务在运行；
-            派发失败多为目标工作区不可派发（开着 harness，或改用后台模式）。
+            <L
+              zh={<><b>运行前提与排错</b>：规划核心服务必须在线，页面顶部显示在线 / 离线。离线时页面<b>只读</b>——
+                只显示最后一次推送的快照（展示缓存，非任务真相），新建 / 编辑 / 审批 / 验收等操作会返回「规划器离线」，
+                恢复在线后重试；数据真相在核心服务的本地数据库。页面离线时先确认核心服务在运行；
+                派发失败多为目标工作区不可派发（开着 harness，或改用后台模式）。</>}
+              en={<><b>Prerequisites & troubleshooting</b>: the planning core service must be online; the top of the page shows online / offline. When offline the page is <b>read-only</b> —
+                it shows only the last pushed snapshot (a display cache, not the source of truth), and create / edit / approve / accept actions return "planner offline";
+                retry once it is back online. The source of truth lives in the core service's local database. If the page is offline, first check that the core service is running;
+                dispatch failures are usually because the target workspace cannot be dispatched to (start its harness, or switch to background mode).</>}
+            />
           </p>
-          <h3>工作区</h3>
+          <h3>{t("工作区", "Workspaces")}</h3>
           <p>
-            所有已注册工作区的看板：在线状态（30 秒心跳，离线显示最后心跳时间）、
-            agent 类型、路径与用途说明。可以启用/禁用工作区（禁用后不参与任务派发）、
-            删除离线工作区，支持按名称、路径、用途搜索。<b>我的工作区</b>每行还有「共享到团队」入口。
-          </p>
-          <p>
-            下方另列<b>共享工作区</b>：队友共享给你的工作区（只读）——显示所有者、共享团队与用途，
-            可被你的 agent 通过 <code>a2a_call</code> 调用（只拿最终答复），但你不能启用/禁用/删除，
-            也看不到它的监控 / 产物 / 调用细节。
-          </p>
-          <h3>调用记录</h3>
-          <p>
-            每一次任务派发与每一轮被监控的 TUI 对话的流水账：发起方、目标、指令内容、状态与结果
-            （markdown 渲染）。按工作区筛选查看（记住上次选择，cookie 记忆 30 天）：
-            跨 agent 调用、网页中枢指令与 <code>[monitor]</code> 监控轮次都在这里，
-            已结束的记录可单条删除，也可一键清空该工作区的全部记录；
-            <b>进行中</b>的任务可点行尾的「中断（abort）」按钮停止执行（任务置为 cancelled）。
-          </p>
-          <h3>产物</h3>
-          <p>
-            agent 上传的产出文件集中在这里：文件名（点击直接下载）、大小、上传时间与备注，
-            支持搜索。产物默认保留 <b>7 天</b>（过期自动清理）；点📌图钉可<b>固定</b>重要产物，
-            固定后不再参与自动清理（仍可手动删除）。上传时也会按简报规则把文件推送到
-            你绑定的飞书 / 微信窗口（详见「即时聊天工具 → 产物推送」）。
+            <L
+              zh={<>所有已注册工作区的看板：在线状态（30 秒心跳，离线显示最后心跳时间）、
+                agent 类型、路径与用途说明。可以启用/禁用工作区（禁用后不参与任务派发）、
+                删除离线工作区，支持按名称、路径、用途搜索。<b>我的工作区</b>每行还有「共享到团队」入口。</>}
+              en={<>A board of all registered workspaces: online status (30-second heartbeat; offline shows the last heartbeat time),
+                agent type, path and purpose description. You can enable/disable workspaces (disabled ones are not dispatched tasks),
+                delete offline workspaces, and search by name, path or purpose. Each row of <b>My workspaces</b> also has a "share to team" entry.</>}
+            />
           </p>
           <p>
-            产物<b>归属上传时所在的工作区</b>。该工作区被共享给某个团队后，团队成员可在自己的
-            「产物」页看到并下载这份产物（只读：只能下载，不能固定 / 删除）；无归属工作区的产物不参与共享。
+            <L
+              zh={<>下方另列<b>共享工作区</b>：队友共享给你的工作区（只读）——显示所有者、共享团队与用途，
+                可被你的 agent 通过 <code>a2a_call</code> 调用（只拿最终答复），但你不能启用/禁用/删除，
+                也看不到它的监控 / 产物 / 调用细节。</>}
+              en={<>Below is a separate <b>Shared workspaces</b> list: workspaces teammates shared with you (read-only) — showing the owner, sharing team and purpose.
+                Your agent can call them via <code>a2a_call</code> (getting only the final answer), but you cannot enable/disable/delete them,
+                nor see their monitor stream / artifacts / call details.</>}
+            />
           </p>
-          <h3>团队</h3>
+          <h3>{t("调用记录", "Calls")}</h3>
           <p>
-            创建团队、按用户名邀请成员，或让他人申请加入（队长审批）；队长可踢人、移交队长、解散团队。
-            一个用户可以同时加入多个团队、管理多个团队。
+            <L
+              zh={<>每一次任务派发与每一轮被监控的 TUI 对话的流水账：发起方、目标、指令内容、状态与结果
+                （markdown 渲染）。按工作区筛选查看（记住上次选择，cookie 记忆 30 天）：
+                跨 agent 调用、网页中枢指令与 <code>[monitor]</code> 监控轮次都在这里，
+                已结束的记录可单条删除，也可一键清空该工作区的全部记录；
+                <b>进行中</b>的任务可点行尾的「中断（abort）」按钮停止执行（任务置为 cancelled）。</>}
+              en={<>A ledger of every task dispatch and every monitored TUI round: caller, target, instruction, status and result
+                (rendered as markdown). Filter by workspace (the last choice is remembered via a 30-day cookie):
+                cross-agent calls, web Nexus instructions and <code>[monitor]</code> rounds are all here;
+                finished records can be deleted one by one or cleared all at once for that workspace;
+                an <b>in-progress</b> task can be stopped with the "abort" button at the end of its row (the task becomes cancelled).</>}
+            />
+          </p>
+          <h3>{t("产物", "Artifacts")}</h3>
+          <p>
+            <L
+              zh={<>agent 上传的产出文件集中在这里：文件名（点击直接下载）、大小、上传时间与备注，
+                支持搜索。产物默认保留 <b>7 天</b>（过期自动清理）；点📌图钉可<b>固定</b>重要产物，
+                固定后不再参与自动清理（仍可手动删除）。上传时也会按简报规则把文件推送到
+                你绑定的飞书 / 微信窗口（详见「即时聊天工具 → 产物推送」）。</>}
+              en={<>Output files uploaded by agents are collected here: filename (click to download), size, upload time and comment,
+                with search. Artifacts are kept <b>7 days</b> by default (auto-cleaned when expired); click the 📌 pin to <b>keep</b> an important one,
+                after which it is no longer auto-cleaned (it can still be deleted manually). On upload the file is also pushed to
+                your bound Feishu / WeChat window per the brief rules (see "Chat apps → Artifact push").</>}
+            />
           </p>
           <p>
-            在「工作区」页可把某个工作区<b>共享</b>给自己所在的团队（可一次多选）。共享<strong>只授予调用权，不授予可见权</strong>：
-            队友（或用他们的 agent）可对共享工作区发起 <code>a2a_call</code> 并拿到<b>最终答复</b>，
-            但看不到它的监控流、思考 / 工具调用、产物详情、简报与调用细节——权限请求也只推给工作区属主。
-            被共享的工作区不会出现在队友的中枢 / 工作区列表里；调用记录里双方各自只看得到该条「指令 + 答复」，
-            不会暴露监控细节。队友通过 MCP <code>list_workspaces</code>（<code>shared:true</code>）发现共享工作区并调用。
+            <L
+              zh={<>产物<b>归属上传时所在的工作区</b>。该工作区被共享给某个团队后，团队成员可在自己的
+                「产物」页看到并下载这份产物（只读：只能下载，不能固定 / 删除）；无归属工作区的产物不参与共享。</>}
+              en={<>An artifact <b>belongs to the workspace it was uploaded from</b>. Once that workspace is shared with a team, team members can see and download it
+                on their own Artifacts page (read-only: download only, no pin / delete); artifacts with no owning workspace are not shared.</>}
+            />
+          </p>
+          <h3>{t("团队", "Teams")}</h3>
+          <p>
+            {t("创建团队、按用户名邀请成员，或让他人申请加入（队长审批）；队长可踢人、移交队长、解散团队。一个用户可以同时加入多个团队、管理多个团队。",
+              "Create teams, invite members by username, or let others request to join (approved by the captain); the captain can kick members, transfer leadership or disband the team. A user can belong to and manage several teams at once.")}
           </p>
           <p>
-            团队动态——被邀请、申请/审批结果、有人加入、被移出、移交队长、团队解散——都会记一条<b>站内信</b>；
-            顶栏的铃铛显示未读数，点开可查看列表并标记已读（点击某条会跳到「团队」页并打开对应团队）；
-            支持<b>全部已读 / 全部删除</b>，每条消息也可用垃圾桶按钮单独删除。
+            <L
+              zh={<>在「工作区」页可把某个工作区<b>共享</b>给自己所在的团队（可一次多选）。共享<strong>只授予调用权，不授予可见权</strong>：
+                队友（或用他们的 agent）可对共享工作区发起 <code>a2a_call</code> 并拿到<b>最终答复</b>，
+                但看不到它的监控流、思考 / 工具调用、产物详情、简报与调用细节——权限请求也只推给工作区属主。
+                被共享的工作区不会出现在队友的中枢 / 工作区列表里；调用记录里双方各自只看得到该条「指令 + 答复」，
+                不会暴露监控细节。队友通过 MCP <code>list_workspaces</code>（<code>shared:true</code>）发现共享工作区并调用。</>}
+              en={<>On the "Workspaces" page you can <b>share</b> a workspace to a team you belong to (multi-select). Sharing grants <strong>only the right to call, not the right to see</strong>:
+                teammates (or their agents) can <code>a2a_call</code> a shared workspace and get the <b>final answer</b>,
+                but cannot see its monitor stream, reasoning / tool calls, artifact details, briefs or call details — permission requests go only to the workspace owner.
+                A shared workspace does not appear in the teammate's Nexus / workspace list; in call records each side sees only that "instruction + answer" entry,
+                with no monitor details. Teammates discover shared workspaces via MCP <code>list_workspaces</code> (<code>shared:true</code>) and call them.</>}
+            />
+          </p>
+          <p>
+            <L
+              zh={<>团队动态——被邀请、申请/审批结果、有人加入、被移出、移交队长、团队解散——都会记一条<b>站内信</b>；
+                顶栏的铃铛显示未读数，点开可查看列表并标记已读（点击某条会跳到「团队」页并打开对应团队）；
+                支持<b>全部已读 / 全部删除</b>，每条消息也可用垃圾桶按钮单独删除。</>}
+              en={<>Team events — invitations, request / approval results, someone joining, being removed, leadership transfer, team disbanding — each record a <b>notification</b>;
+                the bell in the top nav shows the unread count; open it to see the list and mark items read (clicking one jumps to the "Teams" page and opens that team);
+                <b>Mark all read / Delete all</b> are supported, and each message can also be deleted individually with the trash button.</>}
+            />
           </p>
         </section>
 
         <section id="doc-faq" className="docs-section">
           <h2>FAQ</h2>
-          <h3>权限请求和 AI 提问怎么处理？</h3>
+          <h3>{t("权限请求和 AI 提问怎么处理？", "How are permission requests and AI questions handled?")}</h3>
           <p>
-            agent 执行中需要授权（如运行命令、写文件）或主动向你提问时，任务进入 <code>input-required</code> 状态：
-            目标端的 TUI 会弹出选择框，同时网页中枢时间线出现<b>权限/提问卡片</b>，直接点按钮应答（允许一次 /
-            始终允许 / 拒绝，或点选问题选项），agent 立刻继续执行——人和网页谁先响应都可以，另一边会看到结果。
-            监控轮次的权限同样支持网页远程应答。注意：后台会话无人值守，权限全自动批准，不走此流程。
+            <L
+              zh={<>agent 执行中需要授权（如运行命令、写文件）或主动向你提问时，任务进入 <code>input-required</code> 状态：
+                目标端的 TUI 会弹出选择框，同时网页中枢时间线出现<b>权限/提问卡片</b>，直接点按钮应答（允许一次 /
+                始终允许 / 拒绝，或点选问题选项），agent 立刻继续执行——人和网页谁先响应都可以，另一边会看到结果。
+                监控轮次的权限同样支持网页远程应答。注意：后台会话无人值守，权限全自动批准，不走此流程。</>}
+              en={<>When an agent needs authorization during execution (e.g. running a command, writing a file) or asks you a question, the task enters <code>input-required</code>:
+                the peer's TUI shows a choice dialog, and at the same time a <b>permission/question card</b> appears in the web Nexus timeline where you can click to answer (allow once /
+                always allow / deny, or pick a question option), after which the agent continues immediately — whoever answers first wins, and the other side sees the result.
+                Monitor-round permissions can also be answered remotely on the web. Note: background sessions are unattended, so permissions are auto-approved and skip this flow.</>}
+            />
           </p>
-          <h3>任务会出现在对方屏幕上吗？</h3>
+          <h3>{t("任务会出现在对方屏幕上吗？", "Will a task appear on the peer's screen?")}</h3>
           <p>
-            取决于目标工作区的执行模式。前台模式下会：任务直接进入对方当前 TUI 会话并弹 toast 通知，实时可见。
-            后台模式下不会：任务在独立会话静默执行，网页中枢里同样能实时观看过程。
-            用 <code>/swarm-mode</code> 切换。
+            <L
+              zh={<>取决于目标工作区的执行模式。前台模式下会：任务直接进入对方当前 TUI 会话并弹 toast 通知，实时可见。
+                后台模式下不会：任务在独立会话静默执行，网页中枢里同样能实时观看过程。
+                用 <code>/swarm-mode</code> 切换。</>}
+              en={<>It depends on the target workspace's execution mode. In foreground mode, yes: the task enters the peer's current TUI session with a toast, visible in real time.
+                In background mode, no: the task runs silently in an isolated session, though you can still watch it live in the web Nexus.
+                Switch with <code>/swarm-mode</code>.</>}
+            />
           </p>
-          <h3>支持哪些 AI 工具？</h3>
+          <h3>{t("支持哪些 AI 工具？", "Which AI tools are supported?")}</h3>
           <p>
-            我们基于开放协议（MCP + A2A）设计，目标是让<b>所有兼容的 agent 客户端</b>都能加入虫群。
-            目前 opencode 与 deepseek harness 全功能支持；claude code 支持注册管理与后台会话任务执行，
-            前台注入暂不支持（见「命令」章节的支持情况表）。其它客户端会逐步支持。
+            <L
+              zh={<>我们基于开放协议（MCP + A2A）设计，目标是让<b>所有兼容的 agent 客户端</b>都能加入虫群。
+                目前 opencode 与 deepseek harness 全功能支持；claude code 支持注册管理与后台会话任务执行，
+                前台注入暂不支持（见「命令」章节的支持情况表）。其它客户端会逐步支持。</>}
+              en={<>We design around open protocols (MCP + A2A) so that <b>all compatible agent clients</b> can join the swarm.
+                Today opencode and deepseek harness are fully supported; claude code supports registration management and background-session task execution,
+                but not foreground injection yet (see the support table in the "Commands" section). More clients are coming.</>}
+            />
           </p>
-          <h3>claude 工作区能执行任务吗？</h3>
+          <h3>{t("claude 工作区能执行任务吗？", "Can a claude workspace execute tasks?")}</h3>
           <p>
-            能，但目前仅限<b>后台会话</b>方式：任务在独立会话静默执行，结果自动回传（网页中枢可实时观看）。
-            前台注入（任务进入你正在看的会话）还在规划中。
+            <L
+              zh={<>能，但目前仅限<b>后台会话</b>方式：任务在独立会话静默执行，结果自动回传（网页中枢可实时观看）。
+                前台注入（任务进入你正在看的会话）还在规划中。</>}
+              en={<>Yes, but currently only via <b>background sessions</b>: the task runs silently in an isolated session and the result is returned automatically (watchable live in the web Nexus).
+                Foreground injection (a task entering the session you're watching) is still being planned.</>}
+            />
           </p>
-          <h3>派出去的任务对方跑很久，agent 等不到结果就停了？</h3>
+          <h3>{t("派出去的任务对方跑很久，agent 等不到结果就停了？", "A dispatched task takes a long time and the agent stops before the result?")}</h3>
           <p>
-            不会丢。跨工作区任务完成后，若发起方 agent 已经过早收轮（没等到结果），服务端会向它推送一条
-            <b>完成提醒</b>——agent 收到后自动调用 <code>a2a_task</code> 取回结果并继续原本的工作；
-            发起方离线时提醒排队，上线即送达。你也可以随时手动让 agent「查一下任务 &lt;task_id&gt; 的结果」。
+            <L
+              zh={<>不会丢。跨工作区任务完成后，若发起方 agent 已经过早收轮（没等到结果），服务端会向它推送一条
+                <b>完成提醒</b>——agent 收到后自动调用 <code>a2a_task</code> 取回结果并继续原本的工作；
+                发起方离线时提醒排队，上线即送达。你也可以随时手动让 agent「查一下任务 &lt;task_id&gt; 的结果」。</>}
+              en={<>It isn't lost. After a cross-workspace task completes, if the calling agent ended its turn too early (didn't wait for the result), the server pushes it a
+                <b>completion reminder</b> — the agent then calls <code>a2a_task</code> to fetch the result and resume its work;
+                reminders queue while the caller is offline and are delivered when it reconnects. You can also manually ask the agent to "check the result of task &lt;task_id&gt;".</>}
+            />
           </p>
-          <h3>团队共享的工作区，队友能看到什么？</h3>
+          <h3>{t("团队共享的工作区，队友能看到什么？", "What can teammates see of a shared workspace?")}</h3>
           <p>
-            只看到<b>最终答复</b>。把自己的工作区共享给团队后，队友（或用他们的 agent）可以像调用工具一样
-            <code>a2a_call</code> 它，但看不到监控流、思考 / 工具调用、产物、简报与调用细节；权限请求也只推给你（属主）。
-            共享只授予「调用权」，不授予「可见权」，被共享的工作区也不会出现在队友的中枢 / 工作区列表里。
+            <L
+              zh={<>只看到<b>最终答复</b>。把自己的工作区共享给团队后，队友（或用他们的 agent）可以像调用工具一样
+                <code>a2a_call</code> 它，但看不到监控流、思考 / 工具调用、产物、简报与调用细节；权限请求也只推给你（属主）。
+                共享只授予「调用权」，不授予「可见权」，被共享的工作区也不会出现在队友的中枢 / 工作区列表里。</>}
+              en={<>Only the <b>final answer</b>. After sharing your workspace with a team, teammates (or their agents) can
+                <code>a2a_call</code> it like a tool, but cannot see the monitor stream, reasoning / tool calls, artifacts, briefs or call details; permission requests go only to you (the owner).
+                Sharing grants the "right to call", not the "right to see", and a shared workspace does not appear in the teammate's Nexus / workspace list.</>}
+            />
           </p>
-          <h3>安装后 agent 没出现 / 收不到任务？</h3>
+          <h3>{t("安装后 agent 没出现 / 收不到任务？", "The agent doesn't show up / receives no tasks after install?")}</h3>
           <p>
-            重启 opencode 了吗？插件在会话启动时加载，运行中的会话持有旧代码。
-            查看 <code>~/.config/opencode/plugins/agent-swarm/plugin.log</code> 可以看到
-            心跳与任务领取日志；claude 则查看 <code>~/.claude/agent-swarm/keepalive.log</code>。
+            <L
+              zh={<>重启 opencode 了吗？插件在会话启动时加载，运行中的会话持有旧代码。
+                查看 <code>~/.config/opencode/plugins/agent-swarm/plugin.log</code> 可以看到
+                心跳与任务领取日志；claude 则查看 <code>~/.claude/agent-swarm/keepalive.log</code>。</>}
+              en={<>Did you restart opencode? The plugin loads at session start, and running sessions hold the old code.
+                Check <code>~/.config/opencode/plugins/agent-swarm/plugin.log</code> for heartbeat and task-claim logs;
+                for claude, check <code>~/.claude/agent-swarm/keepalive.log</code>.</>}
+            />
           </p>
-          <h3>API Key 忘了 / 想换？</h3>
+          <h3>{t("API Key 忘了 / 想换？", "Forgot your API Key / want to change it?")}</h3>
           <p>
-            点击顶部用户名进入「账号 → API Key」，随时查看（默认打码）、复制或重置。
-            重置后旧 Key 立即失效，已接入的 agent 需要重新安装或更新配置。
-            开启了落库加密时，重置会自动用新 Key 重加密你的历史记录，历史不丢。
+            <L
+              zh={<>点击顶部用户名进入「账号 → API Key」，随时查看（默认打码）、复制或重置。
+                重置后旧 Key 立即失效，已接入的 agent 需要重新安装或更新配置。
+                开启了落库加密时，重置会自动用新 Key 重加密你的历史记录，历史不丢。</>}
+              en={<>Click the username at the top to open "Account → API Key" and view (masked by default), copy or reset it anytime.
+                Resetting invalidates the old key immediately, and connected agents must be reinstalled or have their config updated.
+                With encryption at rest enabled, resetting automatically re-encrypts your history with the new key, so nothing is lost.</>}
+            />
           </p>
-          <h3>安全吗？</h3>
+          <h3>{t("安全吗？", "Is it secure?")}</h3>
           <p>
-            所有请求都经过鉴权。跨 agent 任务会注入目标工作区的会话——
-            只把你信任的机器接入虫群。
+            {t("所有请求都经过鉴权。跨 agent 任务会注入目标工作区的会话——只把你信任的机器接入虫群。",
+              "All requests are authenticated. Cross-agent tasks are injected into the target workspace's session — only join machines you trust to the swarm.")}
           </p>
-          <h3>数据是明文存库的吗？</h3>
+          <h3>{t("数据是明文存库的吗？", "Is data stored in plaintext?")}</h3>
           <p>
-            默认是。在服务器 <code>.env</code> 配置 <code>AGENT_SWARM_ENC_KEY</code> 后开启<b>落库加密</b>：
-            工作区描述/备注/会话标题、任务指令/结果/错误、以及中枢事件流原文（含思考与工具调用）都会加密存储，
-            管理后台也只能在服务器上解密查看。加密密钥由「服务器密钥 + 你的 API Key」联合派生——
-            泄露数据库文件本身无法解密内容。
-            <b>注意</b>：不配置该密钥则全部明文落库；密钥一旦丢失，已加密的历史内容将永久无法读取（平台本身不受影响），
-            请务必备份。可选配置 <code>AGENT_SWARM_ENC_KEY_RECOVERY</code> 恢复密钥兜底。
+            <L
+              zh={<>默认是。在服务器 <code>.env</code> 配置 <code>AGENT_SWARM_ENC_KEY</code> 后开启<b>落库加密</b>：
+                工作区描述/备注/会话标题、任务指令/结果/错误、以及中枢事件流原文（含思考与工具调用）都会加密存储，
+                管理后台也只能在服务器上解密查看。加密密钥由「服务器密钥 + 你的 API Key」联合派生——
+                泄露数据库文件本身无法解密内容。
+                <b>注意</b>：不配置该密钥则全部明文落库；密钥一旦丢失，已加密的历史内容将永久无法读取（平台本身不受影响），
+                请务必备份。可选配置 <code>AGENT_SWARM_ENC_KEY_RECOVERY</code> 恢复密钥兜底。</>}
+              en={<>By default, yes. Configure <code>AGENT_SWARM_ENC_KEY</code> in the server's <code>.env</code> to enable <b>encryption at rest</b>:
+                workspace descriptions/comments/session titles, task instructions/results/errors, and the raw Nexus event stream (including reasoning and tool calls) are stored encrypted,
+                and even the admin console can only decrypt them on the server. The key is derived jointly from the "server key + your API Key" —
+                leaking the database file alone cannot decrypt the content.
+                <b>Note</b>: without that key everything is stored in plaintext; and once the key is lost, already-encrypted history can never be read again (the platform itself is unaffected),
+                so be sure to back it up. You can optionally set <code>AGENT_SWARM_ENC_KEY_RECOVERY</code> as a recovery key.</>}
+            />
           </p>
         </section>
       </article>
