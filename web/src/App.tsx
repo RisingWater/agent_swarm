@@ -1842,9 +1842,19 @@ agent: (a2a_call) → 对方 TUI 实时出现任务 → 执行 → 结果自动�
           </p>
           <h3>规划器工作区是什么？</h3>
           <p>
-            工作区可带一个 <code>role</code>（默认 <code>agent</code>，可设为 <code>planner</code>）。
-            该字段独立于 <code>agent_type</code>，<b>不参与</b>权限 / 提问分派，只用于标识与展示。
-            顶栏「规划器」入口仅在你拥有 <code>role=planner</code> 工作区时出现。
+            规划器工作区是一个<b>特殊的工作区</b>。普通工作区只代表一个 agent 实例；规划器工作区则是
+            「<b>planner-core（确定性内核）＋一个 agent harness（负责拆解的 agent）</b>」的组合，两者跑在同一个项目目录里——
+            core 负责<b>目标 / 任务 / 依赖 / 验收的持久化与调度</b>，harness 里的 agent 负责把目标<b>拆解成任务树</b>并在执行中做决策。
+          </p>
+          <p>
+            正因为它不是一个普通 agent，接入方式也<b>特殊</b>：先安装并运行 <b>planner-core</b>（见下方「安装与准备」），
+            再在<b>该目录里</b>用专门的 <b><code>/swarm-add-planner</code></b> 命令注册——而不是普通的 <code>/swarm-add</code>；
+            注册后工作区会带上 <code>role=planner</code> 标识。
+          </p>
+          <p>
+            该 <code>role</code> 字段独立于 <code>agent_type</code>，<b>不参与</b>权限 / 提问分派，只用于标识与展示；
+            注册成功后网页顶栏才会出现「规划器」入口（仅当你拥有 <code>role=planner</code> 工作区时显示）。
+            已注册的普通工作区也能用同一命令<b>升级</b>为规划器（按路径 upsert，把 <code>role</code> 改为 <code>planner</code>）。
           </p>
           <h3>安装与准备</h3>
           <ol>
