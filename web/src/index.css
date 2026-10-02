@@ -2940,6 +2940,12 @@ table.ws-grid th {
   gap: 6px;
 }
 
+.planner-h3-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .tree-toggle {
   display: inline-flex;
   align-items: center;

@@ -4533,12 +4533,6 @@ function PlannerPage({ toast }: { toast: (m: string) => void }) {
             {online ? "● online" : "○ offline"}
           </span>
         )}
-        {selected && <span style={{ flex: 1 }} />}
-        {selected && (
-          <ActionBtn icon={<PlusIcon />} onClick={openCreate} disabled={!online} title="新建目标">
-            新建目标
-          </ActionBtn>
-        )}
         {!list.length && (
           <span className="nexus-empty">
             暂无规划器工作区 — 用 <code>/swarm-add-planner</code> 注册
@@ -4561,9 +4555,14 @@ function PlannerPage({ toast }: { toast: (m: string) => void }) {
 
       {selected && state && (
         <>
-          <h3 className="planner-h3" style={{ margin: "8px 0" }}>
-            <TrophyIcon />
-            目标
+          <h3 className="planner-h3" style={{ margin: "8px 0", justifyContent: "space-between" }}>
+            <span className="planner-h3-title">
+              <TrophyIcon />
+              目标
+            </span>
+            <ActionBtn icon={<PlusIcon />} onClick={openCreate} disabled={!online} title="新建目标">
+              新建目标
+            </ActionBtn>
           </h3>
           <table className="grid">
             <thead>
@@ -4605,7 +4604,7 @@ function PlannerPage({ toast }: { toast: (m: string) => void }) {
               ))}
               {!goals.length && (
                 <tr><td colSpan={6} style={{ color: "var(--text-weak)", textAlign: "center", padding: 32 }}>
-                  [*] 暂无目标 — 点右上角「+ 新建目标」
+                  [*] 暂无目标 — 点「新建目标」
                 </td></tr>
               )}
             </tbody>
