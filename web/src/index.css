@@ -1372,6 +1372,40 @@ a.link:hover {
   gap: 2px;
 }
 
+/* 空间不足时向上弹出（避免撑出弹窗滚动条） */
+.nexus-select-menu.open-up {
+  top: auto;
+  bottom: calc(100% + 4px);
+}
+
+/* 弹窗内：选择框占满一行，菜单宽度随之收紧，杜绝横向滚动条 */
+.dialog .nexus-select-wrap {
+  display: block;
+  width: 100%;
+}
+
+.dialog .nexus-select-btn {
+  width: 100%;
+  min-width: 0;
+}
+
+.dialog .nexus-select-menu {
+  width: 100%;
+  max-width: 100%;
+}
+
+.dialog .nexus-select-item {
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.dialog .nexus-select-item-name {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .nexus-select-item {
   display: flex;
   align-items: center;

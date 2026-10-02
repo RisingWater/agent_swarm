@@ -1,5 +1,5 @@
 /** agent_swarm 管理端 —— opencode.ai 风格，纯 React 无 UI 库 */
-import { useEffect, useState, useCallback, useRef, type ReactNode } from "react"
+import { useEffect, useLayoutEffect, useState, useCallback, useRef, type ReactNode } from "react"
 import Markdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 import {
@@ -2233,6 +2233,25 @@ export function NexusWorkspaceSelect({ list, value, onChange, showOwner }: {
 }) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
+  // 菜单弹出方向/高度：在容器（弹窗优先）内测量可用空间，空间不足则向上弹，避免撑出滚动条
+  const [menuPos, setMenuPos] = useState<{ up: boolean; maxHeight: number }>({ up: false, maxHeight: 320 })
+  useLayoutEffect(() => {
+    if (!open) return
+    const measure = () => {
+      const el = ref.current
+      if (!el) return
+      const r = el.getBoundingClientRect()
+      const box = (el.closest(".dialog") as HTMLElement | null) ?? document.documentElement
+      const b = box.getBoundingClientRect()
+      const below = b.bottom - r.bottom
+      const above = r.top - b.top
+      const up = below < 220 && above > below
+      setMenuPos({ up, maxHeight: Math.max(140, Math.min(320, (up ? above : below) - 24)) })
+    }
+    measure()
+    window.addEventListener("resize", measure)
+    return () => window.removeEventListener("resize", measure)
+  }, [open])
   const current = list.find((w) => w.id === value)
   const ownerName = (w: { owner?: string | { username: string } | null }) =>
     typeof w.owner === "string" ? w.owner : w.owner?.username || ""
@@ -2263,7 +2282,10 @@ export function NexusWorkspaceSelect({ list, value, onChange, showOwner }: {
         </svg>
       </button>
       {open && (
-        <div className="nexus-select-menu">
+        <div
+          className={`nexus-select-menu${menuPos.up ? " open-up" : ""}`}
+          style={{ maxHeight: menuPos.maxHeight }}
+        >
           {list.map((w) => (
             <button
               key={w.id}
