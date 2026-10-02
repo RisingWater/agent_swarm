@@ -4463,6 +4463,7 @@ function TeamsPage({ toast, openTeamId, onConsumeOpenTeam }: { toast: (m: string
 type TeamMemberInfoLike = { status: string; kind: string }
 
 function WorkspacesPage({ toast }: { toast: (m: string) => void }) {
+  const { t } = useI18n()
   const [list, setList] = useState<Workspace[]>([])
   const [detail, setDetail] = useState<Workspace | null>(null)
   const [delTarget, setDelTarget] = useState<Workspace | null>(null)
@@ -4487,15 +4488,15 @@ function WorkspacesPage({ toast }: { toast: (m: string) => void }) {
   }, [toast])
   useEffect(() => {
     refresh()
-    const t = setInterval(refresh, 10_000)
-    return () => clearInterval(t)
+    const timer = setInterval(refresh, 10_000)
+    return () => clearInterval(timer)
   }, [refresh])
 
   const toggle = async (w: Workspace) => {
     try {
       if (w.status === "disabled") await api.enableWorkspace(w.id)
       else await api.disableWorkspace(w.id)
-      toast(w.status === "disabled" ? "已启用" : "已禁用")
+      toast(w.status === "disabled" ? t("已启用", "Enabled") : t("已禁用", "Disabled"))
       refresh()
     } catch (e: any) { toast(e.message) }
   }
@@ -4503,7 +4504,7 @@ function WorkspacesPage({ toast }: { toast: (m: string) => void }) {
   const del = async (w: Workspace) => {
     try {
       await api.deleteWorkspace(w.id)
-      toast("deleted")
+      toast(t("已删除", "Deleted"))
       refresh()
     } catch (e: any) { toast(e.message) }
   }
@@ -4519,8 +4520,8 @@ function WorkspacesPage({ toast }: { toast: (m: string) => void }) {
 
   const openShare = async (w: Workspace) => {
     try {
-      const [t, s] = await Promise.all([api.teams(), api.workspaceShares(w.id)])
-      setMyTeams(t.teams)
+      const [teamsResp, s] = await Promise.all([api.teams(), api.workspaceShares(w.id)])
+      setMyTeams(teamsResp.teams)
       setShareTeamIds(new Set(s.teams.map((x) => x.team_id)))
       setShareTarget(w)
     } catch (e: any) { toast(e.message) }
@@ -4531,7 +4532,7 @@ function WorkspacesPage({ toast }: { toast: (m: string) => void }) {
     setSharing(true)
     try {
       await api.setWorkspaceShares(shareTarget.id, Array.from(shareTeamIds))
-      toast("共享设置已保存")
+      toast(t("共享设置已保存", "Sharing settings saved"))
       setShareTarget(null)
     } catch (e: any) { toast(e.message) } finally { setSharing(false) }
   }
@@ -4549,24 +4550,25 @@ function WorkspacesPage({ toast }: { toast: (m: string) => void }) {
   const sharedShown = sq
     ? sharedList.filter((w) =>
         hit(w.name, sq) || hit(w.owner?.username, sq) || hit(w.purpose, sq) ||
-        hit(w.agent_type, sq) || w.teams.some((t) => hit(t, sq)))
+        hit(w.agent_type, sq) || w.teams.some((tn) => hit(tn, sq)))
     : sharedList
 
   return (
     <>
-      <h1 className="page-title">工作区</h1>
-      <p className="page-sub">你的 agent 工作区及在线状态，每 10s 自动刷新；下方另列团队共享给你的工作区。</p>
-      <h3 style={{ margin: "8px 0" }}>我的工作区</h3>
-      <SearchBox value={query} onChange={setQuery} placeholder="搜索名称 / 路径 / 用途…" />
+      <h1 className="page-title">{t("工作区", "Workspaces")}</h1>
+      <p className="page-sub">{t("你的 agent 工作区及在线状态，每 10s 自动刷新；下方另列团队共享给你的工作区。",
+        "Your agent workspaces and their online status, refreshed every 10s; workspaces shared to you by teams are listed below.")}</p>
+      <h3 style={{ margin: "8px 0" }}>{t("我的工作区", "My workspaces")}</h3>
+      <SearchBox value={query} onChange={setQuery} placeholder={t("搜索名称 / 路径 / 用途…", "Search name / path / purpose…")} />
       <table className="grid ws-grid">
         <thead>
           <tr>
             <th style={{ width: 60 }}></th>
-            <th>名称</th>
-            <th>状态</th>
-            <th>路径</th>
-            <th style={{ width: 180 }}>会话</th>
-            <th style={{ width: 450 }}>用途</th>
+            <th>{t("名称", "Name")}</th>
+            <th>{t("状态", "Status")}</th>
+            <th>{t("路径", "Path")}</th>
+            <th style={{ width: 180 }}>{t("会话", "Session")}</th>
+            <th style={{ width: 450 }}>{t("用途", "Purpose")}</th>
             <th style={{ width: 110 }}></th>
           </tr>
         </thead>
@@ -4577,11 +4579,11 @@ function WorkspacesPage({ toast }: { toast: (m: string) => void }) {
               <td className="strong">
                 <AgentTypeIcon type={w.agent_type} />
                 <a className="link" onClick={() => setDetail(w)}>{w.name}</a>
-                {w.role === "planner" && <span className="role-badge" title="规划器工作区">规划器</span>}
+                {w.role === "planner" && <span className="role-badge" title={t("规划器工作区", "Planner workspace")}>{t("规划器", "planner")}</span>}
               </td>
               <td>
                 <span
-                  title={w.status === "offline" && w.last_heartbeat ? `最后心跳: ${fmtTime(w.last_heartbeat, "datetime")}` : undefined}
+                  title={w.status === "offline" && w.last_heartbeat ? `${t("最后心跳", "Last heartbeat")}: ${fmtTime(w.last_heartbeat, "datetime")}` : undefined}
                 >
                   <StatusDot status={w.status} />
                 </span>
@@ -4595,7 +4597,7 @@ function WorkspacesPage({ toast }: { toast: (m: string) => void }) {
                   <span className="purpose-text">{w.purpose}</span>
                   <span
                     className="expander"
-                    title={expanded.has(w.id) ? "收起" : "展开"}
+                    title={expanded.has(w.id) ? t("收起", "Collapse") : t("展开", "Expand")}
                     onClick={() => toggleExpand(w.id)}
                   >
                     <ChevronIcon up={expanded.has(w.id)} />
@@ -4603,11 +4605,11 @@ function WorkspacesPage({ toast }: { toast: (m: string) => void }) {
                 </div>
               </td>
               <td>
-                <Btn variant="icon" title="共享到团队" onClick={() => openShare(w)}>
+                <Btn variant="icon" title={t("共享到团队", "Share to team")} onClick={() => openShare(w)}>
                   <ShareIcon />
                 </Btn>
                 {w.status !== "online" && (
-                  <Btn variant="icon" title="删除" onClick={() => setDelTarget(w)}>
+                  <Btn variant="icon" title={t("删除", "Delete")} onClick={() => setDelTarget(w)}>
                     <TrashIcon />
                   </Btn>
                 )}
@@ -4616,29 +4618,33 @@ function WorkspacesPage({ toast }: { toast: (m: string) => void }) {
           ))}
           {!filtered.length && (
             <tr><td colSpan={7} style={{ color: "var(--text-weak)", textAlign: "center", padding: 32 }}>
-              {q ? `[*] 没有匹配「${query.trim()}」的工作区` : "[*] 暂无工作区 — 在目标机器执行接入页的安装命令"}
+              {q ? t(`[*] 没有匹配「${query.trim()}」的工作区`, `[*] No workspaces match "${query.trim()}"`) : t("[*] 暂无工作区 — 在目标机器执行接入页的安装命令", "[*] No workspaces yet — run the install command on the target machine")}
             </td></tr>
           )}
         </tbody>
       </table>
 
-      <h3 style={{ marginTop: 28, marginBottom: 8 }}>共享工作区</h3>
+      <h3 style={{ marginTop: 28, marginBottom: 8 }}>{t("共享工作区", "Shared workspaces")}</h3>
       <p className="page-sub" style={{ marginTop: 0 }}>
-        团队共享给你的工作区：可被你的 agent 通过 a2a_call 调用（只拿最终答复），
-        你看不到它的监控 / 产物 / 调用细节，也无法启用 / 禁用 / 删除。
+        <L
+          zh={<>团队共享给你的工作区：可被你的 agent 通过 a2a_call 调用（只拿最终答复），
+            你看不到它的监控 / 产物 / 调用细节，也无法启用 / 禁用 / 删除。</>}
+          en={<>Workspaces shared to you by teams: your agent can call them via a2a_call (getting only the final answer),
+            but you can't see their monitoring / artifacts / call details, nor enable / disable / delete them.</>}
+        />
       </p>
       {sharedList.length > 0 && (
-        <SearchBox value={sharedQuery} onChange={setSharedQuery} placeholder="搜索名称 / 所有者 / 团队 / 用途…" />
+        <SearchBox value={sharedQuery} onChange={setSharedQuery} placeholder={t("搜索名称 / 所有者 / 团队 / 用途…", "Search name / owner / team / purpose…")} />
       )}
       {sharedShown.length ? (
         <table className="grid ws-grid">
           <thead>
             <tr>
-              <th>名称</th>
-              <th style={{ width: 80 }}>状态</th>
-              <th style={{ width: 150 }}>所有者</th>
-              <th style={{ width: 180 }}>共享团队</th>
-              <th>用途</th>
+              <th>{t("名称", "Name")}</th>
+              <th style={{ width: 80 }}>{t("状态", "Status")}</th>
+              <th style={{ width: 150 }}>{t("所有者", "Owner")}</th>
+              <th style={{ width: 180 }}>{t("共享团队", "Shared teams")}</th>
+              <th>{t("用途", "Purpose")}</th>
             </tr>
           </thead>
           <tbody>
@@ -4647,19 +4653,19 @@ function WorkspacesPage({ toast }: { toast: (m: string) => void }) {
                 <td className="strong">
                   <AgentTypeIcon type={w.agent_type} />
                   <a className="link" onClick={() => setSharedDetail(w)}>{w.name}</a>
-                  {w.role === "planner" && <span className="role-badge" title="规划器工作区">规划器</span>}
+                  {w.role === "planner" && <span className="role-badge" title={t("规划器工作区", "Planner workspace")}>{t("规划器", "planner")}</span>}
                 </td>
                 <td>
-                  <span title={w.status === "offline" && w.last_heartbeat ? `最后心跳: ${fmtTime(w.last_heartbeat, "datetime")}` : undefined}>
+                  <span title={w.status === "offline" && w.last_heartbeat ? `${t("最后心跳", "Last heartbeat")}: ${fmtTime(w.last_heartbeat, "datetime")}` : undefined}>
                     <StatusDot status={w.status} />
                   </span>
                 </td>
                 <td>{w.owner?.username ?? "-"}</td>
-                <td style={{ fontSize: 12, color: "var(--text-weak)" }}>{w.teams.join("、")}</td>
+                <td style={{ fontSize: 12, color: "var(--text-weak)" }}>{w.teams.join(t("、", ", "))}</td>
                 <td className="purpose-td">
                   <div className={`purpose-cell ${expanded.has(w.id) ? "open" : ""}`}>
                     <span className="purpose-text">{w.purpose}</span>
-                    <span className="expander" title={expanded.has(w.id) ? "收起" : "展开"} onClick={() => toggleExpand(w.id)}>
+                    <span className="expander" title={expanded.has(w.id) ? t("收起", "Collapse") : t("展开", "Expand")} onClick={() => toggleExpand(w.id)}>
                       <ChevronIcon up={expanded.has(w.id)} />
                     </span>
                   </div>
@@ -4671,78 +4677,79 @@ function WorkspacesPage({ toast }: { toast: (m: string) => void }) {
       ) : (
         <p style={{ color: "var(--text-weak)" }}>
           {sharedList.length
-            ? `[*] 没有匹配「${sharedQuery.trim()}」的共享工作区`
-            : "[*] 暂无共享工作区——加入团队后，队友共享的工作区会出现在这里。"}
+            ? t(`[*] 没有匹配「${sharedQuery.trim()}」的共享工作区`, `[*] No shared workspaces match "${sharedQuery.trim()}"`)
+            : t("[*] 暂无共享工作区——加入团队后，队友共享的工作区会出现在这里。", "[*] No shared workspaces yet — once you join a team, workspaces shared by teammates will appear here.")}
         </p>
       )}
 
       {sharedDetail && (
         <Modal title={sharedDetail.name} onClose={() => setSharedDetail(null)}>
           <dl className="dl">
-            <dt>状态</dt><dd><StatusDot status={sharedDetail.status} /></dd>
-            {sharedDetail.role === "planner" && <><dt>角色</dt><dd><span className="role-badge">规划器</span></dd></>}
-            <dt>所有者</dt><dd>{sharedDetail.owner?.username ?? "-"}</dd>
-            <dt>共享团队</dt><dd>{sharedDetail.teams.join("、")}</dd>
+            <dt>{t("状态", "Status")}</dt><dd><StatusDot status={sharedDetail.status} /></dd>
+            {sharedDetail.role === "planner" && <><dt>{t("角色", "Role")}</dt><dd><span className="role-badge">{t("规划器", "planner")}</span></dd></>}
+            <dt>{t("所有者", "Owner")}</dt><dd>{sharedDetail.owner?.username ?? "-"}</dd>
+            <dt>{t("共享团队", "Shared teams")}</dt><dd>{sharedDetail.teams.join(t("、", ", "))}</dd>
             <dt>agent</dt>
             <dd style={{ display: "flex", alignItems: "center", gap: 6 }}>
               <AgentTypeIcon type={sharedDetail.agent_type} />
-              {sharedDetail.agent_type || "未知"}
+              {sharedDetail.agent_type || t("未知", "unknown")}
             </dd>
-            <dt>用途</dt><dd>{sharedDetail.purpose || "-"}</dd>
-            <dt>能力</dt><dd>{sharedDetail.capabilities || "-"}</dd>
-            <dt>最后心跳</dt><dd>{fmtTime(sharedDetail.last_heartbeat, "datetime")}</dd>
+            <dt>{t("用途", "Purpose")}</dt><dd>{sharedDetail.purpose || "-"}</dd>
+            <dt>{t("能力", "Capabilities")}</dt><dd>{sharedDetail.capabilities || "-"}</dd>
+            <dt>{t("最后心跳", "Last heartbeat")}</dt><dd>{fmtTime(sharedDetail.last_heartbeat, "datetime")}</dd>
           </dl>
           <p style={{ color: "var(--text-weak)", fontSize: 13, marginTop: 12 }}>
-            团队共享工作区：可 a2a_call 获取最终答复，看不到监控 / 产物 / 调用细节；不能启用 / 禁用 / 删除。
+            {t("团队共享工作区：可 a2a_call 获取最终答复，看不到监控 / 产物 / 调用细节；不能启用 / 禁用 / 删除。",
+              "Team-shared workspace: call it via a2a_call to get the final answer, but you can't see monitoring / artifacts / call details, nor enable / disable / delete it.")}
           </p>
         </Modal>
       )}
 
       {shareTarget && (
-        <Modal title={`共享「${shareTarget.name}」到团队`} onClose={() => setShareTarget(null)}>
+        <Modal title={t(`共享「${shareTarget.name}」到团队`, `Share "${shareTarget.name}" to teams`)} onClose={() => setShareTarget(null)}>
           <p style={{ margin: 0, color: "var(--text-weak)", fontSize: 13 }}>
-            共享后，所选团队的成员可对该工作区发起 a2a_call（只拿最终答复），
-            但看不到监控 / 产物 / 调用细节。
+            {t("共享后，所选团队的成员可对该工作区发起 a2a_call（只拿最终答复），但看不到监控 / 产物 / 调用细节。",
+              "Once shared, members of the selected teams can a2a_call this workspace (getting only the final answer), but can't see monitoring / artifacts / call details.")}
           </p>
           {myTeams.length ? (
             <div style={{ display: "flex", flexDirection: "column", gap: 8, margin: "14px 0" }}>
-              {myTeams.map((t) => (
-                <label key={t.id} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              {myTeams.map((team) => (
+                <label key={team.id} style={{ display: "flex", alignItems: "center", gap: 8 }}>
                   <input
                     type="checkbox"
-                    checked={shareTeamIds.has(t.id)}
+                    checked={shareTeamIds.has(team.id)}
                     onChange={(e) => {
                       setShareTeamIds((prev) => {
                         const next = new Set(prev)
-                        if (e.target.checked) next.add(t.id)
-                        else next.delete(t.id)
+                        if (e.target.checked) next.add(team.id)
+                        else next.delete(team.id)
                         return next
                       })
                     }}
                   />
-                  {t.name}
-                  {t.is_leader && <span style={{ color: "var(--text-weak)", fontSize: 12 }}>（队长）</span>}
+                  {team.name}
+                  {team.is_leader && <span style={{ color: "var(--text-weak)", fontSize: 12 }}>{t("（队长）", " (leader)")}</span>}
                 </label>
               ))}
             </div>
           ) : (
             <p style={{ color: "var(--text-weak)", fontSize: 13, margin: "14px 0" }}>
-              你还没有加入任何团队 — 先到「团队」页创建或加入。
+              {t("你还没有加入任何团队 — 先到「团队」页创建或加入。", "You haven't joined any team yet — create or join one on the Teams page first.")}
             </p>
           )}
           <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 8 }}>
-            <Btn size="sm" variant="ghost" onClick={() => setShareTarget(null)}>取消</Btn>
-            <Btn size="sm" disabled={sharing || !myTeams.length} onClick={saveShare}>保存</Btn>
+            <Btn size="sm" variant="ghost" onClick={() => setShareTarget(null)}>{t("取消", "Cancel")}</Btn>
+            <Btn size="sm" disabled={sharing || !myTeams.length} onClick={saveShare}>{t("保存", "Save")}</Btn>
           </div>
         </Modal>
       )}
 
       {delTarget && (
-        <Modal title={`删除 ${delTarget.name}？`} onClose={() => setDelTarget(null)}>
-          <p style={{ margin: 0, color: "var(--text-weak)", fontSize: 14 }}>删除后工作区将从列表移除，不可恢复。</p>
+        <Modal title={t(`删除 ${delTarget.name}？`, `Delete ${delTarget.name}?`)} onClose={() => setDelTarget(null)}>
+          <p style={{ margin: 0, color: "var(--text-weak)", fontSize: 14 }}>{t("删除后工作区将从列表移除，不可恢复。", "The workspace will be removed from the list and cannot be recovered.")}</p>
           <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
-            <Btn size="sm" variant="ghost" onClick={() => setDelTarget(null)}>取消</Btn>
-            <Btn size="sm" variant="danger" onClick={() => { del(delTarget); setDelTarget(null) }}>确认删除</Btn>
+            <Btn size="sm" variant="ghost" onClick={() => setDelTarget(null)}>{t("取消", "Cancel")}</Btn>
+            <Btn size="sm" variant="danger" onClick={() => { del(delTarget); setDelTarget(null) }}>{t("确认删除", "Confirm delete")}</Btn>
           </div>
         </Modal>
       )}
@@ -4752,20 +4759,20 @@ function WorkspacesPage({ toast }: { toast: (m: string) => void }) {
           <dl className="dl">
             <dt>ID</dt>
             <dd style={{ fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--text-weak)", wordBreak: "break-all" }}>{detail.id}</dd>
-            <dt>状态</dt><dd><StatusDot status={detail.status} /></dd>
-            <dt>角色</dt><dd>{detail.role === "planner" ? <span className="role-badge">规划器</span> : "agent"}</dd>
-            <dt>路径</dt><dd>{detail.path}</dd>
+            <dt>{t("状态", "Status")}</dt><dd><StatusDot status={detail.status} /></dd>
+            <dt>{t("角色", "Role")}</dt><dd>{detail.role === "planner" ? <span className="role-badge">{t("规划器", "planner")}</span> : "agent"}</dd>
+            <dt>{t("路径", "Path")}</dt><dd>{detail.path}</dd>
             <dt>agent</dt>
             <dd style={{ display: "flex", alignItems: "center", gap: 6 }}>
               <AgentTypeIcon type={detail.agent_type} />
-              {detail.agent_type || "未知"}
+              {detail.agent_type || t("未知", "unknown")}
             </dd>
-            <dt>用途</dt><dd>{detail.purpose || "-"}</dd>
-            <dt>能力</dt><dd>{detail.capabilities || "-"}</dd>
-            <dt>备注</dt><dd>{detail.notes || "-"}</dd>
-            <dt>所有者</dt><dd>{detail.owner?.username ?? "-"}</dd>
-            <dt>当前会话</dt><dd>{detail.session_title || "-"}</dd>
-            <dt>最后心跳</dt>
+            <dt>{t("用途", "Purpose")}</dt><dd>{detail.purpose || "-"}</dd>
+            <dt>{t("能力", "Capabilities")}</dt><dd>{detail.capabilities || "-"}</dd>
+            <dt>{t("备注", "Notes")}</dt><dd>{detail.notes || "-"}</dd>
+            <dt>{t("所有者", "Owner")}</dt><dd>{detail.owner?.username ?? "-"}</dd>
+            <dt>{t("当前会话", "Current session")}</dt><dd>{detail.session_title || "-"}</dd>
+            <dt>{t("最后心跳", "Last heartbeat")}</dt>
             <dd>{fmtTime(detail.last_heartbeat, "datetime")}</dd>
           </dl>
         </Modal>
