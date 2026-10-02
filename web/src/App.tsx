@@ -1455,6 +1455,7 @@ function HomePage({ toast, loggedIn, onGoAccount, onOpenLogin, onGoDocs }: { toa
 
 /** 演示视频：进入视口自动静音播放一次，停在最后一帧，无控件；点击可切换声音 */
 function VideoPlayer({ src }: { src: string }) {
+  const { t } = useI18n()
   const videoRef = useRef<HTMLVideoElement>(null)
   const [muted, setMuted] = useState(true)
   const playedRef = useRef(false)
@@ -1495,10 +1496,10 @@ function VideoPlayer({ src }: { src: string }) {
       {/* 覆盖层：整块可点击切换声音，右下角显示当前状态 */}
       <button
         className="video-sound-toggle"
-        title={muted ? "开启声音" : "关闭声音"}
+        title={muted ? t("开启声音", "Unmute") : t("关闭声音", "Mute")}
         onClick={() => setMuted(!muted)}
       >
-        {muted ? "🔇 已静音，点击开启声音" : "🔊 声音开启，点击静音"}
+        {muted ? t("🔇 已静音，点击开启声音", "🔇 Muted, click to unmute") : t("🔊 声音开启，点击静音", "🔊 Sound on, click to mute")}
       </button>
     </div>
   )
@@ -1573,8 +1574,9 @@ function agentToolKind(agentType: string | null | undefined): "opencode" | "clau
 
 /** 工作区名称旁的 agent 类型小图标（识别的类型用品牌色，未知用灰问号） */
 function AgentTypeIcon({ type, inherit }: { type: string | null | undefined; inherit?: boolean }) {
+  const { t } = useI18n()
   const kind = agentToolKind(type)
-  const label = (type ?? "").trim() || "未知 agent"
+  const label = (type ?? "").trim() || t("未知 agent", "unknown agent")
   // inherit=true：跟随容器文字色（如 TUI 黑底头部要白色），否则用品牌色
   const color = inherit ? "" : kind === "claude" ? "#D97757" : kind === "more" ? "" : "var(--text-strong)"
   return (

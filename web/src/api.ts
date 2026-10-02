@@ -1,4 +1,5 @@
 /** agent_swarm 管理端 API 客户端 */
+import { tGlobal } from "./i18n"
 
 const BASE = import.meta.env.VITE_API_BASE ?? ""
 
@@ -16,10 +17,10 @@ async function request(path: string, options: RequestInit = {}) {
     localStorage.removeItem("swarm_token")
     localStorage.removeItem("swarm_user")
     window.location.hash = "#/login"
-    throw new Error("登录已过期，请重新登录")
+    throw new Error(tGlobal("登录已过期，请重新登录", "Session expired, please log in again"))
   }
   const body = await rsp.json().catch(() => ({}))
-  if (!rsp.ok) throw new Error(body.detail ?? `请求失败 (${rsp.status})`)
+  if (!rsp.ok) throw new Error(body.detail ?? tGlobal(`请求失败 (${rsp.status})`, `Request failed (${rsp.status})`))
   return body
 }
 
@@ -217,7 +218,7 @@ export const api = {
       body: JSON.stringify({ username, password }),
     })
     const body = await rsp.json()
-    if (!rsp.ok) throw new Error(body.detail ?? "注册失败")
+    if (!rsp.ok) throw new Error(body.detail ?? tGlobal("注册失败", "Registration failed"))
     return body as { user: User; api_key: string; token: string }
   },
 
@@ -228,7 +229,7 @@ export const api = {
       body: JSON.stringify({ username, password }),
     })
     const body = await rsp.json()
-    if (!rsp.ok) throw new Error(body.detail ?? "登录失败")
+    if (!rsp.ok) throw new Error(body.detail ?? tGlobal("登录失败", "Login failed"))
     return body as { token: string; user: User }
   },
 
@@ -514,9 +515,9 @@ async function adminRequest(path: string, options: RequestInit = {}) {
   const body = await rsp.json().catch(() => ({}))
   if (rsp.status === 401) {
     localStorage.removeItem("swarm_admin_token")
-    throw new Error(body.detail ?? "登录已过期，请重新登录")
+    throw new Error(body.detail ?? tGlobal("登录已过期，请重新登录", "Session expired, please log in again"))
   }
-  if (!rsp.ok) throw new Error(body.detail ?? `请求失败 (${rsp.status})`)
+  if (!rsp.ok) throw new Error(body.detail ?? tGlobal(`请求失败 (${rsp.status})`, `Request failed (${rsp.status})`))
   return body
 }
 
@@ -528,7 +529,7 @@ export const adminApi = {
       body: JSON.stringify({ username, password }),
     })
     const body = await rsp.json()
-    if (!rsp.ok) throw new Error(body.detail ?? "登录失败")
+    if (!rsp.ok) throw new Error(body.detail ?? tGlobal("登录失败", "Login failed"))
     localStorage.setItem("swarm_admin_token", body.token)
     return body as { token: string }
   },

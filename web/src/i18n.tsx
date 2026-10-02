@@ -45,6 +45,11 @@ export function LangProvider({ children }: { children: ReactNode }) {
   return <Ctx.Provider value={{ lang, setLang }}>{children}</Ctx.Provider>
 }
 
+/** 非组件环境（如 api.ts 的抛错文案）读取当前语言并翻译：读 localStorage，默认中文。 */
+export function tGlobal(zh: string, en: string): string {
+  return readLang() === "en" ? en : zh
+}
+
 /** 组件内取当前语言与翻译函数。t(中文, English) 返回当前语言文案。 */
 export function useI18n() {
   const { lang, setLang } = useContext(Ctx)
