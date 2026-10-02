@@ -2082,7 +2082,7 @@ agent: (a2a_call) → 对方 TUI 实时出现任务 → 执行 → 结果自动�
             选中一个 planner 工作区后，页面管理它的<b>目标与任务树</b>：
           </p>
           <ul>
-            <li><b>目标</b>：新建 / 编辑 / 归档（标题、描述、优先级下拉 高/中/低、截止可选、成功标准），列表显示状态/拆解审批徽标与进度；优先级提交为整数（高=2/中=1/低=0）、截止为空显示「无截止」、成功标准旁显示「专家已确认」/「待专家确认」徽标</li>
+            <li><b>目标</b>：新建 / 编辑 / 归档（标题、描述、优先级下拉 高/中/低、截止可选、成功标准），列表显示状态/拆解审批徽标与进度；优先级提交为整数（高=2/中=1/低=0）、截止为空显示「无截止」、成功标准旁显示「专家已确认」/「待专家确认」徽标（<b>新建表单不含成功标准输入</b>——由专家侧设定/确认；仅编辑时可改，改动会置回「待专家确认」）</li>
             <li><b>任务树</b>：选中目标后按依赖层级折叠 / 展开展示任务（状态 / 依赖 / 执行 agent / 验收）</li>
             <li><b>操作</b>：<code>催促</code>（让 agent 干活）、<code>通过拆解</code>（仅拆解状态为 <code>draft</code> 时出现）/ <code>重新拆解</code>（审批计划）、<code>通过</code> / <code>拒绝</code>（人工验收）、<code>归档</code>（<b>软隐藏</b>，保留数据、不参与调度，可 <code>激活</code> 恢复）/ <code>删除</code>（<b>硬删除，二次确认，不可恢复</b>，连同任务树 / 执行记录一起删除）；离线时全部禁用。目标列表上方有「隐藏已归档目标」复选框（默认勾选、cookie 记忆），取消勾选即可查看归档目标并「激活」/「删除」</li>
             <li><b>拆解审批</b>：目标的 <code>plan_status</code> 为 <code>draft</code>（草稿，待审批）/ <code>approved</code>（已通过）；draft 时任务树提示「待审批，通过后 agent 才会开始派发」，点 <code>通过拆解</code> 后才开始派发</li>
@@ -4815,10 +4815,15 @@ function PlannerPage({ toast }: { toast: (m: string) => void }) {
                 <input className="field" value={fDeadline} onChange={(e) => setFDeadline(e.target.value)} placeholder="不填则无截止" />
               </label>
             </div>
-            <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-              成功标准
-              <textarea className="field" rows={2} value={fCriteria} onChange={(e) => setFCriteria(e.target.value)} />
-            </label>
+            {form.goal ? (
+              <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                成功标准
+                <textarea className="field" rows={2} value={fCriteria} onChange={(e) => setFCriteria(e.target.value)} />
+                <span style={{ fontSize: 12, color: "var(--text-weak)" }}>
+                  成功标准由专家确认；此处人工修改后徽标会回到「待专家确认」。
+                </span>
+              </label>
+            ) : null}
             <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
               专家工作区（可选）
               <NexusWorkspaceSelect
