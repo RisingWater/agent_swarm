@@ -1837,13 +1837,13 @@ agent: (a2a_call) → 对方 TUI 实时出现任务 → 执行 → 结果自动�
           <h2>规划器</h2>
           <p>
             规划器把模糊的<b>长期目标</b>拆成带依赖的<b>任务树</b>，派给其它工作区执行并持续追踪验收。
-            它由 <b>planner-core</b>（确定性内核：目标 / 任务 / 依赖 / 验收的状态与调度）＋一个 agent harness
-            （做拆解与决策的 agent）组成，作为平台上 <code>role=planner</code> 的工作区接入。
+            它由 <b>planner-core（规划核心服务）</b>＋一个 agent harness（做拆解与决策的 agent）组成——
+            core 是确定性内核，管目标 / 任务 / 依赖 / 验收的持久化与调度——并作为平台上<b>特殊的「规划器工作区」</b>接入。
           </p>
           <h3>规划器工作区是什么？</h3>
           <p>
             规划器工作区是一个<b>特殊的工作区</b>。普通工作区只代表一个 agent 实例；规划器工作区则是
-            「<b>planner-core（确定性内核）＋一个 agent harness（负责拆解的 agent）</b>」的组合，两者跑在同一个项目目录里——
+            「<b>planner-core（规划核心服务）＋一个 agent harness（负责拆解的 agent）</b>」的组合，两者跑在同一个项目目录里——
             core 负责<b>目标 / 任务 / 依赖 / 验收的持久化与调度</b>，harness 里的 agent 负责把目标<b>拆解成任务树</b>并在执行中做决策。
           </p>
           <p>
@@ -1860,7 +1860,7 @@ agent: (a2a_call) → 对方 TUI 实时出现任务 → 执行 → 结果自动�
           <ol>
             <li><b>环境</b>：Python ≥ 3.11，以及一个已装 agent-swarm 插件的 harness（opencode / claude / deepseek 任一）。</li>
             <li>
-              <b>获取并安装 planner-core</b>：在 planner-core 仓库根执行安装脚本——Linux/macOS：
+              <b>获取并安装 planner-core（规划核心服务）</b>：在 planner-core 仓库根执行安装脚本——Linux/macOS：
               <code>./deploy/install.sh</code>；Windows：
               <code>.\deploy\install.ps1 -Server &lt;平台地址&gt; -ApiKey as_xxx</code>。
               脚本会建虚拟环境、装依赖、写配置、建库，并可注册开机自启。
