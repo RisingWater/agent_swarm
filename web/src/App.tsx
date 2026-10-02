@@ -4426,6 +4426,7 @@ function PlannerPage({ toast }: { toast: (m: string) => void }) {
   /** 下发操作：POST /api/planner/{wid}/op；成功后稍后刷新快照（回执经同一通道到达） */
   const runOp = async (op: string, payload: Record<string, unknown>, okMsg: string) => {
     if (!selected) return
+    if (!online) { toast("planner-core 未连接，无法下发操作"); return }
     setBusy(true)
     try {
       await api.plannerOp(selected, op, payload)
@@ -4595,7 +4596,8 @@ function PlannerPage({ toast }: { toast: (m: string) => void }) {
                         onClick={() => runOp("plan.approve", { goal_id: g.id }, "已通过拆解")}>通过拆解</ActionBtn>
                       <ActionBtn icon={<RefreshIcon />} disabled={busy || !online} title="要求重新拆解"
                         onClick={() => { setNoteText(""); setNoteModal({ op: "plan.revise", goalId: g.id, label: "重新拆解" }) }}>重新拆解</ActionBtn>
-                      <ActionBtn icon={<PencilIcon />} onClick={() => openEdit(g)} title="编辑目标">编辑</ActionBtn>
+                      <ActionBtn icon={<PencilIcon />} disabled={busy || !online} title="编辑目标"
+                        onClick={() => openEdit(g)}>编辑</ActionBtn>
                       <ActionBtn icon={<ArchiveIcon />} danger disabled={busy || !online} title="归档目标"
                         onClick={() => runOp("goal.archive", { goal_id: g.id }, "目标已归档")}>归档</ActionBtn>
                     </div>
@@ -4709,7 +4711,7 @@ function PlannerPage({ toast }: { toast: (m: string) => void }) {
           </div>
           <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
             <Btn size="sm" variant="ghost" onClick={() => setForm(null)}>取消</Btn>
-            <Btn size="sm" disabled={busy} onClick={submitForm}>{form.goal ? "保存" : "创建"}</Btn>
+            <Btn size="sm" disabled={busy || !online} onClick={submitForm}>{form.goal ? "保存" : "创建"}</Btn>
           </div>
         </Modal>
       )}
@@ -4722,7 +4724,7 @@ function PlannerPage({ toast }: { toast: (m: string) => void }) {
           </label>
           <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
             <Btn size="sm" variant="ghost" onClick={() => setNoteModal(null)}>取消</Btn>
-            <Btn size="sm" variant={noteModal.op === "task.reject" ? "danger" : "primary"} disabled={busy} onClick={submitNote}>确认</Btn>
+            <Btn size="sm" variant={noteModal.op === "task.reject" ? "danger" : "primary"} disabled={busy || !online} onClick={submitNote}>确认</Btn>
           </div>
         </Modal>
       )}
