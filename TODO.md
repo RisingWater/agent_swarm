@@ -169,6 +169,13 @@
 - [x] 测试：state 快照含 `expert_workspace_id == wid` 的自评审目标并断言透传（平台不做特殊处理）；全套通过、web build 通过
 - [x] 文档：requirements §15、README/README_CN、web 文档页、AGENTS.md
 
+### P14 规划器：任务树可读性优化（追加，2026-10-03）
+
+- [x] 任务列只显示可点击**标题**（链接），移除内联长文本；点开**任务详情弹窗**：描述 / 依赖标题 / 建议与实际执行 agent / 验收类型 / 状态 / 验收结果 / 更新时间
+- [x] 依赖列只显示所依赖任务标题（逗号分隔，`taskTitle` 映射）
+- [x] 类型 `PlannerTask` 加可选 `description` / `suggested_agent`（core 如有推送则展示，缺失显示「-」）
+- [x] 既有操作不回归；web build 通过；文档同步（requirements §15、web 文档页）
+
 ## 已完成（除注明外均已进 git）
 
 ### deepseek harness（dsh）全功能对齐 + 跨工作区长任务完成提醒（2026-09-30 ~ 10-01，E2E 实测）

@@ -2083,7 +2083,7 @@ agent: (a2a_call) → 对方 TUI 实时出现任务 → 执行 → 结果自动�
           </p>
           <ul>
             <li><b>目标</b>：新建 / 编辑 / 归档（标题、描述、优先级下拉 高/中/低、截止可选、成功标准），列表**标题列只显示标题 + 专家**，**状态列**用中文彩色 tag（进行中 / 已归档 + 拆解 草稿/已通过 + 成功标准 专家已确认/待专家确认）；优先级提交为整数（高=2/中=1/低=0）、截止为空显示「无截止」（<b>新建表单不含成功标准输入</b>——由专家侧设定/确认；仅编辑时可改，改动会置回「待专家确认」）</li>
-            <li><b>任务树</b>：选中目标后按依赖层级折叠 / 展开展示任务（状态 / 依赖 / 执行 agent / 验收）</li>
+            <li><b>任务树</b>：选中目标后按依赖层级折叠 / 展开展示任务（状态 / 依赖标题 / 执行 agent 名 / 验收）；<b>点任务标题</b>弹出详情（描述 / 依赖 / 建议与实际执行 agent / 验收类型 / 状态 / 验收结果 / 更新时间）</li>
             <li><b>操作</b>：<code>催促</code>（让 agent 干活）、<code>通过拆解</code>（仅拆解状态为 <code>draft</code> 时出现）/ <code>重新拆解</code>（审批计划）、<code>通过</code> / <code>拒绝</code>（人工验收）、<code>归档</code>（<b>软隐藏</b>，保留数据、不参与调度，可 <code>激活</code> 恢复）/ <code>删除</code>（<b>硬删除，二次确认，不可恢复</b>，连同任务树 / 执行记录一起删除）；离线时全部禁用。目标列表上方有「隐藏已归档目标」复选框（默认勾选、cookie 记忆），取消勾选即可查看归档目标并「激活」/「删除」</li>
             <li><b>拆解审批</b>：目标的 <code>plan_status</code> 为 <code>draft</code>（草稿，待审批）/ <code>approved</code>（已通过）；draft 时任务树提示「待审批，通过后 agent 才会开始派发」，点 <code>通过拆解</code> 后才开始派发</li>
             <li><b>专家工作区</b>：新建 / 编辑目标时都可选一个专家工作区（自有 + 团队共享，<b>也可以选当前 planner 工作区自身</b>——此时为<b>自评审</b>，planner agent 自行拆解、不走 A2A，列表标注「本工作区（自评审）」；清空可移除专家）；指定后由该专家拆解任务树并设<b>专家验收点</b>（<code>acceptance_type=expert</code>，状态 <code>waiting_expert</code> 显示「待专家验收」）。验收类型文案：<code>auto</code>「自动验收」/ <code>manual</code>「人工验收」/ <code>expert</code>「专家验收点」；人工「通过 / 拒绝」按钮<b>仅</b> <code>manual</code> 任务显示，专家验收点由 planner agent 汇总后自动裁决、平台不介入</li>
@@ -4390,6 +4390,8 @@ function PlannerPage({ toast }: { toast: (m: string) => void }) {
   const [busy, setBusy] = useState(false)
   /** 待硬删除的目标（二次确认用） */
   const [delGoal, setDelGoal] = useState<PlannerGoal | null>(null)
+  /** 任务详情弹窗 */
+  const [taskDetail, setTaskDetail] = useState<PlannerTask | null>(null)
   /** 是否隐藏已归档目标（默认隐藏；cookie 记忆，30 天） */
   const [hideArchived, setHideArchived] = useState<boolean>(() => {
     const m = document.cookie.match(/(?:^|;\s*)swarm_planner_hide_archived=([^;]*)/)
@@ -4557,6 +4559,8 @@ function PlannerPage({ toast }: { toast: (m: string) => void }) {
   /** 目标专家展示：优先 core 推的 expert_name，回退工作区名/ id */
   const expertLabel = (g: PlannerGoal) =>
     g.expert_name || (g.expert_workspace_id ? (wsName[g.expert_workspace_id] || g.expert_workspace_id) : "")
+  /** 工作区 id → 名字（无则回退 id / "-"） */
+  const agentName = (id?: string) => (id ? (wsName[id] || id) : "-")
 
   // 任务树：父 = depends_on 里第一个存在的依赖；据此建 children，再按折叠状态展开成行（含深度）。
   // 防御环依赖：结构可达集合与渲染遍历分别用 seen/path 保护。
@@ -4778,11 +4782,8 @@ function PlannerPage({ toast }: { toast: (m: string) => void }) {
                               <ChevronIcon size={16} />
                             </button>
                           ) : <span className="tree-toggle-placeholder" />}
-                          <span>{t.title}</span>
+                          <a className="link" title="查看任务详情" onClick={() => setTaskDetail(t)}>{t.title}</a>
                         </div>
-                        {t.acceptance_result ? (
-                          <div style={{ fontSize: 12, color: "var(--text-weak)", paddingLeft: depth * 18 + 26 }}>{t.acceptance_result}</div>
-                        ) : null}
                       </td>
                       <td><span className={pill(t.status)}>{statusLabel(t.status)}</span></td>
                       <td style={{ fontSize: 12, color: "var(--text-weak)" }}>
@@ -4908,6 +4909,25 @@ function PlannerPage({ toast }: { toast: (m: string) => void }) {
               确认删除
             </Btn>
           </div>
+        </Modal>
+      )}
+
+      {taskDetail && (
+        <Modal wide title={`任务：${taskDetail.title}`} onClose={() => setTaskDetail(null)}>
+          <dl className="dl">
+            <dt>状态</dt>
+            <dd><span className={pill(taskDetail.status)}>{statusLabel(taskDetail.status)}</span></dd>
+            <dt>所属目标</dt>
+            <dd>{goals.find((g) => g.id === taskDetail.goal_id)?.title || taskDetail.goal_id || "-"}</dd>
+            <dt>描述</dt><dd>{taskDetail.description || "-"}</dd>
+            <dt>依赖</dt>
+            <dd>{(taskDetail.depends_on ?? []).map((d) => taskTitle[d] || d).join("、") || "-"}</dd>
+            <dt>建议执行 agent</dt><dd title={taskDetail.suggested_agent || undefined}>{agentName(taskDetail.suggested_agent)}</dd>
+            <dt>实际执行 agent</dt><dd title={taskDetail.assigned_agent || undefined}>{agentName(taskDetail.assigned_agent)}</dd>
+            <dt>验收类型</dt><dd>{acceptanceLabel(taskDetail.acceptance_type)}</dd>
+            <dt>验收结果</dt><dd>{taskDetail.acceptance_result || "-"}</dd>
+            <dt>更新时间</dt><dd>{fmtTime(taskDetail.updated_at, "datetime")}</dd>
+          </dl>
         </Modal>
       )}
     </div>

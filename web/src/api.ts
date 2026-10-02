@@ -147,8 +147,13 @@ export interface PlannerTask {
   id: string
   goal_id?: string
   title: string
+  /** 任务描述（core 如有推送则展示） */
+  description?: string
   status?: string
   depends_on?: string[]
+  /** 建议执行 agent（core 如有推送则展示） */
+  suggested_agent?: string
+  /** 实际执行 agent */
   assigned_agent?: string
   acceptance_type?: string
   acceptance_result?: string
