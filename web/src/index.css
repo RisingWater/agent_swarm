@@ -639,6 +639,21 @@ a.link:hover {
 .status-pill.done { color: #1a7f37; background: #dafbe1; border-color: #4ac26b; }
 .status-pill.failed { color: #d1242f; background: #ffebe9; border-color: #ff8182; }
 
+/* 工作区角色标记：规划器（紫，区别于状态 pill） */
+.role-badge {
+  display: inline-block;
+  margin-left: 6px;
+  font-size: 11px;
+  line-height: 1.7;
+  padding: 0 6px;
+  border-radius: 3px;
+  border: 1px solid #b083f0;
+  color: #6639ba;
+  background: #f5f0ff;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
 /* ---------- 弹窗 ---------- */
 
 .dialog-overlay {

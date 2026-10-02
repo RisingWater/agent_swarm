@@ -362,6 +362,8 @@ export default function App() {
   const [token, setToken] = useState(localStorage.getItem("swarm_token"))
   const [page, setPage] = useState<Page>("home")
   const [openTeamId, setOpenTeamId] = useState<string | null>(null)
+  // 是否拥有规划器工作区（role=planner）——没有就隐藏「规划器」入口
+  const [hasPlanner, setHasPlanner] = useState(false)
 
   // 后台管理：独立 hash 路由（#/admin），独立登录，不进主导航。
   // 注意 hooks 顺序：adminHash 判断必须在全部 hooks 声明之后（条件 return 会破坏 hooks 规则）
@@ -371,14 +373,29 @@ export default function App() {
     window.addEventListener("hashchange", onHash)
     return () => window.removeEventListener("hashchange", onHash)
   }, [])
+  // 有规划器工作区时才显示「规划器」入口；登录态下每 60s 复查一次
+  useEffect(() => {
+    if (!token) { setHasPlanner(false); return }
+    let alive = true
+    const check = () =>
+      api.workspaces()
+        .then((ws) => { if (alive) setHasPlanner(ws.some((w) => w.role === "planner")) })
+        .catch(() => {})
+    check()
+    const t = setInterval(check, 60_000)
+    return () => { alive = false; clearInterval(t) }
+  }, [token])
+
   if (adminHash) return <AdminPage toast={toast} />
 
   const loggedIn = !!token
   const username = localStorage.getItem("swarm_user")
 
-  // 未登录：可见页面只有 首页/文档，受保护页面跳回首页
+  // 未登录：可见页面只有 首页/文档，受保护页面跳回首页；
+  // 没有规划器工作区时，「规划器」页也回退首页（入口已隐藏，防手滑/残留状态）
   const effectivePage: Page =
-    !loggedIn && (page === "workspaces" || page === "calls" || page === "artifacts" || page === "account" || page === "nexus" || page === "teams" || page === "planner")
+    (!loggedIn && (page === "workspaces" || page === "calls" || page === "artifacts" || page === "account" || page === "nexus" || page === "teams" || page === "planner")) ||
+    (page === "planner" && !hasPlanner)
       ? "home"
       : page
 
@@ -407,7 +424,9 @@ export default function App() {
             <>
               <a className={effectivePage === "nexus" ? "active" : ""} onClick={() => goto("nexus")}>中枢</a>
               <a className={effectivePage === "teams" ? "active" : ""} onClick={() => goto("teams")}>团队</a>
-              <a className={effectivePage === "planner" ? "active" : ""} onClick={() => goto("planner")}>规划器</a>
+              {hasPlanner && (
+                <a className={effectivePage === "planner" ? "active" : ""} onClick={() => goto("planner")}>规划器</a>
+              )}
               <a className={effectivePage === "workspaces" ? "active" : ""} onClick={() => goto("workspaces")}>工作区</a>
               <a className={effectivePage === "calls" ? "active" : ""} onClick={() => goto("calls")}>调用记录</a>
               <a className={effectivePage === "artifacts" ? "active" : ""} onClick={() => goto("artifacts")}>产物</a>
@@ -3797,9 +3816,13 @@ function WorkspacesPage({ toast }: { toast: (m: string) => void }) {
   }
 
   const q = query.trim().toLowerCase()
+  // 规划器工作区排在最前（稳定排序：其余项保持接口返回的名称序）
+  const ordered = [...list].sort(
+    (a, b) => (a.role === "planner" ? 0 : 1) - (b.role === "planner" ? 0 : 1),
+  )
   const filtered = q
-    ? list.filter((w) => hit(w.id, q) || hit(w.name, q) || hit(w.path, q) || hit(w.purpose, q) || hit(w.capabilities, q) || hit(w.notes, q))
-    : list
+    ? ordered.filter((w) => hit(w.id, q) || hit(w.name, q) || hit(w.path, q) || hit(w.purpose, q) || hit(w.capabilities, q) || hit(w.notes, q))
+    : ordered
 
   const sq = sharedQuery.trim().toLowerCase()
   const sharedShown = sq
@@ -3833,6 +3856,7 @@ function WorkspacesPage({ toast }: { toast: (m: string) => void }) {
               <td className="strong">
                 <AgentTypeIcon type={w.agent_type} />
                 <a className="link" onClick={() => setDetail(w)}>{w.name}</a>
+                {w.role === "planner" && <span className="role-badge" title="规划器工作区">规划器</span>}
               </td>
               <td>
                 <span
@@ -3902,6 +3926,7 @@ function WorkspacesPage({ toast }: { toast: (m: string) => void }) {
                 <td className="strong">
                   <AgentTypeIcon type={w.agent_type} />
                   <a className="link" onClick={() => setSharedDetail(w)}>{w.name}</a>
+                  {w.role === "planner" && <span className="role-badge" title="规划器工作区">规划器</span>}
                 </td>
                 <td>
                   <span title={w.status === "offline" && w.last_heartbeat ? `最后心跳: ${fmtTime(w.last_heartbeat, "datetime")}` : undefined}>
@@ -3934,6 +3959,7 @@ function WorkspacesPage({ toast }: { toast: (m: string) => void }) {
         <Modal title={sharedDetail.name} onClose={() => setSharedDetail(null)}>
           <dl className="dl">
             <dt>状态</dt><dd><StatusDot status={sharedDetail.status} /></dd>
+            {sharedDetail.role === "planner" && <><dt>角色</dt><dd><span className="role-badge">规划器</span></dd></>}
             <dt>所有者</dt><dd>{sharedDetail.owner?.username ?? "-"}</dd>
             <dt>共享团队</dt><dd>{sharedDetail.teams.join("、")}</dd>
             <dt>agent</dt>
@@ -4006,6 +4032,7 @@ function WorkspacesPage({ toast }: { toast: (m: string) => void }) {
             <dt>ID</dt>
             <dd style={{ fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--text-weak)", wordBreak: "break-all" }}>{detail.id}</dd>
             <dt>状态</dt><dd><StatusDot status={detail.status} /></dd>
+            <dt>角色</dt><dd>{detail.role === "planner" ? <span className="role-badge">规划器</span> : "agent"}</dd>
             <dt>路径</dt><dd>{detail.path}</dd>
             <dt>agent</dt>
             <dd style={{ display: "flex", alignItems: "center", gap: 6 }}>
