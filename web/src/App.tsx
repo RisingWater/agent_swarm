@@ -4923,7 +4923,8 @@ function PlannerPage({ toast }: { toast: (m: string) => void }) {
             <dt>依赖</dt>
             <dd>{(taskDetail.depends_on ?? []).map((d) => taskTitle[d] || d).join("、") || "-"}</dd>
             <dt>建议执行 agent</dt><dd title={taskDetail.suggested_agent || undefined}>{agentName(taskDetail.suggested_agent)}</dd>
-            <dt>实际执行 agent</dt><dd title={taskDetail.assigned_agent || undefined}>{agentName(taskDetail.assigned_agent)}</dd>
+            {/* core 暂无「实际执行 agent」独立字段（只有 assigned_agent 建议值）；留位显示 -，待 core 补字段后再填 */}
+            <dt>实际执行 agent</dt><dd>-</dd>
             <dt>验收类型</dt><dd>{acceptanceLabel(taskDetail.acceptance_type)}</dd>
             <dt>验收结果</dt><dd>{taskDetail.acceptance_result || "-"}</dd>
             <dt>更新时间</dt><dd>{fmtTime(taskDetail.updated_at, "datetime")}</dd>
