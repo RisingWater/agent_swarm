@@ -102,6 +102,24 @@ def test_planner_state_cache_and_op_roundtrip(client, ws):
     assert _wait_offline(client, wid)
 
 
+def test_planner_op_payload_passthrough(client, ws):
+    """op payload（含专家字段）原样下发给 core，平台不裁剪（goal.create/update 同理）。"""
+    wid = ws.id
+    with client.websocket_connect("/ws/planner") as wsc:
+        wsc.send_json({"type": "hello", "apikey": APIKEY, "workspace_id": wid})
+        assert wsc.receive_json()["type"] == "hello_ok"
+        payload = {
+            "title": "带专家的目标", "expert_workspace_id": "w-expert",
+            "expert_name": "专家WS", "priority": "high",
+        }
+        r = client.post(f"/api/planner/{wid}/op", headers=_auth(),
+                        json={"op": "goal.create", "payload": payload})
+        assert r.status_code == 200
+        frame = wsc.receive_json()
+        assert frame["type"] == "op" and frame["op"] == "goal.create"
+        assert frame["payload"] == payload  # 一字不改
+
+
 def test_planner_ws_hello_errors(client, ws):
     with client.websocket_connect("/ws/planner") as wsc:
         wsc.send_json({"type": "hello", "apikey": "bad-key", "workspace_id": ws.id})

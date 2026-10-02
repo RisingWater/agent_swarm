@@ -2086,7 +2086,7 @@ agent: (a2a_call) → 对方 TUI 实时出现任务 → 执行 → 结果自动�
             <li><b>任务树</b>：选中目标后按依赖层级折叠 / 展开展示任务（状态 / 依赖 / 执行 agent / 验收）</li>
             <li><b>操作</b>：<code>催促</code>（让 agent 干活）、<code>通过拆解</code>（仅拆解状态为 <code>draft</code> 时出现）/ <code>重新拆解</code>（审批计划）、<code>通过</code> / <code>拒绝</code>（人工验收）；离线时全部禁用</li>
             <li><b>拆解审批</b>：目标的 <code>plan_status</code> 为 <code>draft</code>（草稿，待审批）/ <code>approved</code>（已通过）；draft 时任务树提示「待审批，通过后 agent 才会开始派发」，点 <code>通过拆解</code> 后才开始派发</li>
-            <li><b>专家工作区</b>：建目标时可选一个专家工作区（自有 + 团队共享，排除当前 planner 自身）；指定后由该专家拆解任务树并设<b>专家验收点</b>（<code>acceptance_type=expert</code>，状态 <code>waiting_expert</code> 显示「待专家验收」）。专家裁决由 planner agent 汇总后自动完成、平台不介入，故这类任务<b>没有</b>人工「通过 / 拒绝」按钮</li>
+            <li><b>专家工作区</b>：新建 / 编辑目标时都可选一个专家工作区（自有 + 团队共享，排除当前 planner 自身；清空可移除专家）；指定后由该专家拆解任务树并设<b>专家验收点</b>（<code>acceptance_type=expert</code>，状态 <code>waiting_expert</code> 显示「待专家验收」）。验收类型文案：<code>auto</code>「自动验收」/ <code>manual</code>「人工验收」/ <code>expert</code>「专家验收点」；人工「通过 / 拒绝」按钮<b>仅</b> <code>manual</code> 任务显示，专家验收点由 planner agent 汇总后自动裁决、平台不介入</li>
           </ul>
           <p>
             数据来自 planner-core 经控制通道推回的快照（<code>GET /api/planner/&#123;wid&#125;/state</code>，页面每 2.5s 轮询），
@@ -4456,6 +4456,7 @@ function PlannerPage({ toast }: { toast: (m: string) => void }) {
   const openEdit = (g: PlannerGoal) => {
     setFTitle(g.title || ""); setFDesc(g.description || ""); setFPriority(g.priority || "")
     setFDeadline(g.deadline || ""); setFCriteria(g.success_criteria || "")
+    setFExpert(g.expert_workspace_id || "")  // 编辑态也允许改专家
     setForm({ goal: g })
   }
   const submitForm = () => {
@@ -4464,14 +4465,12 @@ function PlannerPage({ toast }: { toast: (m: string) => void }) {
       title: fTitle.trim(), description: fDesc.trim(), priority: fPriority.trim(),
       deadline: fDeadline.trim(), success_criteria: fCriteria.trim(),
     }
+    // 专家工作区：新建/编辑都可选；显式下发两个字段（空串 = 清除专家）
+    payload.expert_workspace_id = fExpert
+    payload.expert_name = fExpert ? (expertOptions.find((w) => w.id === fExpert)?.name || "") : ""
     if (form?.goal) {
       runOp("goal.update", { goal_id: form.goal.id, ...payload }, "目标已更新")
     } else {
-      // 建目标时可指定专家工作区（core 据此让专家拆解、设专家验收点）
-      if (fExpert) {
-        payload.expert_workspace_id = fExpert
-        payload.expert_name = expertOptions.find((w) => w.id === fExpert)?.name || ""
-      }
       runOp("goal.create", payload, "目标已创建")
     }
     setForm(null)
@@ -4501,6 +4500,9 @@ function PlannerPage({ toast }: { toast: (m: string) => void }) {
   }
   /** 状态展示文案（waiting_expert 友好化为「待专家验收」） */
   const statusLabel = (k?: string) => (k === "waiting_expert" ? "待专家验收" : (k || "-"))
+  /** 验收类型展示文案：auto→自动验收 / manual→人工验收 / expert→专家验收点 */
+  const acceptanceLabel = (a?: string) =>
+    a === "auto" ? "自动验收" : a === "manual" ? "人工验收" : a === "expert" ? "专家验收点" : (a || "-")
   /** 目标专家展示：优先 core 推的 expert_name，回退工作区名/ id */
   const expertLabel = (g: PlannerGoal) =>
     g.expert_name || (g.expert_workspace_id ? (wsName[g.expert_workspace_id] || g.expert_workspace_id) : "")
@@ -4710,7 +4712,7 @@ function PlannerPage({ toast }: { toast: (m: string) => void }) {
                       <td style={{ fontSize: 12, color: "var(--text-weak)" }}>
                         {t.acceptance_type === "expert" ? (
                           <span className="status-pill accepted" title="专家验收点：由 planner agent 汇总情况请专家裁决，平台不介入">专家验收点</span>
-                        ) : (t.acceptance_type || "-")}
+                        ) : (t.acceptance_type ? acceptanceLabel(t.acceptance_type) : "-")}
                       </td>
                       <td>
                         {t.acceptance_type === "manual" && t.status !== "done" ? (
@@ -4759,24 +4761,18 @@ function PlannerPage({ toast }: { toast: (m: string) => void }) {
               成功标准
               <textarea className="field" rows={2} value={fCriteria} onChange={(e) => setFCriteria(e.target.value)} />
             </label>
-            {!form.goal ? (
-              <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                专家工作区（可选）
-                <NexusWorkspaceSelect
-                  list={expertOptions.filter((w) => w.id !== selected)}
-                  value={fExpert}
-                  onChange={setFExpert}
-                  showOwner
-                />
-                <span style={{ fontSize: 12, color: "var(--text-weak)" }}>
-                  指定后由该专家拆解任务树并设专家验收点；留空 = 无专家。
-                </span>
-              </label>
-            ) : form.goal.expert_workspace_id ? (
-              <p style={{ margin: 0, fontSize: 12, color: "var(--text-weak)" }}>
-                专家工作区：{form.goal.expert_name || form.goal.expert_workspace_id}（暂不支持修改）
-              </p>
-            ) : null}
+            <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              专家工作区（可选）
+              <NexusWorkspaceSelect
+                list={expertOptions.filter((w) => w.id !== selected)}
+                value={fExpert}
+                onChange={setFExpert}
+                showOwner
+              />
+              <span style={{ fontSize: 12, color: "var(--text-weak)" }}>
+                指定后由该专家拆解任务树并设专家验收点；留空 = 无专家（编辑时清空可移除专家）。
+              </span>
+            </label>
           </div>
           <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
             <Btn size="sm" variant="ghost" onClick={() => setForm(null)}>取消</Btn>
