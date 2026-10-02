@@ -2022,7 +2022,8 @@ agent: (a2a_call) → 对方 TUI 实时出现任务 → 执行 → 结果自动�
             每一次任务派发与每一轮被监控的 TUI 对话的流水账：发起方、目标、指令内容、状态与结果
             （markdown 渲染）。按工作区筛选查看（记住上次选择，cookie 记忆 30 天）：
             跨 agent 调用、网页中枢指令与 <code>[monitor]</code> 监控轮次都在这里，
-            已结束的记录可单条删除，也可一键清空该工作区的全部记录。
+            已结束的记录可单条删除，也可一键清空该工作区的全部记录；
+            <b>进行中</b>的任务可点行尾的「中断（abort）」按钮停止执行（任务置为 cancelled）。
           </p>
           <h3>产物</h3>
           <p>
@@ -4939,6 +4940,8 @@ function CallsPage({ toast }: { toast: (m: string) => void }) {
   const [list, setList] = useState<WorkspaceCall[]>([])
   const [detail, setDetail] = useState<WorkspaceCall | null>(null)
   const [deleting, setDeleting] = useState<string | null>(null)
+  const [aborting, setAborting] = useState<string | null>(null)
+  const [abortTarget, setAbortTarget] = useState<WorkspaceCall | null>(null)
   const [query, setQuery] = useState("")
   const [workspaces, setWorkspaces] = useState<Workspace[]>([])
   // 必选：按工作区筛选；cookie 记忆上次选择（30 天，同中枢 swarm_nexus_ws 惯例）
@@ -4974,6 +4977,28 @@ function CallsPage({ toast }: { toast: (m: string) => void }) {
       toast(e instanceof Error ? e.message : "删除失败")
     } finally {
       setDeleting(null)
+    }
+  }
+
+  // 进行中：可中断（abort）；与状态标签 accepted 的判定保持一致
+  const isActiveCall = (s: string) => s === "queued" || s === "working" || s === "input-required"
+  const abortCall = async (call: WorkspaceCall) => {
+    setAborting(call.id)
+    try {
+      const res = await api.cancelTask(wsFilter, call.id)
+      if (res.ok) {
+        toast("已发送中断请求")
+        setList((prev) => prev.map((c) => (c.id === call.id ? { ...c, status: "canceled" } : c)))
+        setDetail((d) => (d && d.id === call.id ? { ...d, status: "canceled" } : d))
+      } else {
+        toast(res.error || "任务已结束，无法中断")
+      }
+      load()
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "中断失败")
+    } finally {
+      setAborting(null)
+      setAbortTarget(null)
     }
   }
 
@@ -5045,23 +5070,38 @@ function CallsPage({ toast }: { toast: (m: string) => void }) {
                   <td><span className={`status-pill ${r.status === "working" || r.status === "queued" ? "accepted" : r.status}`}>{r.status}</span></td>
                   <td><a className="link" onClick={() => setDetail(r)}>{r.monitor ? "[monitor] " : ""}{r.instruction}</a></td>
                   <td>
-                    {(r.status === "completed" || r.status === "failed" || r.status === "canceled") && (
+                    {isActiveCall(r.status) ? (
                       <Btn
                         variant="icon"
                         size="sm"
                         className="btn-danger-hover"
-                        title="删除该调用记录"
-                        disabled={deleting === r.id}
-                        onClick={() => removeCall(r.id)}
+                        title="中断任务（abort）"
+                        disabled={aborting === r.id}
+                        onClick={() => setAbortTarget(r)}
                       >
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                          strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                          <path d="M3 6h18" />
-                          <path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2" />
-                          <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
-                          <path d="M10 11v6M14 11v6" />
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+                          <rect x="6" y="6" width="12" height="12" rx="1.5" />
                         </svg>
                       </Btn>
+                    ) : (
+                      (r.status === "completed" || r.status === "failed" || r.status === "canceled") && (
+                        <Btn
+                          variant="icon"
+                          size="sm"
+                          className="btn-danger-hover"
+                          title="删除该调用记录"
+                          disabled={deleting === r.id}
+                          onClick={() => removeCall(r.id)}
+                        >
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                            <path d="M3 6h18" />
+                            <path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2" />
+                            <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+                            <path d="M10 11v6M14 11v6" />
+                          </svg>
+                        </Btn>
+                      )
                     )}
                   </td>
                 </tr>
@@ -5124,6 +5164,26 @@ function CallsPage({ toast }: { toast: (m: string) => void }) {
               )}
             </dd>
           </dl>
+          {isActiveCall(detail.status) && (
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
+              <Btn size="sm" variant="danger" disabled={aborting === detail.id}
+                onClick={() => setAbortTarget(detail)}>中断任务</Btn>
+            </div>
+          )}
+        </Modal>
+      )}
+
+      {abortTarget && (
+        <Modal title="中断任务" onClose={() => setAbortTarget(null)}>
+          <p>确认中断任务 <code>{abortTarget.id.slice(0, 8)}</code>？</p>
+          <p style={{ color: "var(--text-weak)", fontSize: 12 }}>
+            中断会通知插件停止执行（后台任务 kill 进程树、前台会话 interrupt），任务置为 canceled；
+            不可恢复，如需继续请重新派发。
+          </p>
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
+            <Btn size="sm" variant="ghost" onClick={() => setAbortTarget(null)}>取消</Btn>
+            <Btn size="sm" variant="danger" disabled={!!aborting} onClick={() => abortCall(abortTarget)}>确认中断</Btn>
+          </div>
         </Modal>
       )}
     </>

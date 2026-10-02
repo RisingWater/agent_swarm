@@ -1615,6 +1615,34 @@ async def nexus_history(workspace_id: str, request: Request, limit: int = 800):
     return {"events": out, "plugin_online": dispatchable(workspace_id)}
 
 
+@router.post("/api/nexus/{workspace_id}/cancel")
+async def nexus_cancel(workspace_id: str, request: Request):
+    """中断进行中的任务（调用记录 abort）：JWT/apikey + 属主校验 → `tasks/cancel`。
+
+    复用 `cancel_task_by_id`（飞书中断按钮同路）：后台任务 kill 进程树，前台会话
+    `session.interrupt`，任务落 `canceled`。终态任务返回 `ok:false`（幂等，不报错）。
+    """
+    user = await _require_user_http(request)
+    body = await _json_body(request)
+    task_id = str(body.get("task_id", ""))
+    if not task_id:
+        raise HTTPException(422, "task_id is required")
+    with Session(engine) as session:
+        ws = session.get(models.Workspace, workspace_id)
+        if ws is None or ws.user_id != user.id:
+            raise HTTPException(404, "workspace not found")
+        task = session.get(models.A2aTask, task_id)
+        if task is None or task.workspace_id != workspace_id:
+            raise HTTPException(404, "task not found")
+    ok = await cancel_task_by_id(task_id, user.id)
+    with Session(engine) as session:
+        t = session.get(models.A2aTask, task_id)
+        status = t.status if t is not None else ""
+    if not ok:
+        return {"ok": False, "status": status, "error": "任务已结束或无法中断"}
+    return {"ok": True, "status": status or "canceled"}
+
+
 @router.delete("/api/nexus/{workspace_id}/history")
 async def nexus_history_clear(workspace_id: str, request: Request):
     """清空工作区任务事件与任务记录（JWT 鉴权）。"""

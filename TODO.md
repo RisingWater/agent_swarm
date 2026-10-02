@@ -197,6 +197,12 @@
 - [x] 文档：AGENTS.md「前台任务级串行」条；本 TODO
 - [ ] 待验：真机「前台跑长任务时再发一个 → 第二个显示 queued、首个终态后自动开跑」
 
+### P17 调用记录 abort（追加，2026-10-03）
+
+- [x] 服务端 `POST /api/nexus/{wid}/cancel`（JWT/apikey + 属主校验 → `cancel_task_by_id` → `tasks/cancel`；终态幂等 `ok:false`）
+- [x] 前端「调用记录」：进行中（queued/working/input-required）行尾显示「中断」图标按钮（终态行仍是删除）+ 详情弹窗「中断任务」+ 二次确认弹窗；`api.cancelTask`
+- [x] 测试 `tests/test_nexus_cancel.py`（中断成功 / 终态 false / 422·401 / 非属主 404）；web build 通过；文档同步（requirements、AGENTS、web 文档页）
+
 ## 已完成（除注明外均已进 git）
 
 ### deepseek harness（dsh）全功能对齐 + 跨工作区长任务完成提醒（2026-09-30 ~ 10-01，E2E 实测）

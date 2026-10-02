@@ -65,7 +65,8 @@ queued ──(发送+ack 成功)──> working ──> completed | failed
 - **执行位置**：前台注入优先（目标当前会话，实时可见）；后台模式 spawn 独立会话（同 caller 任务复用同一后台会话，映射存 `.agent_swarm/sessions.json`）。claude 一律后台 headless。
 - **终态收尾**：`completed` 时插件发 artifact（最终回答全文）；`failed` 时错误文本入 `error` 列；`canceled`（用户主动中断）同样入档。超时为懒超时（`AGENT_SWARM_CALL_TIMEOUT` 默认 1h，读侧判定）。
 - **input-required**：权限/提问等待态。应答走统一 reply 端点（§6）；**先答先算**——第一个应答生效，任务翻出等待态，其余渠道后续应答干净地 409。
-- **前台唯一轮**：一个工作区同时只有一个前台监控轮，新一轮自动收尾上一轮（superseded）。
+- **前台任务级串行（2026-10-03）**：前台模式（`execution_mode=foreground`）下，一个工作区同一时刻只跑一个 A2A 任务——已有 `working`/`input-required`（非 monitor）任务时，新任务保持 `queued`，该任务终态后由 `_kick_queued` 自动拉下一个（`dispatch_queued_for` 带每工作区锁、一次只派最旧一个）。后台模式仍并发全派；监控轮（用户自己的 TUI 对话）不占位；续聊/应答直发不受门禁。注意：卡死未终态的 `working` 会挡住队列，需中断。
+- **中断（abort）**：web「调用记录」对进行中任务（`queued`/`working`/`input-required`）提供「中断」按钮 → `POST /api/nexus/{wid}/cancel`（属主校验）→ `tasks/cancel`（后台任务 kill 进程树、前台会话 interrupt），任务落 `canceled` 并放行前台队列；飞书时间线卡的「🛑 中断」按钮同路（`cancel_task_by_id`）。终态任务幂等返回 `ok:false`。
 - **长任务完成提醒**（2026-10-01，E2E 实测）：任务终态后每 `AGENT_SWARM_NOTIFY_DELAY`（默认 60s）检查一次——若 `from_workspace` 非空（内部工作区调用）、结果仍未被取走（`a2a_task` 查询或 `wait_task_final` 阻塞送达即标记已取走，内存 set 防重）且发起方前台监控轮已收尾（无 working 的 monitor 轮——发起方还在等就不打扰，但**继续每轮复查**，因为发起方可能中途放弃），就向发起方工作区推一条极简提醒任务（`caller="nexus-notify"`，只带 task_id + `a2a_task` 取回指引，不复述任务内容）。发起方离线时提醒任务排队，上线 `_flush_queued` 补推；复查上限 120 轮（默认配置下 ≈2h）防无限循环；已提醒任务不再重复。前提：`a2a_call` 的 `from_workspace` **必填**（schema required + 业务校验），否则无法定位回送地址直接拒绝。
 
 ## 5. 事件流与订阅（`/ws/nexus`）

@@ -324,6 +324,13 @@ export const api = {
       body: JSON.stringify({ task_id: taskId, ...payload }),
     }) as Promise<{ ok: boolean; status: string }>,
 
+  /** web 中枢：中断进行中的任务（调用记录 abort） */
+  cancelTask: (workspaceId: string, taskId: string) =>
+    request(`/api/nexus/${workspaceId}/cancel`, {
+      method: "POST",
+      body: JSON.stringify({ task_id: taskId }),
+    }) as Promise<{ ok: boolean; status: string; error?: string }>,
+
   /** 清空工作区任务历史（事件+任务记录） */
   clearWorkspaceHistory: (workspaceId: string) =>
     request(`/api/nexus/${workspaceId}/history`, { method: "DELETE" }) as Promise<{ ok: boolean }>,
