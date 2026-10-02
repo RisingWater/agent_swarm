@@ -28,6 +28,7 @@
 - **💬 Chat integrations (Feishu & WeChat)** — Bind Feishu (Lark) or scan your own WeChat as a ClawBot account; dispatch tasks from chat, watch thinking/tool calls stream, receive completion briefs, and answer permission requests remotely across both channels
 - **🛡️ Self-hosted & lightweight** — A single FastAPI service + SQLite, one command to start, your data stays on your machine
 - **🎛️ Admin console** — Separately-authenticated admin UI: users / workspaces / task-volume dashboard
+- **🌏 Bilingual UI (English / 中文)** — A 中 / EN toggle in the top nav (and on the admin console) switches the entire web UI instantly; the choice is remembered in `localStorage` (default 中文). All user-facing text is bilingual; code, commands, field names and URLs stay as-is
 
 ## Deployment
 

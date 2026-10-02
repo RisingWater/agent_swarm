@@ -222,6 +222,14 @@
 - [x] web build 通过；pytest 132 passed（服务端未改）
 - [ ] 阶段二：逐页翻译登录后的管理页（中枢 / 工作区 / 调用记录 / 产物 / 账号 / 团队 / 规划器）与站内信
 
+### P20 前端中英双语（阶段二：全站覆盖 + 专家验收，追加，2026-10-02）
+
+- [x] 逐页翻译登录后管理页与共享组件：共享 chrome/账号区（通知铃 / 账号页 / 飞书绑定 / 微信 ClawBot / API Key / 改密 / 工作区选择器）、中枢 Nexus 与三套时间线控件（dsh/opencode/claude）、团队页、工作区页、产物页、调用记录页、规划器页、后台管理页 AdminPage（含其顶栏与登录卡的中/EN 切换）
+- [x] 状态标签统一（完成/失败/取消/待输入/执行中/排队；目标 进行中/已完成/已归档），调用记录 / 规划器 / 后台共用译法
+- [x] 收尾补漏（f29b9a4）：`VideoPlayer` 声音提示、`AgentTypeIcon` 未知 agent 标签、`api.ts` 抛错兜底文案改用新增的非组件版 `tGlobal`
+- [x] 专家验收（t9）通过：静态全量扫描 `web/src` 无残留硬编码中文正文（仅剩注释 / `DOC_SECTIONS` 的 zh 翻译源 / 语言按钮「中文」/ 命令串 `你的apikey` 等合理例外）；`cd web && npm run build` exit=0、`npm run lint` 0 errors；代码核验 `swarm_lang` 默认 zh + 持久化 + `<html lang>` 同步；未做真实浏览器布局走查（本会话无桌面浏览器）
+- [x] 规划器目标列表：已完成目标（`status=done`）标题前加**金色奖杯**、状态标签补 done→已完成/completed（af3b3a3）
+
 ## 已完成（除注明外均已进 git）
 
 ### deepseek harness（dsh）全功能对齐 + 跨工作区长任务完成提醒（2026-09-30 ~ 10-01，E2E 实测）
