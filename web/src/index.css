@@ -2915,12 +2915,14 @@ table.ws-grid th {
   display: block;
 }
 
-/* 文字与图标同高同中心，修正"文字偏高" */
+/* 文字与图标同高同中心；再下移 1px 修正 CJK 字形视觉偏上 */
 .action-btn-text {
   display: inline-flex;
   align-items: center;
   height: 16px;
   line-height: 16px;
+  position: relative;
+  top: 1px;
 }
 
 .action-btn-danger {
@@ -2950,25 +2952,34 @@ table.ws-grid th {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 16px;
-  height: 16px;
+  width: 24px;
+  height: 24px;
   padding: 0;
   margin-right: 2px;
   background: none;
   border: none;
+  border-radius: 4px;
   color: var(--text-weak);
-  font-size: 11px;
-  line-height: 1;
   cursor: pointer;
 }
 
 .tree-toggle:hover {
   color: var(--text-strong);
+  background: var(--bg-weak-hover);
+}
+
+/* 展开时 chevron 朝下；折叠时旋转 -90° 朝右 */
+.tree-toggle svg {
+  transition: transform 0.15s ease;
+}
+
+.tree-toggle.collapsed svg {
+  transform: rotate(-90deg);
 }
 
 .tree-toggle-placeholder {
   display: inline-block;
-  width: 18px;
+  width: 24px;
 }
 
 /* 文档页表格：命令/工具列固定宽度不换行 */

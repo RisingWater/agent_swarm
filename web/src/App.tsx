@@ -4634,7 +4634,7 @@ function PlannerPage({ toast }: { toast: (m: string) => void }) {
                         <div style={{ paddingLeft: depth * 18, display: "flex", alignItems: "center", gap: 2 }}>
                           {hasChildren ? (
                             <button
-                              className="tree-toggle"
+                              className={`tree-toggle${collapsed.has(t.id) ? " collapsed" : ""}`}
                               title={collapsed.has(t.id) ? "展开子任务" : "折叠子任务"}
                               onClick={() => setCollapsed((prev) => {
                                 const n = new Set(prev)
@@ -4642,13 +4642,13 @@ function PlannerPage({ toast }: { toast: (m: string) => void }) {
                                 return n
                               })}
                             >
-                              {collapsed.has(t.id) ? "▸" : "▾"}
+                              <ChevronIcon size={16} />
                             </button>
                           ) : <span className="tree-toggle-placeholder" />}
                           <span>{t.title}</span>
                         </div>
                         {t.acceptance_result ? (
-                          <div style={{ fontSize: 12, color: "var(--text-weak)", paddingLeft: depth * 18 + 18 }}>{t.acceptance_result}</div>
+                          <div style={{ fontSize: 12, color: "var(--text-weak)", paddingLeft: depth * 18 + 26 }}>{t.acceptance_result}</div>
                         ) : null}
                       </td>
                       <td><span className={pill(t.status)}>{t.status || "-"}</span></td>
