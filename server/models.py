@@ -282,3 +282,18 @@ class Artifact(SQLModel, table=True):
     pinned: bool = Field(default=False)  # 固定 = 不参与 TTL 清理
     created_at: datetime = Field(default_factory=utcnow)
     expires_at: datetime = Field(index=True)  # 清理时间线（pinned 忽略）
+
+
+class PlannerState(SQLModel, table=True):
+    """规划器状态快照缓存（展示用，**非任务真相**）。
+
+    planner-core 经 `/ws/planner` 把 {goals,tasks,updated_at,...} 整体推回，平台按
+    workspace_id upsert 一份最新快照供网页展示；真相在 core 的 SQLite 里。
+    payload 为原始 JSON 字符串（结构见 planner-platform-protocol.md §3）。
+    """
+
+    __tablename__ = "planner_state"
+
+    workspace_id: str = Field(primary_key=True)
+    payload: str = Field(default="{}", sa_column=Column(Text))
+    updated_at: datetime = Field(default_factory=utcnow)

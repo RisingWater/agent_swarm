@@ -170,8 +170,13 @@ queued ──(发送+ack 成功)──> working ──> completed | failed
 
 ## 15. 规划器（Planner，2026-10-02）
 
-- **定位**：`agent-swarm-planner`（外部 core 服务）作为一个**特殊工作区**接入平台，Python 侧只做确定性调度/持久化，目标拆解与重规划由运行在该工作区的 agent 完成；平台侧只提供「planner 标志 + 只读展示页」，不参与规划逻辑。
+- **定位**：`agent-swarm-planner`（外部 core 服务）作为一个**特殊工作区**接入平台，Python 侧只做确定性调度/持久化，目标拆解与重规划由运行在该工作区的 agent 完成；平台侧提供「planner 标志 + 控制页 + 控制通道」，**不参与规划逻辑、不存任务真相**。
 - **角色字段**：`workspaces.role`（默认 `agent`，合法值 `agent` / `planner`）。**独立于 `agent_type`**——只做标识与展示，**不**参与权限应答分派（插件按 `agent_type` 判定 opencode/claude/deepseek 渲染与权限应答，勿混用）。`models.normalize_role` 统一校验；`db._migrate` 加列（旧库默认回填 `agent`，幂等）。
 - **设置方式**：MCP `workspace_add(role=...)`（注册时带标志）、`update_info(role=...)`（对已存在工作区改标志）；REST `POST /api/workspaces/{wid}/role`（仅属主，body `{role}`）。非法角色 422。
 - **读回**：`list_workspaces`（自有 + 团队共享项）与 `GET /api/workspaces` / `GET /api/workspaces/shared` 均返回 `role`。
-- **前端**：顶栏「规划器」只读页——用 `NexusWorkspaceSelect` 选择 `role=planner` 的工作区，订阅其 `/ws/nexus` 事件流，展示该工作区**收到的 A2A 任务**（时间/状态/指令）与**最近一次成果**（任务结果 markdown，`react-markdown + remark-gfm`）。第一增量**只读**：不做创建目标/审批/验收（后续再加）。
+- **控制通道（2026-10-03）**：planner-core 在用户内网、平台访问不到其端口，故由 **core 主动外连** `WS /ws/planner`（`server/planner_channel.py`；apikey + workspace_id 握手，一个工作区一条连接，新连接顶替旧的；ping/pong）。帧格式见 `agent-swarm-planner/docs/planner-platform-protocol.md`：
+  - 平台→core：`{"type":"op","op_id","op","payload"}`，op ∈ `goal.create/update/archive`、`plan.approve/revise`、`task.accept/reject`、`goal.nudge`、`state.get`
+  - core→平台：`{"type":"op_result","op_id","ok","error"}`（回执，进内存操作历史）与 `{"type":"state","payload":{workspace_id,updated_at,goals,tasks}}`（快照）
+- **快照缓存**：`planner_state(workspace_id PK, payload TEXT, updated_at)`，收到 state 帧即 upsert；`db._migrate` `CREATE TABLE IF NOT EXISTS`（幂等）。**仅展示缓存，真相在 core**。
+- **REST（JWT/apikey，属主校验）**：`GET /api/planner/{wid}/state`（`online` = 该 wid 是否有 `/ws/planner` 连接）、`POST /api/planner/{wid}/op`（生成 op_id 经 WS 下发；core 离线 409；缺 op 422）、`GET /api/planner/{wid}/ops`（最近操作/回执，内存态）。
+- **前端**：顶栏「规划器」入口**仅当用户拥有 `role=planner` 工作区时显示**；页面（`PlannerPage`）用 `NexusWorkspaceSelect` 选 planner 工作区，管理**目标与任务树**——新建/编辑/归档目标（标题/描述/优先级/截止/成功标准）、任务树按依赖缩进（状态/依赖/执行 agent/验收）、操作 `催促`/`通过拆解`/`重新拆解`/`通过`/`拒绝`；数据来自 `GET .../state`（2.5s 轮询），操作走 `POST .../op`。

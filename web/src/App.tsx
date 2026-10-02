@@ -18,6 +18,9 @@ import {
   type DiscoveredTeam,
   type SharedWorkspace,
   type Notification,
+  type PlannerState,
+  type PlannerGoal,
+  type PlannerTask,
 } from "./api"
 import { copyText } from "./copy"
 import { AdminPage } from "./AdminPage"
@@ -1707,7 +1710,7 @@ agent: (a2a_call) → 对方 TUI 实时出现任务 → 执行 → 结果自动�
               </tr>
               <tr>
                 <td><code>/swarm-add-planner</code></td>
-                <td>注册（或更新）当前目录为<b>规划器工作区</b>（<code>role=planner</code>）——其余流程同 <code>/swarm-add</code>，但 <code>/swarm-add</code> 本身<b>不加</b>任何参数。opencode / claude / deepseek(dsh) 三个 harness 均支持。注册后可在网页「规划器」只读页查看</td>
+                <td>注册（或更新）当前目录为<b>规划器工作区</b>（<code>role=planner</code>）——其余流程同 <code>/swarm-add</code>，但 <code>/swarm-add</code> 本身<b>不加</b>任何参数。opencode / claude / deepseek(dsh) 三个 harness 均支持。注册后可在网页「规划器」页管理目标与任务树</td>
               </tr>
               <tr>
                 <td><code>/swarm-remove</code></td>
@@ -1958,12 +1961,26 @@ agent: (a2a_call) → 对方 TUI 实时出现任务 → 执行 → 结果自动�
             已注册的普通工作区也可再次执行该命令，把 <code>role</code> 改为 <code>planner</code>（按路径 upsert）。
             <code>/swarm-add</code> 本身保持原样、不加任何参数。
           </p>
-          <h3>「规划器」页能看什么？</h3>
+          <h3>「规划器」页能做什么？</h3>
           <p>
-            顶栏「规划器」页是<b>只读</b>展示：用工作区选择器选中一个 planner 工作区后，订阅它的
-            <code>/ws/nexus</code> 事件流，列出它<b>收到的 A2A 任务</b>（时间 / 状态 / 指令），
-            并把<b>最近一次成果</b>（任务结果 markdown）渲染出来——用于查看外部规划器回推的目标 / 任务树与进度。
-            第一增量不做创建目标 / 审批 / 验收，后续再加。
+            选中一个 planner 工作区后，页面管理它的<b>目标与任务树</b>：
+          </p>
+          <ul>
+            <li><b>目标</b>：新建 / 编辑 / 归档（标题、描述、优先级、截止、成功标准），列表显示状态与进度</li>
+            <li><b>任务树</b>：选中目标后按依赖层级缩进展示任务（状态 / 依赖 / 执行 agent / 验收）</li>
+            <li><b>操作</b>：<code>催促</code>（让 agent 干活）、<code>通过拆解</code> / <code>重新拆解</code>（审批计划）、<code>通过</code> / <code>拒绝</code>（人工验收）</li>
+          </ul>
+          <p>
+            数据来自 planner-core 经控制通道推回的快照（<code>GET /api/planner/&#123;wid&#125;/state</code>，页面每 2.5s 轮询），
+            操作经 <code>POST /api/planner/&#123;wid&#125;/op</code> 下发；core 用 <code>op_result</code> 回执。
+          </p>
+          <h3>planner-core 怎么连上平台？</h3>
+          <p>
+            因为 core 在用户内网 / 本机、平台访问不到它的端口，所以由 <b>core 主动外连</b>平台的
+            <code>WS /ws/planner</code>（apikey + <code>workspace_id</code> 握手；一个工作区一条连接，新连接顶替旧的）。
+            平台的建目标 / 审批 / 验收等操作经该 WS 下发，core 把目标 + 任务树结构化快照从同一条 WS 推回，
+            平台缓存进 <code>planner_state</code> 表（<b>仅展示缓存</b>，真相在 core）。完整帧格式见
+            <code>agent-swarm-planner/docs/planner-platform-protocol.md</code>。
           </p>
         </section>
 
@@ -4218,8 +4235,9 @@ function callerLabel(r: { caller: { name: string; path: string } | null; externa
   return c.name
 }
 
-/** 规划器（planner）只读页：列出带 role=planner 的工作区，订阅其 /ws/nexus 事件流，
- *  展示收到的 A2A 任务与最近一次成果（markdown）。只读，暂不提供创建目标/审批/验收。 */
+/** 规划器（planner）控制页：仅列 role=planner 工作区，管理目标与任务树。
+ *  快照经 GET /api/planner/{wid}/state 轮询（由 planner-core 从 /ws/planner 推回），
+ *  操作（建/改/归档目标、审批、催促、验收）经 POST /api/planner/{wid}/op 下发。 */
 function PlannerPage({ toast }: { toast: (m: string) => void }) {
   const [list, setList] = useState<Workspace[]>([])
   const [selected, setSelected] = useState<string>(() => {
@@ -4227,10 +4245,20 @@ function PlannerPage({ toast }: { toast: (m: string) => void }) {
     const m = document.cookie.match(/(?:^|;\s*)swarm_planner_ws=([^;]*)/)
     try { return m ? decodeURIComponent(m[1]) : "" } catch { return "" }
   })
-  const [tasks, setTasks] = useState<WorkspaceCall[]>([])
-  const [detail, setDetail] = useState<WorkspaceCall | null>(null)
-  const [pluginOnline, setPluginOnline] = useState(false)
-  const refreshTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const [state, setState] = useState<PlannerState | null>(null)
+  const [goalId, setGoalId] = useState<string>("")
+  const [busy, setBusy] = useState(false)
+
+  // 新建/编辑目标表单
+  const [form, setForm] = useState<{ goal?: PlannerGoal } | null>(null)
+  const [fTitle, setFTitle] = useState("")
+  const [fDesc, setFDesc] = useState("")
+  const [fPriority, setFPriority] = useState("")
+  const [fDeadline, setFDeadline] = useState("")
+  const [fCriteria, setFCriteria] = useState("")
+  // 需要备注的操作弹窗（plan.revise / task.reject）
+  const [noteModal, setNoteModal] = useState<{ op: string; goalId?: string; taskId?: string; label: string } | null>(null)
+  const [noteText, setNoteText] = useState("")
 
   const refreshList = useCallback(async () => {
     try { setList((await api.workspaces()).filter((w) => w.role === "planner")) } catch { /* 静默 */ }
@@ -4252,138 +4280,262 @@ function PlannerPage({ toast }: { toast: (m: string) => void }) {
     }
   }, [selected])
 
-  // 该工作区收到的 A2A 任务（monitor 轮不算任务）
-  const loadTasks = useCallback(() => {
-    if (!selected) { setTasks([]); return }
-    api.calls(selected)
-      .then((rows) => setTasks(rows.filter((c) => !c.monitor && c.target?.id === selected)))
-      .catch(() => {})
+  // 轮询 planner-core 推回的快照（状态 + 目标 + 任务树）
+  const loadState = useCallback(() => {
+    if (!selected) { setState(null); return }
+    api.plannerState(selected).then(setState).catch(() => {})
   }, [selected])
-
   useEffect(() => {
-    loadTasks()
-    const t = setInterval(loadTasks, 10_000)
+    loadState()
+    const t = setInterval(loadState, 2500)
     return () => clearInterval(t)
-  }, [loadTasks])
+  }, [loadState])
 
-  // 订阅该工作区 /ws/nexus：任务/事件到达时节流刷新（1.5s 合并突发帧）
+  // 默认选中第一个目标
   useEffect(() => {
+    if (state && state.goals.length && !state.goals.some((g) => g.id === goalId)) {
+      setGoalId(state.goals[0].id)
+    }
+  }, [state, goalId])
+
+  /** 下发操作：POST /api/planner/{wid}/op；成功后稍后刷新快照（回执经同一通道到达） */
+  const runOp = async (op: string, payload: Record<string, unknown>, okMsg: string) => {
     if (!selected) return
-    setPluginOnline(false)
-    const token = localStorage.getItem("swarm_token") ?? ""
-    const proto = location.protocol === "https:" ? "wss:" : "ws:"
-    const ws = new WebSocket(`${proto}//${location.host}/ws/nexus`)
-    const schedule = () => {
-      clearTimeout(refreshTimer.current)
-      refreshTimer.current = setTimeout(loadTasks, 1500)
-    }
-    ws.onopen = () => ws.send(JSON.stringify({ type: "hello", token }))
-    ws.onmessage = (e) => {
-      let msg: any
-      try { msg = JSON.parse(e.data) } catch { return }
-      if (msg.type === "hello_ok") ws.send(JSON.stringify({ type: "subscribe", workspace_id: selected }))
-      else if (msg.type === "subscribed") setPluginOnline(!!msg.plugin_online)
-      else if (msg.type === "event" || msg.type === "task" || msg.type === "monitor") schedule()
-    }
-    return () => { ws.close(); clearTimeout(refreshTimer.current) }
-  }, [selected, loadTasks])
+    setBusy(true)
+    try {
+      await api.plannerOp(selected, op, payload)
+      toast(okMsg)
+      setTimeout(loadState, 900)
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "操作失败")
+    } finally { setBusy(false) }
+  }
 
-  void toast  // 预留：后续只读页可能提示错误；当前静默
+  const openCreate = () => {
+    setFTitle(""); setFDesc(""); setFPriority(""); setFDeadline(""); setFCriteria("")
+    setForm({})
+  }
+  const openEdit = (g: PlannerGoal) => {
+    setFTitle(g.title || ""); setFDesc(g.description || ""); setFPriority(g.priority || "")
+    setFDeadline(g.deadline || ""); setFCriteria(g.success_criteria || "")
+    setForm({ goal: g })
+  }
+  const submitForm = () => {
+    if (!fTitle.trim()) { toast("请填写目标标题"); return }
+    const payload: Record<string, unknown> = {
+      title: fTitle.trim(), description: fDesc.trim(), priority: fPriority.trim(),
+      deadline: fDeadline.trim(), success_criteria: fCriteria.trim(),
+    }
+    if (form?.goal) runOp("goal.update", { goal_id: form.goal.id, ...payload }, "目标已更新")
+    else runOp("goal.create", payload, "目标已创建")
+    setForm(null)
+  }
+  const submitNote = () => {
+    if (!noteModal) return
+    const payload: Record<string, unknown> = {}
+    if (noteModal.goalId) payload.goal_id = noteModal.goalId
+    if (noteModal.taskId) payload.task_id = noteModal.taskId
+    if (noteModal.op === "plan.revise") payload.note = noteText.trim()
+    if (noteModal.op === "task.reject") payload.reason = noteText.trim()
+    runOp(noteModal.op, payload, "操作已下发")
+    setNoteModal(null); setNoteText("")
+  }
 
-  const sorted = [...tasks].sort((a, b) => (a.created_at < b.created_at ? 1 : -1))
-  const latest = sorted.find((t) => t.result?.trim())
+  const goals = state?.goals ?? []
+  const goal = goals.find((g) => g.id === goalId)
+  const goalTasks = (state?.tasks ?? []).filter((t) => t.goal_id === goalId)
+  const online = !!state?.online
+  /** 状态 → status-pill 类名（running/ready/pending 复用蓝色） */
+  const pill = (k?: string) =>
+    `status-pill ${k === "running" || k === "ready" || k === "pending" ? "accepted" : (k || "")}`.trim()
+
+  // 任务在依赖树中的层级（缩进展示）；防御环依赖
+  const depthOf = (() => {
+    const byId = new Map(goalTasks.map((t) => [t.id, t]))
+    const memo = new Map<string, number>()
+    const calc = (t: PlannerTask, seen: Set<string>): number => {
+      if (memo.has(t.id)) return memo.get(t.id)!
+      if (seen.has(t.id)) return 0
+      seen.add(t.id)
+      let d = 0
+      for (const dep of t.depends_on ?? []) {
+        const dt = byId.get(dep)
+        if (dt) d = Math.max(d, calc(dt, new Set(seen)) + 1)
+      }
+      memo.set(t.id, d)
+      return d
+    }
+    return (t: PlannerTask) => calc(t, new Set())
+  })()
 
   return (
     <div>
       <h1 className="page-title">规划器</h1>
       <p className="page-sub">
-        只读查看<b>规划器工作区</b>（role=planner）的目标 / 任务树与回推成果。规划器由外部 core 服务驱动，
-        通过 A2A 向本平台下发任务并回推进展；这里订阅它的中枢事件流，展示其收到的任务与最近一次成果。
+        管理<b>规划器工作区</b>（role=planner）的目标与任务树：新建 / 编辑目标、审批拆解、催促 agent、
+        人工验收。数据由 planner-core 经控制通道推回，操作实时下发。
       </p>
       <div className="nexus-picker" style={{ marginBottom: 12 }}>
         <NexusWorkspaceSelect list={list} value={selected} onChange={setSelected} showOwner />
         {selected && (
-          <span className={`nexus-head-status ${pluginOnline ? "on" : "off"}`}>
-            {pluginOnline ? "● online" : "○ offline"}
+          <span className={`nexus-head-status ${online ? "on" : "off"}`}
+            title={online ? "planner-core 已连接" : "planner-core 未连接"}>
+            {online ? "● online" : "○ offline"}
           </span>
         )}
+        {selected && <span style={{ flex: 1 }} />}
+        {selected && <Btn size="sm" onClick={openCreate} disabled={!online}>+ 新建目标</Btn>}
         {!list.length && (
           <span className="nexus-empty">
-            暂无规划器工作区 — 用 MCP <code>workspace_add(role="planner")</code> 或把工作区标记为 planner
+            暂无规划器工作区 — 用 <code>/swarm-add-planner</code> 注册
           </span>
         )}
       </div>
 
-      {selected && (
-        <>
-          <section className="planner-latest">
-            <div className="planner-latest-head">
-              <h3>最近成果</h3>
-              {latest && <span className="planner-latest-time">{fmtTime(latest.done_at ?? latest.created_at, "datetime")}</span>}
-            </div>
-            {latest?.result?.trim() ? (
-              <Md text={latest.result} />
-            ) : (
-              <p style={{ color: "var(--text-weak)", margin: 0 }}>暂无成果 — 等待规划器回推。</p>
-            )}
-          </section>
+      {selected && !state?.updated_at && (
+        <p style={{ color: "var(--text-weak)" }}>
+          {online
+            ? "planner-core 已连接，等待首个状态快照…"
+            : "planner-core 未连接 — 启动 core（它会连上 /ws/planner）后这里会显示目标与任务树。"}
+        </p>
+      )}
 
-          <h3 style={{ margin: "20px 0 8px" }}>任务（收到的 A2A 任务）</h3>
+      {selected && state && (
+        <>
+          <h3 style={{ margin: "8px 0" }}>目标</h3>
           <table className="grid">
             <thead>
               <tr>
-                <th style={{ width: 150 }}>时间</th>
-                <th style={{ width: 110 }}>状态</th>
-                <th>指令</th>
+                <th>标题</th>
+                <th style={{ width: 90 }}>状态</th>
+                <th style={{ width: 90 }}>优先级</th>
+                <th style={{ width: 120 }}>截止</th>
+                <th style={{ width: 70 }}>进度</th>
+                <th style={{ width: 330 }}>操作</th>
               </tr>
             </thead>
             <tbody>
-              {sorted.map((r) => (
-                <tr key={r.id}>
-                  <td style={{ color: "var(--text-weak)", fontSize: 12 }}>{fmtTime(r.created_at, "datetime")}</td>
-                  <td>
-                    <span className={`status-pill ${r.status === "working" || r.status === "queued" ? "accepted" : r.status}`}>
-                      {r.status}
-                    </span>
+              {goals.map((g) => (
+                <tr key={g.id} className={g.id === goalId ? "planner-row-active" : ""}
+                  onClick={() => setGoalId(g.id)}>
+                  <td className="strong">
+                    <a className="link">{g.title}</a>
+                    {g.success_criteria ? <div style={{ fontSize: 12, color: "var(--text-weak)" }}>{g.success_criteria}</div> : null}
                   </td>
-                  <td><a className="link" onClick={() => setDetail(r)}>{r.instruction || "(空指令)"}</a></td>
+                  <td><span className={pill(g.status)}>{g.status || "-"}</span></td>
+                  <td>{g.priority || "-"}</td>
+                  <td style={{ fontSize: 12, color: "var(--text-weak)" }}>{g.deadline || "-"}</td>
+                  <td style={{ fontSize: 12 }}>{g.progress ? `${g.progress.done}/${g.progress.total}` : "-"}</td>
+                  <td onClick={(e) => e.stopPropagation()}>
+                    <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                      <Btn size="sm" disabled={busy || !online} onClick={() => runOp("goal.nudge", { goal_id: g.id }, "已催促规划器")}>催促</Btn>
+                      <Btn size="sm" disabled={busy || !online} onClick={() => runOp("plan.approve", { goal_id: g.id }, "已通过拆解")}>通过拆解</Btn>
+                      <Btn size="sm" disabled={busy || !online} onClick={() => { setNoteText(""); setNoteModal({ op: "plan.revise", goalId: g.id, label: "重新拆解" }) }}>重新拆解</Btn>
+                      <Btn size="sm" onClick={() => openEdit(g)}>编辑</Btn>
+                      <Btn size="sm" variant="danger" disabled={busy || !online} onClick={() => runOp("goal.archive", { goal_id: g.id }, "目标已归档")}>归档</Btn>
+                    </div>
+                  </td>
                 </tr>
               ))}
-              {!sorted.length && (
-                <tr>
-                  <td colSpan={3} style={{ color: "var(--text-weak)", textAlign: "center", padding: 32 }}>
-                    [*] 暂无任务
-                  </td>
-                </tr>
+              {!goals.length && (
+                <tr><td colSpan={6} style={{ color: "var(--text-weak)", textAlign: "center", padding: 32 }}>
+                  [*] 暂无目标 — 点右上角「+ 新建目标」
+                </td></tr>
               )}
             </tbody>
           </table>
+
+          {goal && (
+            <>
+              <h3 style={{ margin: "20px 0 8px" }}>任务树：{goal.title}</h3>
+              <table className="grid">
+                <thead>
+                  <tr>
+                    <th>任务</th>
+                    <th style={{ width: 110 }}>状态</th>
+                    <th style={{ width: 160 }}>依赖</th>
+                    <th style={{ width: 140 }}>执行 agent</th>
+                    <th style={{ width: 90 }}>验收</th>
+                    <th style={{ width: 150 }}>操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {goalTasks.map((t) => (
+                    <tr key={t.id}>
+                      <td>
+                        <span style={{ paddingLeft: depthOf(t) * 16 }}>
+                          {depthOf(t) > 0 ? "└ " : ""}{t.title}
+                        </span>
+                        {t.acceptance_result ? <div style={{ fontSize: 12, color: "var(--text-weak)" }}>{t.acceptance_result}</div> : null}
+                      </td>
+                      <td><span className={pill(t.status)}>{t.status || "-"}</span></td>
+                      <td style={{ fontSize: 12, color: "var(--text-weak)" }}>{(t.depends_on ?? []).join("、") || "-"}</td>
+                      <td style={{ fontSize: 12, color: "var(--text-weak)" }}>{t.assigned_agent || "-"}</td>
+                      <td style={{ fontSize: 12, color: "var(--text-weak)" }}>{t.acceptance_type || "-"}</td>
+                      <td>
+                        {t.acceptance_type === "manual" && t.status !== "done" ? (
+                          <div style={{ display: "flex", gap: 4 }}>
+                            <Btn size="sm" disabled={busy || !online} onClick={() => runOp("task.accept", { task_id: t.id }, "已验收通过")}>通过</Btn>
+                            <Btn size="sm" variant="danger" disabled={busy || !online}
+                              onClick={() => { setNoteText(""); setNoteModal({ op: "task.reject", taskId: t.id, label: "验收拒绝" }) }}>拒绝</Btn>
+                          </div>
+                        ) : <span style={{ color: "var(--text-weak)", fontSize: 12 }}>—</span>}
+                      </td>
+                    </tr>
+                  ))}
+                  {!goalTasks.length && (
+                    <tr><td colSpan={6} style={{ color: "var(--text-weak)", textAlign: "center", padding: 24 }}>[*] 该目标暂无任务</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </>
+          )}
         </>
       )}
 
-      {detail && (
-        <Modal wide title={`任务 ${detail.id.slice(0, 8)}`} onClose={() => setDetail(null)}>
-          <dl className="dl">
-            <dt>状态</dt>
-            <dd>
-              <span className={`status-pill ${detail.status === "working" || detail.status === "queued" ? "accepted" : detail.status}`}>
-                {detail.status}
-              </span>
-            </dd>
-            <dt>发起方</dt><dd>{detail.caller?.name ?? "-"}</dd>
-            <dt>时间</dt><dd>{fmtTime(detail.created_at, "datetime")}</dd>
-            <dt>指令</dt><dd>{detail.instruction || "-"}</dd>
-            <dt>成果</dt>
-            <dd>
-              {detail.status === "failed" ? (
-                detail.error ?? "-"
-              ) : detail.result?.trim() ? (
-                <Md text={detail.result} />
-              ) : (
-                "-"
-              )}
-            </dd>
-          </dl>
+      {form && (
+        <Modal title={form.goal ? "编辑目标" : "新建目标"} onClose={() => setForm(null)}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 4 }}>
+            <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              标题 *
+              <input className="field" value={fTitle} onChange={(e) => setFTitle(e.target.value)} placeholder="例如：重构鉴权模块" />
+            </label>
+            <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              描述
+              <textarea className="field" rows={3} value={fDesc} onChange={(e) => setFDesc(e.target.value)} />
+            </label>
+            <div style={{ display: "flex", gap: 10 }}>
+              <label style={{ display: "flex", flexDirection: "column", gap: 4, flex: 1 }}>
+                优先级
+                <input className="field" value={fPriority} onChange={(e) => setFPriority(e.target.value)} placeholder="high / medium / low" />
+              </label>
+              <label style={{ display: "flex", flexDirection: "column", gap: 4, flex: 1 }}>
+                截止
+                <input className="field" value={fDeadline} onChange={(e) => setFDeadline(e.target.value)} placeholder="YYYY-MM-DD" />
+              </label>
+            </div>
+            <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              成功标准
+              <textarea className="field" rows={2} value={fCriteria} onChange={(e) => setFCriteria(e.target.value)} />
+            </label>
+          </div>
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
+            <Btn size="sm" variant="ghost" onClick={() => setForm(null)}>取消</Btn>
+            <Btn size="sm" disabled={busy} onClick={submitForm}>{form.goal ? "保存" : "创建"}</Btn>
+          </div>
+        </Modal>
+      )}
+
+      {noteModal && (
+        <Modal title={noteModal.label} onClose={() => setNoteModal(null)}>
+          <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {noteModal.op === "plan.revise" ? "重新拆解说明（可选）" : "拒绝原因（可选）"}
+            <textarea className="field" rows={3} value={noteText} onChange={(e) => setNoteText(e.target.value)} />
+          </label>
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
+            <Btn size="sm" variant="ghost" onClick={() => setNoteModal(null)}>取消</Btn>
+            <Btn size="sm" variant={noteModal.op === "task.reject" ? "danger" : "primary"} disabled={busy} onClick={submitNote}>确认</Btn>
+          </div>
         </Modal>
       )}
     </div>

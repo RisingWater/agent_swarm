@@ -122,6 +122,49 @@ export interface DiscoveredTeam {
   member_count: number
 }
 
+// ────────────── 规划器（planner-core 推回的目标 + 任务树快照） ──────────────
+
+export interface PlannerGoal {
+  id: string
+  title: string
+  description?: string
+  status?: string
+  priority?: string
+  deadline?: string
+  success_criteria?: string
+  progress?: { done: number; total: number }
+}
+
+export interface PlannerTask {
+  id: string
+  goal_id?: string
+  title: string
+  status?: string
+  depends_on?: string[]
+  assigned_agent?: string
+  acceptance_type?: string
+  acceptance_result?: string
+  updated_at?: string
+}
+
+export interface PlannerState {
+  workspace_id: string
+  online: boolean
+  updated_at: string | null
+  goals: PlannerGoal[]
+  tasks: PlannerTask[]
+}
+
+export interface PlannerOp {
+  op_id: string
+  op: string
+  payload: Record<string, unknown>
+  ok: boolean | null
+  error: string
+  created_at: string
+  done_at: string | null
+}
+
 export interface Artifact {
   id: string
   name: string
@@ -238,6 +281,16 @@ export const api = {
     request(`/api/workspaces/${encodeURIComponent(id)}/shares`, {
       method: "PUT", body: JSON.stringify({ team_ids: teamIds }),
     }) as Promise<{ ok: boolean; team_ids: string[] }>,
+
+  // 规划器控制通道（planner-core 经 /ws/planner 推快照；操作经 REST 下发）
+  plannerState: (workspaceId: string) =>
+    request(`/api/planner/${encodeURIComponent(workspaceId)}/state`) as Promise<PlannerState>,
+  plannerOp: (workspaceId: string, op: string, payload: Record<string, unknown> = {}) =>
+    request(`/api/planner/${encodeURIComponent(workspaceId)}/op`, {
+      method: "POST", body: JSON.stringify({ op, payload }),
+    }) as Promise<{ op_id: string; op: string }>,
+  plannerOps: (workspaceId: string) =>
+    request(`/api/planner/${encodeURIComponent(workspaceId)}/ops`) as Promise<{ ops: PlannerOp[] }>,
 
   artifacts: () => request("/api/artifacts") as Promise<Artifact[]>,
   pinArtifact: (id: string, pinned: boolean) =>

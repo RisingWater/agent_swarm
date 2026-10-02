@@ -120,6 +120,17 @@
 - [x] 文档：README/README_CN「如何注册规划器工作区」、web 文档页命令表 + 「规划器」节、AGENTS.md 分发 gotcha
 - [x] 测试 `test_planner_commands.py` 7 例；全套 86 例通过、web build 通过、deepseek `tsc --noEmit` 通过
 
+### P9 规划器控制通道 `/ws/planner` + 真实规划器页（追加，2026-10-03）
+
+> planner-core 在用户内网，平台访问不到其端口 → 改为 **core 主动外连**平台 WS，平台操作经此下发、core 推回「目标+任务树」快照。协议文档：`agent-swarm-planner/docs/planner-platform-protocol.md`。
+
+- [x] 模型 `planner_state(workspace_id PK, payload TEXT, updated_at)` + `db._migrate` `CREATE TABLE IF NOT EXISTS`（幂等）
+- [x] 新模块 `server/planner_channel.py`：`WS /ws/planner`（apikey+workspace_id hello、单连接新顶旧、ping/pong、state upsert、op_result 记录）+ 内存操作历史；`main.py` 注册路由
+- [x] REST（JWT/apikey，属主校验）：`GET /api/planner/{wid}/state`、`POST /api/planner/{wid}/op`（core 离线 409、缺 op 422）、`GET /api/planner/{wid}/ops`
+- [x] 前端 `PlannerPage` 重做：目标列表 + 新建/编辑/归档表单、任务树（依赖缩进）、催促/通过拆解/重新拆解/验收（通过/拒绝）；2.5s 轮询 state；操作走 op
+- [x] 测试 `test_planner_channel.py` 5 例（WS hello/错误、state 缓存+op 往返+回执、离线 409/422/401、属主 404、迁移幂等）；全套 91 例通过、web build 通过
+- [x] 文档：README/README_CN、web 文档页「规划器」节、AGENTS.md、requirements §15 同步
+
 ## 已完成（除注明外均已进 git）
 
 ### deepseek harness（dsh）全功能对齐 + 跨工作区长任务完成提醒（2026-09-30 ~ 10-01，E2E 实测）

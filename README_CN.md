@@ -20,7 +20,7 @@
 - **🔗 标准 MCP 工具接入** —— 面向 agent 的操作全部是标准 MCP 工具，opencode、claude code、deepseek harness 等任何支持 MCP 的客户端都能接入
 - **🐝 跨 agent 任务派发** —— 一条指令把任务交给另一个工作区的 agent；前台注入（对方 TUI 实时可见）或后台会话（静默执行）两种方式，结果自动回传。发起方中途放弃等待也不用怕：任务完成后服务端自动提醒它取结果继续
 - **👥 团队与工作区共享** —— 创建团队、邀请或审批成员，把工作区共享到一个或多个团队。队友可以像用工具一样调用共享工作区（只拿最终答复），看不到它的监控流、产物、简报与调用细节
-- **🧭 规划器工作区** —— 给工作区打上 `role=planner` 标记（MCP `workspace_add`/`update_info` 或 REST 端点），网页「规划器」只读页会列出它、订阅它的中枢事件流，展示它收到的 A2A 任务与最近一次成果（markdown）——用于查看目标 / 任务树规划器的回推
+- **🧭 规划器工作区与控制页** —— 给工作区打上 `role=planner` 标记后，网页「规划器」页可**新建/编辑/归档目标、查看任务树、审批或重拆计划、催促 agent、人工验收**。planner-core 从用户内网**主动外连**平台的 `WS /ws/planner`（平台访问不到 core 的端口）；页面经 REST 下发操作，并渲染 core 从同一通道推回的目标 / 任务树快照
 - **🌐 Web 中枢（Nexus）** —— 网页上直接给在线工作区下指令，实时围观思考 / 工具调用 / 回答，权限请求远程点选应答
 - **👀 监控模式** —— 默认开启：你在 TUI 里的日常对话按轮次实时同步到网页，像给 agent 开了一扇观察窗
 - **💬 飞书 & 微信接入** —— 绑定飞书，或把自己的微信扫码接入为 ClawBot 机器人；在聊天里派任务、收时间线直播/详细流与完成简报、远程应答权限请求（两个渠道全支持）
@@ -195,7 +195,9 @@ FEISHU_APP_SECRET=xxx
 
 ### 规划器
 
-工作区可带一个 `role`（默认 `agent` / `planner`）。注册时指定（`workspace_add(role="planner")`）、之后修改（`update_info(role=...)`），或走 REST `POST /api/workspaces/{id}/role`（仅属主）。该字段独立于 `agent_type`，不参与权限/提问分派。网页「规划器」只读页列出 planner 工作区，订阅所选工作区的 `/ws/nexus` 事件流，展示它收到的 A2A 任务与最近一次成果（markdown）。第一增量**只读**——暂无创建目标 / 审批 / 验收。
+工作区可带一个 `role`（默认 `agent` / `planner`）。注册时指定（`workspace_add(role="planner")`）、之后修改（`update_info(role=...)`），或走 REST `POST /api/workspaces/{id}/role`（仅属主）。该字段独立于 `agent_type`，不参与权限/提问分派。
+
+网页「**规划器**」页管理规划器工作区的**目标与任务树**：新建 / 编辑 / 归档目标（标题 / 描述 / 优先级 / 截止 / 成功标准），查看任务（状态 / 依赖 / 执行 agent / 验收），审批或重拆计划、催促 agent 干活、人工验收（通过 / 拒绝）。因为 planner-core 在用户内网（平台访问不到它的端口），由 **core 主动外连** `WS /ws/planner`（apikey + workspace_id 握手；一个工作区一条连接，新连接顶替旧的）。页面经 `POST /api/planner/{wid}/op` 下发操作，经 `GET /api/planner/{wid}/state` 渲染最新快照；core 把 `{goals,tasks}` 从同一条 WS 推回，平台存进 `planner_state` 表（**仅展示缓存**，真相在 core）。协议见 `agent-swarm-planner/docs/planner-platform-protocol.md`。
 
 **如何注册规划器工作区**：在目标项目的 agent 对话里执行 **`/swarm-add-planner`**——三个 harness（opencode / claude code / deepseek(dsh)）都支持。流程与 `/swarm-add` 一致，只是调用 `workspace_add` 时显式带 `role="planner"`；对已注册的工作区再次执行会把 `role` 改为 `planner`（按路径 upsert）。`/swarm-add` 本身保持不变、不加任何参数。dsh 脚本化注册可用 `node register.mjs ... --role planner`。
 

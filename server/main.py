@@ -14,6 +14,7 @@ from server.api_artifacts import routes as artifact_routes
 from server.download import routes as download_routes
 from server.mcp_endpoint import build_mcp_asgi_app, mcp_lifespan
 from server.nexus_a2a import router as nexus_a2a_router
+from server.planner_channel import router as planner_router
 from server.weixin import gateway as weixin_gateway
 from server.api.weixin import router as weixin_router
 
@@ -104,6 +105,7 @@ def create_app() -> FastAPI:
     app.include_router(teams.router)
     app.include_router(notifications.router)
     app.include_router(nexus_a2a_router)
+    app.include_router(planner_router)  # 规划器控制通道 /ws/planner + /api/planner/*
 
     @app.exception_handler(TeamError)
     async def _team_error_handler(_request: Request, exc: TeamError):

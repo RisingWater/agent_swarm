@@ -116,6 +116,15 @@ def _migrate() -> None:
                 con.execute("ALTER TABLE team_members ADD COLUMN created_at TEXT")
                 con.execute("UPDATE team_members SET created_at = ? WHERE created_at IS NULL",
                             (datetime.now(timezone.utc).replace(tzinfo=None).isoformat(sep=" "),))
+        # 规划器状态快照缓存表（2026-10-03，/ws/planner 推回；IF NOT EXISTS 幂等。
+        # create_all 也会建，这里显式补一份，老库/半新库都稳）
+        con.execute(
+            "CREATE TABLE IF NOT EXISTS planner_state ("
+            " workspace_id TEXT PRIMARY KEY,"
+            " payload TEXT DEFAULT '{}',"
+            " updated_at TEXT"
+            ")"
+        )
         # 产物归属工作区回填（2026-10-01）：历史产物 workspace_id 为空但有关联任务时，
         # 用任务执行方工作区补上（之后才能按"工作区是否共享"判断产物可共享性）
         tables = {r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}

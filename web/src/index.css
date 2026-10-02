@@ -2971,29 +2971,11 @@ table.ws-grid th {
   flex: 0 0 auto;
 }
 
-/* ---- 规划器（planner）只读页 ---- */
-.planner-latest {
-  border: 1px solid var(--border);
-  border-radius: var(--radius-block);
-  padding: 14px 16px;
-  background: var(--bg-weak);
-  margin-top: 4px;
+/* ---- 规划器（planner）控制页 ---- */
+/* 选中的目标行高亮（下方任务树对应该目标） */
+table.grid tr.planner-row-active td {
+  background: var(--bg-weak-hover);
 }
-
-.planner-latest-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 8px;
-}
-
-.planner-latest-head h3 {
-  margin: 0;
-  font-size: 15px;
-}
-
-.planner-latest-time {
-  color: var(--text-weak);
-  font-size: 12px;
+table.grid tr.planner-row-active td.strong a.link {
+  text-decoration: underline;
 }
