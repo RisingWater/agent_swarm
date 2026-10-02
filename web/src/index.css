@@ -2886,7 +2886,7 @@ table.ws-grid th {
   background: none;
   border: 1px solid var(--border);
   border-radius: 6px;
-  color: var(--text-weak);
+  color: var(--text-strong);  /* 默认正常文字色（黑）；灰色只留给 disabled */
   font-family: inherit;
   font-size: 12px;
   line-height: 1;
@@ -2895,12 +2895,13 @@ table.ws-grid th {
 }
 
 .action-btn:hover:not(:disabled) {
-  color: var(--text-strong);
-  border-color: var(--text-weak);
+  border-color: var(--text-strong);
+  background: var(--bg-weak);
 }
 
 .action-btn:disabled {
-  opacity: 0.45;
+  color: var(--text-weak);
+  opacity: 0.55;
   cursor: not-allowed;
 }
 
