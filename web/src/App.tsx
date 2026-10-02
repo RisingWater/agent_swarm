@@ -4642,13 +4642,7 @@ function PlannerPage({ toast }: { toast: (m: string) => void }) {
 
   const installPanel = (
     <div className="home-install" style={{ marginTop: 12 }}>
-      <p className="home-hint" style={{ marginTop: 0 }}>
-        还没有规划器工作区。运行下面的命令自动安装<b>规划核心服务</b>（克隆到
-        <code>~/.agent_swarm/agent_swarm_planner</code> 并完成安装），再在项目目录里用
-        <code>/swarm-add-planner</code> 注册，之后回到本页管理目标与任务树。源码仓库：
-        <a className="link" href="https://github.com/RisingWater/agent_swarm_planner"
-          target="_blank" rel="noreferrer">agent_swarm_planner</a>
-      </p>
+      <h2>马上安装规划器</h2>
       <div className="tablist tablist-inline">
         <button role="tab" aria-selected={plat === "sh"} onClick={() => setPlat("sh")}>macOS / linux</button>
         <button role="tab" aria-selected={plat === "ps1"} onClick={() => setPlat("ps1")}>windows</button>
@@ -4662,12 +4656,6 @@ function PlannerPage({ toast }: { toast: (m: string) => void }) {
           toast(await copyText(plannerCmd) ? "安装命令已复制" : "复制失败，请手动选择复制")
         }}>⧉</Btn>
       </div>
-      <p className="home-hint">
-        命令中的 API Key 可在账号页（点右上角用户名 → API Key）查看或重置；也可直接下载脚本：
-        <a className="link" href={`${pageOrigin}/download/planner-install.sh`} target="_blank" rel="noreferrer">planner-install.sh</a>
-        {' / '}
-        <a className="link" href={`${pageOrigin}/download/planner-install.ps1`} target="_blank" rel="noreferrer">planner-install.ps1</a>
-      </p>
     </div>
   )
 
