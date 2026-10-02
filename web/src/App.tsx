@@ -4619,8 +4619,7 @@ function PlannerPage({ toast }: { toast: (m: string) => void }) {
             <thead>
               <tr>
                 <th>标题</th>
-                <th style={{ width: 90 }}>状态</th>
-                <th style={{ width: 90 }}>拆解</th>
+                <th style={{ width: 170 }}>状态</th>
                 <th style={{ width: 90 }}>优先级</th>
                 <th style={{ width: 120 }}>截止</th>
                 <th style={{ width: 70 }}>进度</th>
@@ -4640,13 +4639,15 @@ function PlannerPage({ toast }: { toast: (m: string) => void }) {
                     ) : null}
                     {g.success_criteria ? <div style={{ fontSize: 12, color: "var(--text-weak)" }}>{g.success_criteria}</div> : null}
                   </td>
-                  <td><span className={pill(g.status)}>{g.status || "-"}</span></td>
                   <td>
-                    {(g.plan_status || "draft") === "approved" ? (
-                      <span className="status-pill done" title="拆解已通过，agent 可开始派发">已通过</span>
-                    ) : (
-                      <span className="status-pill pending" title="拆解待审批，通过后 agent 才会派发">草稿</span>
-                    )}
+                    <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                      <span className={pill(g.status)} title="目标状态">{g.status || "-"}</span>
+                      {(g.plan_status || "draft") === "approved" ? (
+                        <span className="status-pill done" title="拆解已通过，agent 可开始派发">已通过</span>
+                      ) : (
+                        <span className="status-pill pending" title="拆解待审批，通过后 agent 才会派发">草稿</span>
+                      )}
+                    </div>
                   </td>
                   <td>{g.priority || "-"}</td>
                   <td style={{ fontSize: 12, color: "var(--text-weak)" }}>{g.deadline || "-"}</td>
@@ -4677,7 +4678,7 @@ function PlannerPage({ toast }: { toast: (m: string) => void }) {
                 </tr>
               ))}
               {!visibleGoals.length && (
-                <tr><td colSpan={7} style={{ color: "var(--text-weak)", textAlign: "center", padding: 32 }}>
+                <tr><td colSpan={6} style={{ color: "var(--text-weak)", textAlign: "center", padding: 32 }}>
                   {goals.length && hideArchived
                     ? "[*] 目标都已归档 — 取消勾选「隐藏已归档目标」可查看 / 激活"
                     : "[*] 暂无目标 — 点「新建目标」"}
