@@ -4955,6 +4955,7 @@ function callerLabel(r: { caller: { name: string; path: string } | null; externa
  *  快照经 GET /api/planner/{wid}/state 轮询（由 规划核心服务 从 /ws/planner 推回），
  *  操作（建/改/归档目标、审批、催促、验收）经 POST /api/planner/{wid}/op 下发。 */
 function PlannerPage({ toast }: { toast: (m: string) => void }) {
+  const { t } = useI18n()
   const [list, setList] = useState<Workspace[]>([])
   const [selected, setSelected] = useState<string>(() => {
     // 记忆上次选中的规划器工作区（cookie，30 天；同中转/调用记录惯例）
@@ -5023,8 +5024,8 @@ function PlannerPage({ toast }: { toast: (m: string) => void }) {
   }, [])
   useEffect(() => {
     refreshList()
-    const t = setInterval(refreshList, 15_000)
-    return () => clearInterval(t)
+    const timer = setInterval(refreshList, 15_000)
+    return () => clearInterval(timer)
   }, [refreshList])
 
   // 默认选中第一个规划器工作区
@@ -5045,8 +5046,8 @@ function PlannerPage({ toast }: { toast: (m: string) => void }) {
   }, [selected])
   useEffect(() => {
     loadState()
-    const t = setInterval(loadState, 2500)
-    return () => clearInterval(t)
+    const timer = setInterval(loadState, 2500)
+    return () => clearInterval(timer)
   }, [loadState])
 
   // 默认选中第一个「可见」目标（隐藏归档时归档目标不参与默认选中）
@@ -5059,14 +5060,14 @@ function PlannerPage({ toast }: { toast: (m: string) => void }) {
   /** 下发操作：POST /api/planner/{wid}/op；成功后稍后刷新快照（回执经同一通道到达） */
   const runOp = async (op: string, payload: Record<string, unknown>, okMsg: string) => {
     if (!selected) return
-    if (!online) { toast("规划核心服务未连接，无法下发操作"); return }
+    if (!online) { toast(t("规划核心服务未连接，无法下发操作", "The planning core service is offline; cannot send the operation")); return }
     setBusy(true)
     try {
       await api.plannerOp(selected, op, payload)
       toast(okMsg)
       setTimeout(loadState, 900)
     } catch (e) {
-      toast(e instanceof Error ? e.message : "操作失败")
+      toast(e instanceof Error ? e.message : t("操作失败", "Operation failed"))
     } finally { setBusy(false) }
   }
 
@@ -5086,7 +5087,7 @@ function PlannerPage({ toast }: { toast: (m: string) => void }) {
     setForm({ goal: g })
   }
   const submitForm = () => {
-    if (!fTitle.trim()) { toast("请填写目标标题"); return }
+    if (!fTitle.trim()) { toast(t("请填写目标标题", "Please enter a goal title")); return }
     const payload: Record<string, unknown> = {
       title: fTitle.trim(), description: fDesc.trim(),
       priority: Number(fPriority),              // 高=2 / 中=1 / 低=0
@@ -5099,9 +5100,9 @@ function PlannerPage({ toast }: { toast: (m: string) => void }) {
     if (form?.goal) {
       // 人工改了成功标准 → 该标准回到「待专家确认」（未改则不动 criteria_confirmed）
       if (fCriteria.trim() !== (form.goal.success_criteria || "")) payload.criteria_confirmed = 0
-      runOp("goal.update", { goal_id: form.goal.id, ...payload }, "目标已更新")
+      runOp("goal.update", { goal_id: form.goal.id, ...payload }, t("目标已更新", "Goal updated"))
     } else {
-      runOp("goal.create", payload, "目标已创建")
+      runOp("goal.create", payload, t("目标已创建", "Goal created"))
     }
     setForm(null)
   }
@@ -5112,7 +5113,7 @@ function PlannerPage({ toast }: { toast: (m: string) => void }) {
     if (noteModal.taskId) payload.task_id = noteModal.taskId
     if (noteModal.op === "plan.revise") payload.note = noteText.trim()
     if (noteModal.op === "task.reject") payload.reason = noteText.trim()
-    runOp(noteModal.op, payload, "操作已下发")
+    runOp(noteModal.op, payload, t("操作已下发", "Operation submitted"))
     setNoteModal(null); setNoteText("")
   }
 
@@ -5120,28 +5121,41 @@ function PlannerPage({ toast }: { toast: (m: string) => void }) {
   // 默认隐藏已归档目标（checkbox 控制）；归档目标取消勾选后才显示，可对其「激活」/「删除」
   const visibleGoals = hideArchived ? goals.filter((g) => g.status !== "archived") : goals
   const goal = visibleGoals.find((g) => g.id === goalId)
-  const goalTasks = (state?.tasks ?? []).filter((t) => t.goal_id === goalId)
+  const goalTasks = (state?.tasks ?? []).filter((task) => task.goal_id === goalId)
   // 任务 id → 标题（依赖列显示任务名字而非 id）
   const taskTitle: Record<string, string> = {}
-  for (const t of state?.tasks ?? []) taskTitle[t.id] = t.title
+  for (const task of state?.tasks ?? []) taskTitle[task.id] = task.title
   const online = !!state?.online
   /** 状态 → status-pill 类名（running/ready/pending 复用蓝色；待验收类用橙色） */
   const pill = (k?: string) => {
     if (k === "waiting_expert" || k === "waiting_human") return "status-pill pending"
     return `status-pill ${k === "running" || k === "ready" || k === "pending" ? "accepted" : (k || "")}`.trim()
   }
-  /** 状态展示文案（waiting_expert 友好化为「待专家验收」） */
-  const statusLabel = (k?: string) => (k === "waiting_expert" ? "待专家验收" : (k || "-"))
+  /** 状态展示文案（planner 任务状态；未知回退原文） */
+  const statusLabel = (k?: string) => {
+    switch (k) {
+      case "waiting_expert": return t("待专家验收", "waiting for expert")
+      case "waiting_human": return t("待人工验收", "waiting for human")
+      case "done": return t("完成", "done")
+      case "running": return t("执行中", "running")
+      case "ready": return t("就绪", "ready")
+      case "pending": return t("待处理", "pending")
+      case "blocked": return t("阻塞", "blocked")
+      case "failed": return t("失败", "failed")
+      case "canceled": return t("取消", "canceled")
+      default: return k || "-"
+    }
+  }
   /** 验收类型展示文案：auto→自动验收 / manual→人工验收 / expert→专家验收点 */
   const acceptanceLabel = (a?: string) =>
-    a === "auto" ? "自动验收" : a === "manual" ? "人工验收" : a === "expert" ? "专家验收点" : (a || "-")
+    a === "auto" ? t("自动验收", "auto") : a === "manual" ? t("人工验收", "manual") : a === "expert" ? t("专家验收点", "expert acceptance point") : (a || "-")
   /** 目标状态 → 中文（active=进行中 / archived=已归档；未知回退原文） */
   const goalStatusLabel = (s?: string) =>
-    s === "active" ? "进行中" : s === "archived" ? "已归档" : (s || "-")
+    s === "active" ? t("进行中", "active") : s === "archived" ? t("已归档", "archived") : (s || "-")
   /** 优先级数值 → 文案（高=2 / 中=1 / 低=0；未知回退原文） */
   const priorityLabel = (p?: number | string) => {
     const s = String(p ?? "")
-    return s === "2" ? "高" : s === "1" ? "中" : s === "0" ? "低" : (s || "-")
+    return s === "2" ? t("高", "High") : s === "1" ? t("中", "Medium") : s === "0" ? t("低", "Low") : (s || "-")
   }
   /** 目标专家展示：优先核心服务推的 expert_name，回退工作区名/ id */
   const expertLabel = (g: PlannerGoal) =>
@@ -5192,7 +5206,7 @@ function PlannerPage({ toast }: { toast: (m: string) => void }) {
 
   const installPanel = (
     <div className="home-install" style={{ marginTop: 12 }}>
-      <h2>马上安装规划器</h2>
+      <h2>{t("马上安装规划器", "Install the planner now")}</h2>
       <div className="tablist tablist-inline">
         <button role="tab" aria-selected={plat === "sh"} onClick={() => setPlat("sh")}>macOS / linux</button>
         <button role="tab" aria-selected={plat === "ps1"} onClick={() => setPlat("ps1")}>windows</button>
@@ -5200,10 +5214,10 @@ function PlannerPage({ toast }: { toast: (m: string) => void }) {
       <div className="cmdblock cmdblock-joined">
         <span className="cmd-text">
           <span className="prompt">{plat === "sh" ? "$" : "PS>"}</span>
-          {me && !me.api_key ? "# 正在获取 api key…" : plannerCmd}
+          {me && !me.api_key ? t("# 正在获取 api key…", "# fetching api key…") : plannerCmd}
         </span>
-        <Btn variant="icon" title="copy" onClick={async () => {
-          toast(await copyText(plannerCmd) ? "安装命令已复制" : "复制失败，请手动选择复制")
+        <Btn variant="icon" title={t("复制", "copy")} onClick={async () => {
+          toast(await copyText(plannerCmd) ? t("安装命令已复制", "Install command copied") : t("复制失败，请手动选择复制", "Copy failed, please select and copy manually"))
         }}>⧉</Btn>
       </div>
     </div>
@@ -5213,10 +5227,14 @@ function PlannerPage({ toast }: { toast: (m: string) => void }) {
   if (loaded && !list.length) {
     return (
       <div>
-        <h1 className="page-title">规划器</h1>
+        <h1 className="page-title">{t("规划器", "Planner")}</h1>
         <p className="page-sub">
-          把模糊的长期目标交给规划器工作区，自动拆成带依赖的任务树、调度虫群执行并追踪验收。
-          先安装<b>规划核心服务</b>，再在项目目录里用 <code>/swarm-add-planner</code> 注册。
+          <L
+            zh={<>把模糊的长期目标交给规划器工作区，自动拆成带依赖的任务树、调度虫群执行并追踪验收。
+              先安装<b>规划核心服务</b>，再在项目目录里用 <code>/swarm-add-planner</code> 注册。</>}
+            en={<>Hand a fuzzy long-term goal to a planner workspace: it breaks it into a dependency-aware task tree, dispatches the swarm and tracks acceptance.
+              First install the <b>planning core service</b>, then register from the project directory with <code>/swarm-add-planner</code>.</>}
+          />
         </p>
         {installPanel}
       </div>
@@ -5225,16 +5243,20 @@ function PlannerPage({ toast }: { toast: (m: string) => void }) {
 
   return (
     <div>
-      <h1 className="page-title">规划器</h1>
+      <h1 className="page-title">{t("规划器", "Planner")}</h1>
       <p className="page-sub">
-        管理<b>规划器工作区</b>的目标与任务树：新建 / 编辑目标、审批拆解、催促 agent、
-        人工验收。数据由规划核心服务经控制通道推回，操作实时下发。
+        <L
+          zh={<>管理<b>规划器工作区</b>的目标与任务树：新建 / 编辑目标、审批拆解、催促 agent、
+            人工验收。数据由规划核心服务经控制通道推回，操作实时下发。</>}
+          en={<>Manage the goals and task tree of a <b>planner workspace</b>: create / edit goals, approve decompositions, nudge the agent,
+            and accept manually. Data is pushed back by the planning core service over the control channel; operations are sent in real time.</>}
+        />
       </p>
       <div className="nexus-picker" style={{ marginBottom: 12 }}>
         <NexusWorkspaceSelect list={list} value={selected} onChange={setSelected} showOwner />
         {selected && (
           <span className={`nexus-head-status ${online ? "on" : "off"}`}
-            title={online ? "规划核心服务已连接" : "规划核心服务未连接"}>
+            title={online ? t("规划核心服务已连接", "Planning core service connected") : t("规划核心服务未连接", "Planning core service offline")}>
             {online ? "● online" : "○ offline"}
           </span>
         )}
@@ -5243,13 +5265,14 @@ function PlannerPage({ toast }: { toast: (m: string) => void }) {
       {selected && !state?.updated_at && (
         <p style={{ color: "var(--text-weak)" }}>
           {online
-            ? "规划核心服务已连接，等待首个状态快照…"
-            : "规划核心服务未连接 — 启动它后这里会显示目标与任务树。"}
+            ? t("规划核心服务已连接，等待首个状态快照…", "Planning core service connected; waiting for the first state snapshot…")
+            : t("规划核心服务未连接 — 启动它后这里会显示目标与任务树。", "Planning core service offline — start it and the goals and task tree will appear here.")}
         </p>
       )}
       {selected && state?.updated_at && !online && (
         <p style={{ color: "var(--text-weak)" }}>
-          规划核心服务未连接 — 以下是最近一次快照（{fmtTime(state.updated_at, "datetime")}），启动后会自动刷新。
+          {t(`规划核心服务未连接 — 以下是最近一次快照（${fmtTime(state.updated_at, "datetime")}），启动后会自动刷新。`,
+            `Planning core service offline — the following is the last snapshot (${fmtTime(state.updated_at, "datetime")}); it will refresh automatically once started.`)}
         </p>
       )}
 
@@ -5258,30 +5281,30 @@ function PlannerPage({ toast }: { toast: (m: string) => void }) {
           <h3 className="planner-h3" style={{ margin: "8px 0", justifyContent: "space-between" }}>
             <span className="planner-h3-title">
               <TrophyIcon />
-              目标
+              {t("目标", "Goals")}
             </span>
             <span style={{ display: "inline-flex", alignItems: "center", gap: 12 }}>
               <label
                 style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 12, color: "var(--text-weak)", cursor: "pointer", fontWeight: 400 }}
-                title="默认不显示已归档目标；取消勾选可查看并激活/删除"
+                title={t("默认不显示已归档目标；取消勾选可查看并激活/删除", "Archived goals are hidden by default; uncheck to view, activate or delete")}
               >
                 <input type="checkbox" checked={hideArchived} onChange={(e) => setHideArchived(e.target.checked)} />
-                隐藏已归档目标
+                {t("隐藏已归档目标", "Hide archived goals")}
               </label>
-              <ActionBtn icon={<PlusIcon />} onClick={openCreate} disabled={!online} title="新建目标">
-                新建目标
+              <ActionBtn icon={<PlusIcon />} onClick={openCreate} disabled={!online} title={t("新建目标", "Create goal")}>
+                {t("新建目标", "Create goal")}
               </ActionBtn>
             </span>
           </h3>
           <table className="grid">
             <thead>
               <tr>
-                <th>标题</th>
-                <th style={{ width: 170 }}>状态</th>
-                <th style={{ width: 90 }}>优先级</th>
-                <th style={{ width: 120 }}>截止</th>
-                <th style={{ width: 70 }}>进度</th>
-                <th style={{ width: 520 }}>操作</th>
+                <th>{t("标题", "Title")}</th>
+                <th style={{ width: 170 }}>{t("状态", "Status")}</th>
+                <th style={{ width: 90 }}>{t("优先级", "Priority")}</th>
+                <th style={{ width: 120 }}>{t("截止", "Deadline")}</th>
+                <th style={{ width: 70 }}>{t("进度", "Progress")}</th>
+                <th style={{ width: 520 }}>{t("操作", "Actions")}</th>
               </tr>
             </thead>
             <tbody>
@@ -5292,9 +5315,9 @@ function PlannerPage({ toast }: { toast: (m: string) => void }) {
                     <a className="link">{g.title}</a>
                     {g.expert_workspace_id ? (
                       <div style={{ fontSize: 12, color: "var(--text-weak)" }} title={g.expert_workspace_id}>
-                        专家：
+                        {t("专家：", "Expert: ")}
                         {g.expert_workspace_id === selected ? (
-                          <span className="status-pill pending" style={{ marginLeft: 2 }}>本工作区（自评审）</span>
+                          <span className="status-pill pending" style={{ marginLeft: 2 }}>{t("本工作区（自评审）", "this workspace (self-review)")}</span>
                         ) : expertLabel(g)}
                       </div>
                     ) : null}
@@ -5303,46 +5326,46 @@ function PlannerPage({ toast }: { toast: (m: string) => void }) {
                     <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
                       <span
                         className={`status-pill ${g.status === "active" ? "active" : g.status === "archived" ? "archived" : (g.status || "")}`}
-                        title="目标状态"
+                        title={t("目标状态", "Goal status")}
                       >
                         {goalStatusLabel(g.status)}
                       </span>
                       {(g.plan_status || "draft") === "approved" ? (
-                        <span className="status-pill done" title="拆解已通过，agent 可开始派发">已通过</span>
+                        <span className="status-pill done" title={t("拆解已通过，agent 可开始派发", "Decomposition approved; the agent can start dispatching")}>{t("已通过", "approved")}</span>
                       ) : (
-                        <span className="status-pill pending" title="拆解待审批，通过后 agent 才会派发">草稿</span>
+                        <span className="status-pill pending" title={t("拆解待审批，通过后 agent 才会派发", "Decomposition pending approval; the agent dispatches only after approval")}>{t("草稿", "draft")}</span>
                       )}
                       {g.criteria_confirmed === 1 ? (
-                        <span className="status-pill done" title="成功标准已由专家确认">专家已确认</span>
+                        <span className="status-pill done" title={t("成功标准已由专家确认", "Success criteria confirmed by the expert")}>{t("专家已确认", "expert-confirmed")}</span>
                       ) : (
-                        <span className="status-pill pending" title="成功标准待专家确认">待专家确认</span>
+                        <span className="status-pill pending" title={t("成功标准待专家确认", "Success criteria pending expert confirmation")}>{t("待专家确认", "awaiting expert")}</span>
                       )}
                     </div>
                   </td>
                   <td>{priorityLabel(g.priority)}</td>
-                  <td style={{ fontSize: 12, color: "var(--text-weak)" }}>{g.deadline || "无截止"}</td>
+                  <td style={{ fontSize: 12, color: "var(--text-weak)" }}>{g.deadline || t("无截止", "no deadline")}</td>
                   <td style={{ fontSize: 12 }}>{g.progress ? `${g.progress.done}/${g.progress.total}` : "-"}</td>
                   <td onClick={(e) => e.stopPropagation()} style={{ whiteSpace: "nowrap" }}>
                     <div style={{ display: "flex", gap: 4, flexWrap: "nowrap" }}>
-                      <ActionBtn icon={<BoltIcon />} disabled={busy || !online} title="催促规划器 agent 决策"
-                        onClick={() => runOp("goal.nudge", { goal_id: g.id }, "已催促规划器")}>催促</ActionBtn>
+                      <ActionBtn icon={<BoltIcon />} disabled={busy || !online} title={t("催促规划器 agent 决策", "Nudge the planner agent to decide")}
+                        onClick={() => runOp("goal.nudge", { goal_id: g.id }, t("已催促规划器", "Planner nudged"))}>{t("催促", "Nudge")}</ActionBtn>
                       {(g.plan_status || "draft") === "draft" && (
-                        <ActionBtn icon={<CheckIcon />} disabled={busy || !online} title="审批通过拆解，通知 agent 开始派发"
-                          onClick={() => runOp("plan.approve", { goal_id: g.id }, "已通过拆解")}>通过拆解</ActionBtn>
+                        <ActionBtn icon={<CheckIcon />} disabled={busy || !online} title={t("审批通过拆解，通知 agent 开始派发", "Approve the decomposition and tell the agent to start dispatching")}
+                          onClick={() => runOp("plan.approve", { goal_id: g.id }, t("已通过拆解", "Decomposition approved"))}>{t("通过拆解", "Approve plan")}</ActionBtn>
                       )}
-                      <ActionBtn icon={<RefreshIcon />} disabled={busy || !online} title="要求重新拆解"
-                        onClick={() => { setNoteText(""); setNoteModal({ op: "plan.revise", goalId: g.id, label: "重新拆解" }) }}>重新拆解</ActionBtn>
-                      <ActionBtn icon={<PencilIcon />} disabled={busy || !online} title="编辑目标"
-                        onClick={() => openEdit(g)}>编辑</ActionBtn>
+                      <ActionBtn icon={<RefreshIcon />} disabled={busy || !online} title={t("要求重新拆解", "Ask for re-decomposition")}
+                        onClick={() => { setNoteText(""); setNoteModal({ op: "plan.revise", goalId: g.id, label: t("重新拆解", "Re-decompose") }) }}>{t("重新拆解", "Re-decompose")}</ActionBtn>
+                      <ActionBtn icon={<PencilIcon />} disabled={busy || !online} title={t("编辑目标", "Edit goal")}
+                        onClick={() => openEdit(g)}>{t("编辑", "Edit")}</ActionBtn>
                       {g.status === "archived" ? (
-                        <ActionBtn icon={<RefreshIcon />} disabled={busy || !online} title="恢复已归档目标为 active"
-                          onClick={() => runOp("goal.activate", { goal_id: g.id }, "目标已激活")}>激活</ActionBtn>
+                        <ActionBtn icon={<RefreshIcon />} disabled={busy || !online} title={t("恢复已归档目标为 active", "Restore the archived goal to active")}
+                          onClick={() => runOp("goal.activate", { goal_id: g.id }, t("目标已激活", "Goal activated"))}>{t("激活", "Activate")}</ActionBtn>
                       ) : (
-                        <ActionBtn icon={<ArchiveIcon />} disabled={busy || !online} title="归档：软隐藏，保留数据、不参与调度，可再「激活」恢复"
-                          onClick={() => runOp("goal.archive", { goal_id: g.id }, "目标已归档")}>归档</ActionBtn>
+                        <ActionBtn icon={<ArchiveIcon />} disabled={busy || !online} title={t("归档：软隐藏，保留数据、不参与调度，可再「激活」恢复", "Archive: soft-hide, keep the data and remove from scheduling; restore any time with Activate")}
+                          onClick={() => runOp("goal.archive", { goal_id: g.id }, t("目标已归档", "Goal archived"))}>{t("归档", "Archive")}</ActionBtn>
                       )}
-                      <ActionBtn icon={<TrashIcon size={14} />} danger disabled={busy || !online} title="删除目标：不可恢复，连同任务树/执行记录一起删除"
-                        onClick={() => setDelGoal(g)}>删除</ActionBtn>
+                      <ActionBtn icon={<TrashIcon size={14} />} danger disabled={busy || !online} title={t("删除目标：不可恢复，连同任务树/执行记录一起删除", "Delete goal: irreversible; the task tree and execution records are deleted too")}
+                        onClick={() => setDelGoal(g)}>{t("删除", "Delete")}</ActionBtn>
                     </div>
                   </td>
                 </tr>
@@ -5350,8 +5373,8 @@ function PlannerPage({ toast }: { toast: (m: string) => void }) {
               {!visibleGoals.length && (
                 <tr><td colSpan={6} style={{ color: "var(--text-weak)", textAlign: "center", padding: 32 }}>
                   {goals.length && hideArchived
-                    ? "[*] 目标都已归档 — 取消勾选「隐藏已归档目标」可查看 / 激活"
-                    : "[*] 暂无目标 — 点「新建目标」"}
+                    ? t("[*] 目标都已归档 — 取消勾选「隐藏已归档目标」可查看 / 激活", "[*] All goals are archived — uncheck \"Hide archived goals\" to view / activate")
+                    : t("[*] 暂无目标 — 点「新建目标」", "[*] No goals yet — click \"Create goal\"")}
                 </td></tr>
               )}
             </tbody>
@@ -5361,71 +5384,71 @@ function PlannerPage({ toast }: { toast: (m: string) => void }) {
             <>
               <h3 className="planner-h3" style={{ margin: "20px 0 8px" }}>
                 <NotebookIcon />
-                任务树：{goal.title}
+                {t("任务树：", "Task tree: ")}{goal.title}
               </h3>
               {(goal.plan_status || "draft") === "draft" && (
                 <p style={{ color: "var(--text-weak)", fontSize: 13, margin: "0 0 8px" }}>
-                  待审批：通过拆解后 agent 才会开始派发任务。
+                  {t("待审批：通过拆解后 agent 才会开始派发任务。", "Pending approval: the agent starts dispatching tasks only after the decomposition is approved.")}
                 </p>
               )}
               <table className="grid">
                 <thead>
                   <tr>
-                    <th>任务</th>
-                    <th style={{ width: 110 }}>状态</th>
-                    <th style={{ width: 160 }}>依赖</th>
-                    <th style={{ width: 140 }}>执行 agent</th>
-                    <th style={{ width: 90 }}>验收</th>
-                    <th style={{ width: 150 }}>操作</th>
+                    <th>{t("任务", "Task")}</th>
+                    <th style={{ width: 110 }}>{t("状态", "Status")}</th>
+                    <th style={{ width: 160 }}>{t("依赖", "Dependencies")}</th>
+                    <th style={{ width: 140 }}>{t("执行 agent", "Agent")}</th>
+                    <th style={{ width: 90 }}>{t("验收", "Acceptance")}</th>
+                    <th style={{ width: 150 }}>{t("操作", "Actions")}</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {treeRows.map(({ task: t, depth, hasChildren }) => (
-                    <tr key={t.id}>
+                  {treeRows.map(({ task, depth, hasChildren }) => (
+                    <tr key={task.id}>
                       <td>
                         <div style={{ paddingLeft: depth * 18, display: "flex", alignItems: "center", gap: 2 }}>
                           {hasChildren ? (
                             <button
-                              className={`tree-toggle${collapsed.has(t.id) ? " collapsed" : ""}`}
-                              title={collapsed.has(t.id) ? "展开子任务" : "折叠子任务"}
+                              className={`tree-toggle${collapsed.has(task.id) ? " collapsed" : ""}`}
+                              title={collapsed.has(task.id) ? t("展开子任务", "Expand subtasks") : t("折叠子任务", "Collapse subtasks")}
                               onClick={() => setCollapsed((prev) => {
                                 const n = new Set(prev)
-                                if (n.has(t.id)) n.delete(t.id); else n.add(t.id)
+                                if (n.has(task.id)) n.delete(task.id); else n.add(task.id)
                                 return n
                               })}
                             >
                               <ChevronIcon size={16} />
                             </button>
                           ) : <span className="tree-toggle-placeholder" />}
-                          <a className="link" title="查看任务详情" onClick={() => setTaskDetail(t)}>{t.title}</a>
+                          <a className="link" title={t("查看任务详情", "View task details")} onClick={() => setTaskDetail(task)}>{task.title}</a>
                         </div>
                       </td>
-                      <td><span className={pill(t.status)}>{statusLabel(t.status)}</span></td>
+                      <td><span className={pill(task.status)}>{statusLabel(task.status)}</span></td>
                       <td style={{ fontSize: 12, color: "var(--text-weak)" }}>
-                        {(t.depends_on ?? []).map((d) => taskTitle[d] || d).join("、") || "-"}
+                        {(task.depends_on ?? []).map((d) => taskTitle[d] || d).join(t("、", ", ")) || "-"}
                       </td>
-                      <td style={{ fontSize: 12, color: "var(--text-weak)" }} title={t.assigned_agent || undefined}>
-                        {t.assigned_agent ? (wsName[t.assigned_agent] || t.assigned_agent) : "-"}
+                      <td style={{ fontSize: 12, color: "var(--text-weak)" }} title={task.assigned_agent || undefined}>
+                        {task.assigned_agent ? (wsName[task.assigned_agent] || task.assigned_agent) : "-"}
                       </td>
                       <td style={{ fontSize: 12, color: "var(--text-weak)" }}>
-                        {t.acceptance_type === "expert" ? (
-                          <span className="status-pill accepted" title="专家验收点：由 planner agent 汇总情况请专家裁决，平台不介入">专家验收点</span>
-                        ) : (t.acceptance_type ? acceptanceLabel(t.acceptance_type) : "-")}
+                        {task.acceptance_type === "expert" ? (
+                          <span className="status-pill accepted" title={t("专家验收点：由 planner agent 汇总情况请专家裁决，平台不介入", "Expert acceptance point: the planner agent summarizes and asks the expert to decide; the platform is not involved")}>{t("专家验收点", "expert acceptance point")}</span>
+                        ) : (task.acceptance_type ? acceptanceLabel(task.acceptance_type) : "-")}
                       </td>
                       <td>
-                        {t.acceptance_type === "manual" && t.status !== "done" ? (
+                        {task.acceptance_type === "manual" && task.status !== "done" ? (
                           <div style={{ display: "flex", gap: 4 }}>
-                            <ActionBtn icon={<CheckIcon />} disabled={busy || !online} title="人工验收通过"
-                              onClick={() => runOp("task.accept", { task_id: t.id }, "已验收通过")}>通过</ActionBtn>
-                            <ActionBtn icon={<XIcon />} danger disabled={busy || !online} title="人工验收拒绝"
-                              onClick={() => { setNoteText(""); setNoteModal({ op: "task.reject", taskId: t.id, label: "验收拒绝" }) }}>拒绝</ActionBtn>
+                            <ActionBtn icon={<CheckIcon />} disabled={busy || !online} title={t("人工验收通过", "Accept manually")}
+                              onClick={() => runOp("task.accept", { task_id: task.id }, t("已验收通过", "Acceptance approved"))}>{t("通过", "Approve")}</ActionBtn>
+                            <ActionBtn icon={<XIcon />} danger disabled={busy || !online} title={t("人工验收拒绝", "Reject manually")}
+                              onClick={() => { setNoteText(""); setNoteModal({ op: "task.reject", taskId: task.id, label: t("验收拒绝", "Reject acceptance") }) }}>{t("拒绝", "Reject")}</ActionBtn>
                           </div>
                         ) : <span style={{ color: "var(--text-weak)", fontSize: 12 }}>—</span>}
                       </td>
                     </tr>
                   ))}
                   {!goalTasks.length && (
-                    <tr><td colSpan={6} style={{ color: "var(--text-weak)", textAlign: "center", padding: 24 }}>[*] 该目标暂无任务</td></tr>
+                    <tr><td colSpan={6} style={{ color: "var(--text-weak)", textAlign: "center", padding: 24 }}>{t("[*] 该目标暂无任务", "[*] This goal has no tasks yet")}</td></tr>
                   )}
                 </tbody>
               </table>
@@ -5435,41 +5458,41 @@ function PlannerPage({ toast }: { toast: (m: string) => void }) {
       )}
 
       {form && (
-        <Modal wide title={form.goal ? "编辑目标" : "新建目标"} onClose={() => setForm(null)}>
+        <Modal wide title={form.goal ? t("编辑目标", "Edit goal") : t("新建目标", "Create goal")} onClose={() => setForm(null)}>
           <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 4 }}>
             <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-              标题 *
-              <input className="field" value={fTitle} onChange={(e) => setFTitle(e.target.value)} placeholder="例如：重构鉴权模块" />
+              {t("标题 *", "Title *")}
+              <input className="field" value={fTitle} onChange={(e) => setFTitle(e.target.value)} placeholder={t("例如：重构鉴权模块", "e.g. Refactor the auth module")} />
             </label>
             <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-              描述
+              {t("描述", "Description")}
               <textarea className="field" rows={3} value={fDesc} onChange={(e) => setFDesc(e.target.value)} />
             </label>
             <div style={{ display: "flex", gap: 10 }}>
               <label style={{ display: "flex", flexDirection: "column", gap: 4, flex: 1 }}>
-                优先级
+                {t("优先级", "Priority")}
                 <select className="field" value={fPriority} onChange={(e) => setFPriority(e.target.value)}>
-                  <option value="2">高</option>
-                  <option value="1">中</option>
-                  <option value="0">低</option>
+                  <option value="2">{t("高", "High")}</option>
+                  <option value="1">{t("中", "Medium")}</option>
+                  <option value="0">{t("低", "Low")}</option>
                 </select>
               </label>
               <label style={{ display: "flex", flexDirection: "column", gap: 4, flex: 1 }}>
-                截止（可选）
-                <input className="field" value={fDeadline} onChange={(e) => setFDeadline(e.target.value)} placeholder="不填则无截止" />
+                {t("截止（可选）", "Deadline (optional)")}
+                <input className="field" value={fDeadline} onChange={(e) => setFDeadline(e.target.value)} placeholder={t("不填则无截止", "leave empty for no deadline")} />
               </label>
             </div>
             {form.goal ? (
               <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                成功标准
+                {t("成功标准", "Success criteria")}
                 <textarea className="field" rows={2} value={fCriteria} onChange={(e) => setFCriteria(e.target.value)} />
                 <span style={{ fontSize: 12, color: "var(--text-weak)" }}>
-                  成功标准由专家确认；此处人工修改后徽标会回到「待专家确认」。
+                  {t("成功标准由专家确认；此处人工修改后徽标会回到「待专家确认」。", "Success criteria are confirmed by the expert; editing them here resets the badge to \"awaiting expert\".")}
                 </span>
               </label>
             ) : null}
             <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-              专家工作区（可选）
+              {t("专家工作区（可选）", "Expert workspace (optional)")}
               <NexusWorkspaceSelect
                 list={expertOptions}
                 value={fExpert}
@@ -5478,14 +5501,14 @@ function PlannerPage({ toast }: { toast: (m: string) => void }) {
               />
               <span style={{ fontSize: 12, color: "var(--text-weak)" }}>
                 {fExpert && fExpert === selected
-                  ? "专家 = 当前 planner 工作区自身 → 自评审：planner agent 自行拆解，不走 A2A。"
-                  : "指定后由该专家拆解任务树并设专家验收点；留空 = 无专家（编辑时清空可移除专家）。"}
+                  ? t("专家 = 当前 planner 工作区自身 → 自评审：planner agent 自行拆解，不走 A2A。", "Expert = the planner workspace itself → self-review: the planner agent decomposes on its own, with no A2A.")
+                  : t("指定后由该专家拆解任务树并设专家验收点；留空 = 无专家（编辑时清空可移除专家）。", "Once set, that expert decomposes the task tree and defines expert acceptance points; empty = no expert (clear it while editing to remove).")}
               </span>
             </label>
           </div>
           <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
-            <Btn size="sm" variant="ghost" onClick={() => setForm(null)}>取消</Btn>
-            <Btn size="sm" disabled={busy || !online} onClick={submitForm}>{form.goal ? "保存" : "创建"}</Btn>
+            <Btn size="sm" variant="ghost" onClick={() => setForm(null)}>{t("取消", "Cancel")}</Btn>
+            <Btn size="sm" disabled={busy || !online} onClick={submitForm}>{form.goal ? t("保存", "Save") : t("创建", "Create")}</Btn>
           </div>
         </Modal>
       )}
@@ -5493,56 +5516,60 @@ function PlannerPage({ toast }: { toast: (m: string) => void }) {
       {noteModal && (
         <Modal title={noteModal.label} onClose={() => setNoteModal(null)}>
           <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            {noteModal.op === "plan.revise" ? "重新拆解说明（可选）" : "拒绝原因（可选）"}
+            {noteModal.op === "plan.revise" ? t("重新拆解说明（可选）", "Re-decomposition note (optional)") : t("拒绝原因（可选）", "Reason for rejection (optional)")}
             <textarea className="field" rows={3} value={noteText} onChange={(e) => setNoteText(e.target.value)} />
           </label>
           <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
-            <Btn size="sm" variant="ghost" onClick={() => setNoteModal(null)}>取消</Btn>
-            <Btn size="sm" variant={noteModal.op === "task.reject" ? "danger" : "primary"} disabled={busy || !online} onClick={submitNote}>确认</Btn>
+            <Btn size="sm" variant="ghost" onClick={() => setNoteModal(null)}>{t("取消", "Cancel")}</Btn>
+            <Btn size="sm" variant={noteModal.op === "task.reject" ? "danger" : "primary"} disabled={busy || !online} onClick={submitNote}>{t("确认", "Confirm")}</Btn>
           </div>
         </Modal>
       )}
 
       {delGoal && (
-        <Modal title={`删除目标「${delGoal.title}」？`} onClose={() => setDelGoal(null)}>
+        <Modal title={t(`删除目标「${delGoal.title}」？`, `Delete goal "${delGoal.title}"?`)} onClose={() => setDelGoal(null)}>
           <p style={{ margin: 0, color: "var(--text-weak)", fontSize: 14 }}>
-            删除<b style={{ color: "#d1242f" }}>不可恢复</b>，将连同该目标的<b>任务树 / 执行记录</b>一起删除。
-            若只是想隐藏、保留数据，请改用「归档」（可随时用「激活」恢复）。
+            <L
+              zh={<>删除<b style={{ color: "#d1242f" }}>不可恢复</b>，将连同该目标的<b>任务树 / 执行记录</b>一起删除。
+                若只是想隐藏、保留数据，请改用「归档」（可随时用「激活」恢复）。</>}
+              en={<>Deletion is <b style={{ color: "#d1242f" }}>irreversible</b> and also removes the goal's <b>task tree / execution records</b>.
+                To just hide it and keep the data, use "Archive" instead (restore any time with "Activate").</>}
+            />
           </p>
           <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
-            <Btn size="sm" variant="ghost" onClick={() => setDelGoal(null)}>取消</Btn>
+            <Btn size="sm" variant="ghost" onClick={() => setDelGoal(null)}>{t("取消", "Cancel")}</Btn>
             <Btn
               size="sm"
               variant="danger"
               disabled={busy || !online}
               onClick={() => {
-                runOp("goal.delete", { goal_id: delGoal.id }, "目标已删除")
+                runOp("goal.delete", { goal_id: delGoal.id }, t("目标已删除", "Goal deleted"))
                 setGoalId("")  // 清空选中；刷新后自动落到剩余第一个目标
                 setDelGoal(null)
               }}
             >
-              确认删除
+              {t("确认删除", "Confirm delete")}
             </Btn>
           </div>
         </Modal>
       )}
 
       {taskDetail && (
-        <Modal wide title={`任务：${taskDetail.title}`} onClose={() => setTaskDetail(null)}>
+        <Modal wide title={`${t("任务：", "Task: ")}${taskDetail.title}`} onClose={() => setTaskDetail(null)}>
           <dl className="dl">
-            <dt>状态</dt>
+            <dt>{t("状态", "Status")}</dt>
             <dd><span className={pill(taskDetail.status)}>{statusLabel(taskDetail.status)}</span></dd>
-            <dt>所属目标</dt>
+            <dt>{t("所属目标", "Goal")}</dt>
             <dd>{goals.find((g) => g.id === taskDetail.goal_id)?.title || taskDetail.goal_id || "-"}</dd>
-            <dt>描述</dt><dd>{taskDetail.description || "-"}</dd>
-            <dt>依赖</dt>
-            <dd>{(taskDetail.depends_on ?? []).map((d) => taskTitle[d] || d).join("、") || "-"}</dd>
-            <dt>建议执行 agent</dt><dd title={taskDetail.suggested_agent || undefined}>{agentName(taskDetail.suggested_agent)}</dd>
+            <dt>{t("描述", "Description")}</dt><dd>{taskDetail.description || "-"}</dd>
+            <dt>{t("依赖", "Dependencies")}</dt>
+            <dd>{(taskDetail.depends_on ?? []).map((d) => taskTitle[d] || d).join(t("、", ", ")) || "-"}</dd>
+            <dt>{t("建议执行 agent", "Suggested agent")}</dt><dd title={taskDetail.suggested_agent || undefined}>{agentName(taskDetail.suggested_agent)}</dd>
             {/* 核心服务暂无「实际执行 agent」独立字段（只有 assigned_agent 建议值）；留位显示 -，待其补字段后再填 */}
-            <dt>实际执行 agent</dt><dd>-</dd>
-            <dt>验收类型</dt><dd>{acceptanceLabel(taskDetail.acceptance_type)}</dd>
-            <dt>验收结果</dt><dd>{taskDetail.acceptance_result || "-"}</dd>
-            <dt>更新时间</dt><dd>{fmtTime(taskDetail.updated_at, "datetime")}</dd>
+            <dt>{t("实际执行 agent", "Actual agent")}</dt><dd>-</dd>
+            <dt>{t("验收类型", "Acceptance type")}</dt><dd>{acceptanceLabel(taskDetail.acceptance_type)}</dd>
+            <dt>{t("验收结果", "Acceptance result")}</dt><dd>{taskDetail.acceptance_result || "-"}</dd>
+            <dt>{t("更新时间", "Updated")}</dt><dd>{fmtTime(taskDetail.updated_at, "datetime")}</dd>
           </dl>
         </Modal>
       )}
