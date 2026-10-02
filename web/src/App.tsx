@@ -2084,7 +2084,7 @@ agent: (a2a_call) → 对方 TUI 实时出现任务 → 执行 → 结果自动�
           <ul>
             <li><b>目标</b>：新建 / 编辑 / 归档（标题、描述、优先级、截止、成功标准），列表显示状态、拆解审批徽标与进度</li>
             <li><b>任务树</b>：选中目标后按依赖层级折叠 / 展开展示任务（状态 / 依赖 / 执行 agent / 验收）</li>
-            <li><b>操作</b>：<code>催促</code>（让 agent 干活）、<code>通过拆解</code>（仅拆解状态为 <code>draft</code> 时出现）/ <code>重新拆解</code>（审批计划）、<code>通过</code> / <code>拒绝</code>（人工验收）、<code>归档</code>（<b>软隐藏</b>，保留数据、不参与调度，可 <code>激活</code> 恢复）/ <code>删除</code>（<b>硬删除，二次确认，不可恢复</b>，连同任务树 / 执行记录一起删除）；离线时全部禁用</li>
+            <li><b>操作</b>：<code>催促</code>（让 agent 干活）、<code>通过拆解</code>（仅拆解状态为 <code>draft</code> 时出现）/ <code>重新拆解</code>（审批计划）、<code>通过</code> / <code>拒绝</code>（人工验收）、<code>归档</code>（<b>软隐藏</b>，保留数据、不参与调度，可 <code>激活</code> 恢复）/ <code>删除</code>（<b>硬删除，二次确认，不可恢复</b>，连同任务树 / 执行记录一起删除）；离线时全部禁用。目标列表上方有「隐藏已归档目标」复选框（默认勾选、cookie 记忆），取消勾选即可查看归档目标并「激活」/「删除」</li>
             <li><b>拆解审批</b>：目标的 <code>plan_status</code> 为 <code>draft</code>（草稿，待审批）/ <code>approved</code>（已通过）；draft 时任务树提示「待审批，通过后 agent 才会开始派发」，点 <code>通过拆解</code> 后才开始派发</li>
             <li><b>专家工作区</b>：新建 / 编辑目标时都可选一个专家工作区（自有 + 团队共享，排除当前 planner 自身；清空可移除专家）；指定后由该专家拆解任务树并设<b>专家验收点</b>（<code>acceptance_type=expert</code>，状态 <code>waiting_expert</code> 显示「待专家验收」）。验收类型文案：<code>auto</code>「自动验收」/ <code>manual</code>「人工验收」/ <code>expert</code>「专家验收点」；人工「通过 / 拒绝」按钮<b>仅</b> <code>manual</code> 任务显示，专家验收点由 planner agent 汇总后自动裁决、平台不介入</li>
           </ul>
@@ -4368,6 +4368,14 @@ function PlannerPage({ toast }: { toast: (m: string) => void }) {
   const [busy, setBusy] = useState(false)
   /** 待硬删除的目标（二次确认用） */
   const [delGoal, setDelGoal] = useState<PlannerGoal | null>(null)
+  /** 是否隐藏已归档目标（默认隐藏；cookie 记忆，30 天） */
+  const [hideArchived, setHideArchived] = useState<boolean>(() => {
+    const m = document.cookie.match(/(?:^|;\s*)swarm_planner_hide_archived=([^;]*)/)
+    return m ? m[1] !== "0" : true
+  })
+  useEffect(() => {
+    document.cookie = `swarm_planner_hide_archived=${hideArchived ? "1" : "0"}; max-age=${60 * 60 * 24 * 30}; path=/; SameSite=Lax`
+  }, [hideArchived])
   /** 任务树里被折叠的节点 id 集合 */
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
   /** 工作区 id → 名字（把任务的 assigned_agent 显示成名字而非 id） */
@@ -4430,12 +4438,12 @@ function PlannerPage({ toast }: { toast: (m: string) => void }) {
     return () => clearInterval(t)
   }, [loadState])
 
-  // 默认选中第一个目标
+  // 默认选中第一个「可见」目标（隐藏归档时归档目标不参与默认选中）
   useEffect(() => {
-    if (state && state.goals.length && !state.goals.some((g) => g.id === goalId)) {
-      setGoalId(state.goals[0].id)
-    }
-  }, [state, goalId])
+    if (!state) return
+    const vis = hideArchived ? state.goals.filter((g) => g.status !== "archived") : state.goals
+    if (vis.length && !vis.some((g) => g.id === goalId)) setGoalId(vis[0].id)
+  }, [state, goalId, hideArchived])
 
   /** 下发操作：POST /api/planner/{wid}/op；成功后稍后刷新快照（回执经同一通道到达） */
   const runOp = async (op: string, payload: Record<string, unknown>, okMsg: string) => {
@@ -4489,7 +4497,9 @@ function PlannerPage({ toast }: { toast: (m: string) => void }) {
   }
 
   const goals = state?.goals ?? []
-  const goal = goals.find((g) => g.id === goalId)
+  // 默认隐藏已归档目标（checkbox 控制）；归档目标取消勾选后才显示，可对其「激活」/「删除」
+  const visibleGoals = hideArchived ? goals.filter((g) => g.status !== "archived") : goals
+  const goal = visibleGoals.find((g) => g.id === goalId)
   const goalTasks = (state?.tasks ?? []).filter((t) => t.goal_id === goalId)
   // 任务 id → 标题（依赖列显示任务名字而非 id）
   const taskTitle: Record<string, string> = {}
@@ -4592,9 +4602,18 @@ function PlannerPage({ toast }: { toast: (m: string) => void }) {
               <TrophyIcon />
               目标
             </span>
-            <ActionBtn icon={<PlusIcon />} onClick={openCreate} disabled={!online} title="新建目标">
-              新建目标
-            </ActionBtn>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 12 }}>
+              <label
+                style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 12, color: "var(--text-weak)", cursor: "pointer", fontWeight: 400 }}
+                title="默认不显示已归档目标；取消勾选可查看并激活/删除"
+              >
+                <input type="checkbox" checked={hideArchived} onChange={(e) => setHideArchived(e.target.checked)} />
+                隐藏已归档目标
+              </label>
+              <ActionBtn icon={<PlusIcon />} onClick={openCreate} disabled={!online} title="新建目标">
+                新建目标
+              </ActionBtn>
+            </span>
           </h3>
           <table className="grid">
             <thead>
@@ -4609,7 +4628,7 @@ function PlannerPage({ toast }: { toast: (m: string) => void }) {
               </tr>
             </thead>
             <tbody>
-              {goals.map((g) => (
+              {visibleGoals.map((g) => (
                 <tr key={g.id} className={g.id === goalId ? "planner-row-active" : ""}
                   onClick={() => setGoalId(g.id)}>
                   <td className="strong">
@@ -4657,9 +4676,11 @@ function PlannerPage({ toast }: { toast: (m: string) => void }) {
                   </td>
                 </tr>
               ))}
-              {!goals.length && (
+              {!visibleGoals.length && (
                 <tr><td colSpan={7} style={{ color: "var(--text-weak)", textAlign: "center", padding: 32 }}>
-                  [*] 暂无目标 — 点「新建目标」
+                  {goals.length && hideArchived
+                    ? "[*] 目标都已归档 — 取消勾选「隐藏已归档目标」可查看 / 激活"
+                    : "[*] 暂无目标 — 点「新建目标」"}
                 </td></tr>
               )}
             </tbody>

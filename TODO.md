@@ -149,6 +149,7 @@
 - [x] 目标列表「归档 / 激活」按 `goals[].status` 切换（active→归档，archived→激活）；归档按钮文案注明可激活恢复
 - [x] 「删除」按钮 + **二次确认 Modal**（文案：不可恢复、连同任务树/执行记录删除、想隐藏请用归档）；确认后发 `goal.delete`、清空选中
 - [x] 操作列宽度 430→520（多一个按钮，保持一行）
+- [x] 「隐藏已归档目标」复选框（**默认勾选**，cookie `swarm_planner_hide_archived` 记忆 30 天）：勾选时不显示 `status=archived` 目标（新建默认可见、归档后从默认视图消失），取消勾选可查看并「激活」/「删除」
 - [x] 测试 `test_planner_goal_lifecycle_ops`（archive/activate/delete 三个 op 原样下发）；全套 93 例通过、web build 通过
 - [x] 文档：requirements §15、README/README_CN、web 文档页、AGENTS.md
 
