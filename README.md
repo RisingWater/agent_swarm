@@ -199,6 +199,8 @@ Team activity — invites, join requests/approvals, members joining, being remov
 
 A workspace can carry a `role` (`agent` by default / `planner`). Set it when registering (`workspace_add(role="planner")`), change it later (`update_info(role=...)`), or via REST `POST /api/workspaces/{id}/role` (owner only). The role is independent of `agent_type` and never affects permission/question routing. The read-only **Planner** page lists planner workspaces, subscribes to the selected one's `/ws/nexus` stream, and shows the A2A tasks it received and its latest result artifact (markdown). First increment is read-only — no goal creation / approval / acceptance yet.
 
+**How to register a planner workspace**: in the target project's agent conversation, run **`/swarm-add-planner`** — supported by all three harnesses (opencode, claude code, deepseek/dsh). It follows the same flow as `/swarm-add` but passes `role="planner"` to `workspace_add`. Re-running it on an already-registered workspace flips `role` to `planner` (upsert by path). `/swarm-add` itself is unchanged and takes no arguments. For scripted dsh registration, `node register.mjs ... --role planner`.
+
 ## MCP Tools (`/mcp/`, Bearer apikey auth)
 
 | Tool | Description |

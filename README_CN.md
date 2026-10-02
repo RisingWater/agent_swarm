@@ -197,6 +197,8 @@ FEISHU_APP_SECRET=xxx
 
 工作区可带一个 `role`（默认 `agent` / `planner`）。注册时指定（`workspace_add(role="planner")`）、之后修改（`update_info(role=...)`），或走 REST `POST /api/workspaces/{id}/role`（仅属主）。该字段独立于 `agent_type`，不参与权限/提问分派。网页「规划器」只读页列出 planner 工作区，订阅所选工作区的 `/ws/nexus` 事件流，展示它收到的 A2A 任务与最近一次成果（markdown）。第一增量**只读**——暂无创建目标 / 审批 / 验收。
 
+**如何注册规划器工作区**：在目标项目的 agent 对话里执行 **`/swarm-add-planner`**——三个 harness（opencode / claude code / deepseek(dsh)）都支持。流程与 `/swarm-add` 一致，只是调用 `workspace_add` 时显式带 `role="planner"`；对已注册的工作区再次执行会把 `role` 改为 `planner`（按路径 upsert）。`/swarm-add` 本身保持不变、不加任何参数。dsh 脚本化注册可用 `node register.mjs ... --role planner`。
+
 ## MCP 工具一览（`/mcp/`，Bearer apikey 鉴权）
 
 | 工具 | 说明 |

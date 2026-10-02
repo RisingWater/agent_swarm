@@ -301,6 +301,8 @@ New-Item -ItemType Directory -Force -Path $cmdDir | Out-Null
 
 Copy-Item (Join-Path $Src "commands\swarm-add.md") (Join-Path $cmdDir "swarm-add.md") -Force
 Write-Host "==> 已安装 /swarm-add 命令"
+Copy-Item (Join-Path $Src "commands\swarm-add-planner.md") (Join-Path $cmdDir "swarm-add-planner.md") -Force
+Write-Host "==> 已安装 /swarm-add-planner 命令（注册规划器工作区）"
 
 # 6. 清理已废弃的 md 命令（/swarm-* 其余为 TUI 原生命令，见 src/tui.ts；swarm-register 已废弃）
 foreach ($old in @("swarm-note", "swarm-desc", "swarm-resummarize", "swarm_register", "swarm",

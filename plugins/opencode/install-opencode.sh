@@ -318,6 +318,8 @@ CMD_DIR="$HOME/.config/opencode/commands"
 mkdir -p "$CMD_DIR"
 cp "$SRC/commands/swarm-add.md" "$CMD_DIR/swarm-add.md"
 echo "==> 已安装 /swarm-add 命令"
+cp "$SRC/commands/swarm-add-planner.md" "$CMD_DIR/swarm-add-planner.md"
+echo "==> 已安装 /swarm-add-planner 命令（注册规划器工作区）"
 
 # 6. 清理已废弃的 md 命令（/swarm-* 其余为 TUI 原生命令，见 src/tui.ts；swarm-register 已废弃）
 for old in swarm-note swarm-desc swarm-resummarize swarm_register swarm-remove \

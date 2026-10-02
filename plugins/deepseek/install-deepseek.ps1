@@ -146,7 +146,8 @@ if (Test-Path $profilePatch) {
     Write-Host "==> 已创建 $profilePatch（含 MCP 挂载）"
 }
 
-# 工作区注册不在安装脚本做：装好插件后，在 dsh 会话里对目标项目执行 /swarm-add 即可
-# （dsh 命令天然绑定当前项目目录；register.mjs 仅保留给 /swarm-add 之外的脚本化场景）。
-Write-Host "==> 下一步：在 dsh 里打开目标项目的会话，让 agent 执行 /swarm-add 注册工作区"
+# 工作区注册不在安装脚本做：装好插件后，在 dsh 会话里对目标项目执行 /swarm-add 即可；
+# 规划器工作区用 /swarm-add-planner（role=planner）。dsh 命令天然绑定当前项目目录；
+# register.mjs 仅保留给 /swarm-add 之外的脚本化场景（--role planner 可直接注册规划器）。
+Write-Host "==> 下一步：在 dsh 里打开目标项目的会话，让 agent 执行 /swarm-add 注册工作区（规划器用 /swarm-add-planner）"
 Write-Host "✅ [deepseek] 安装完成！重启 dsh（dsh web）后插件自动加载：心跳在线、任务落 per-caller 会话。"

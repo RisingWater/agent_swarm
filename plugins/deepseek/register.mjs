@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /** 一次性工作区注册器：调 agent_swarm MCP workspace_add + 写 .agent_swarm/workspace.md。
- * 用法：node register.mjs --server http://... --api-key as_... --path /abs/dir [--agent-type deepseek]
+ * 用法：node register.mjs --server http://... --api-key as_... --path /abs/dir [--agent-type deepseek] [--role planner]
+ *   --role 可选（agent / planner）；不传时行为与旧版完全一致（普通工作区）。
  */
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs"
@@ -16,9 +17,14 @@ const server = (arg("server") ?? process.env.AGENT_SWARM_SERVER ?? "").replace(/
 const apiKey = arg("api-key") ?? process.env.AGENT_SWARM_API_KEY ?? ""
 const path = arg("path") ?? process.cwd()
 const agentType = arg("agent-type") ?? "deepseek"
+const role = (arg("role") ?? "").trim().toLowerCase()
 
 if (!server || !apiKey) {
   console.error("register.mjs: --server / --api-key required")
+  process.exit(1)
+}
+if (role && role !== "agent" && role !== "planner") {
+  console.error(`register.mjs: --role must be agent or planner (got ${JSON.stringify(role)})`)
   process.exit(1)
 }
 
@@ -68,6 +74,7 @@ const rsp = await callTool("workspace_add", {
   path: normPath.replace(/\\/g, "/"),
   purpose,
   name: basename(normPath),
+  ...(role ? { role } : {}),
 })
 const workspaceId = rsp.workspace_id ?? rsp.id ?? ""
 if (!workspaceId) {

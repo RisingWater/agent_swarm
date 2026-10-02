@@ -109,6 +109,17 @@
 - [x] 前端顶栏「规划器」只读页 `PlannerPage`：`NexusWorkspaceSelect` 选 planner 工作区 → 订阅 `/ws/nexus` → 展示收到的 A2A 任务 + 最近一次成果（markdown）
 - [x] 测试 `test_planner_role.py` 4 例（MCP 落库/返回、update_info、REST 设置/权限、旧库迁移幂等）；全套 79 例通过
 
+### P8 规划器注册命令 `/swarm-add-planner`（追加，2026-10-02）
+
+> 修正：**不给 `/swarm-add` 加参数**（用户明确要求原样）。改为三个 harness 各加独立命令 `/swarm-add-planner`。
+
+- [x] opencode：`plugins/opencode/commands/swarm-add-planner.md`（`agent-swarm__workspace_add` + `role="planner"`）；安装脚本显式清单补该文件（sh+ps1）
+- [x] claude：`plugins/claude/commands/swarm-add-planner.md`（`mcp__agent-swarm__workspace_add`）；安装脚本 glob `swarm-*.md` 自动分发
+- [x] deepseek(dsh)：`plugins/deepseek/src/commands.ts` 抽出 `registerWorkspace(role)`，注册 `swarm-add-planner`（`registerWorkspace("planner")`）；已注册的普通工作区再次执行会 upsert 置为 planner。`register.mjs` 支持可选 `--role planner`
+- [x] `/swarm-add` 三 harness 均保持原样、无参数（`test_planner_commands.py` 守卫）
+- [x] 文档：README/README_CN「如何注册规划器工作区」、web 文档页命令表 + 「规划器」节、AGENTS.md 分发 gotcha
+- [x] 测试 `test_planner_commands.py` 7 例；全套 86 例通过、web build 通过、deepseek `tsc --noEmit` 通过
+
 ## 已完成（除注明外均已进 git）
 
 ### deepseek harness（dsh）全功能对齐 + 跨工作区长任务完成提醒（2026-09-30 ~ 10-01，E2E 实测）

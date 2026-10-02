@@ -5,6 +5,7 @@
  *
  * 对齐 opencode 命令集的常用子集：
  *   /swarm-add       注册当前目录为工作区（写 .agent_swarm/workspace.md）
+ *   /swarm-add-planner  注册（或更新）当前目录为规划器工作区（role=planner）
  *   /swarm-remove    注销当前工作区
  *   /swarm-enable    启用当前工作区
  *   /swarm-disable   禁用当前工作区（禁用后心跳不复活）
@@ -130,14 +131,18 @@ export function swarmCommands(ctx: any, opts: { directory: string; log: (msg: st
     }
   }
 
-  // /swarm-add —— 注册当前项目（会话工作区）
-  register("swarm-add", "把当前项目注册到 agent_swarm 中枢", async (rawInput, invocation) => {
+  // /swarm-add / /swarm-add-planner —— 注册当前项目（会话工作区）。
+  // role 非空（planner）时传给 workspace_add；role 为空时行为与旧版 /swarm-add 完全一致。
+  const registerWorkspace = (role: string) => async (rawInput: string, invocation: any): Promise<{ kind: string; text?: string }> => {
+    const cmdName = role ? "swarm-add-planner" : "swarm-add"
     const cfg = loadConfig()
     if (!cfg) return { kind: "error", text: "插件未配置（缺 ~/.config/dsh/agent-swarm.json），请先运行安装脚本" }
     const directory = invocationDir(invocation, opts.directory)
     const purpose = rawInput.trim()
     const existing = readWorkspaceId(directory)
-    if (existing) return { kind: "success", text: `当前目录已是工作区：${existing}（${workspaceFilePath(directory)}）` }
+    // 普通 add：已注册则直接返回（保持旧行为）。planner：即使已注册也要继续调
+    // workspace_add（按 path upsert）把 role 置为 planner——规划器多为已有工作区。
+    if (existing && !role) return { kind: "success", text: `当前目录已是工作区：${existing}（${workspaceFilePath(directory)}）` }
     const client = mcpClient(cfg)
     // purpose 语义：用户手动传 = 直接落库（need_summary=false，不触发 agent 总结）；
     // 未传 = 留空注册（服务端返回 need_summary=true），占位/总结交给会话 agent：
@@ -146,6 +151,7 @@ export function swarmCommands(ctx: any, opts: { directory: string; log: (msg: st
       path: directory.replace(/\\/g, "/"),
       purpose,
       name: basename(directory),
+      ...(role ? { role } : {}),
     })
     if (!rsp.ok) return { kind: "error", text: rsp.text }
     const id = String(rsp.data?.workspace_id ?? "")
@@ -156,7 +162,7 @@ export function swarmCommands(ctx: any, opts: { directory: string; log: (msg: st
     // need_summary=true：让当前会话的 agent 读目录/文件总结项目并调 update_info 回填
     // （agent 有文件系统工具——没有 AGENTS.md/README 它自己浏览目录归纳，比正则首行准）。
     const agent = invocation?.agent
-    log(`/swarm-add: need_summary=${rsp.data?.need_summary} agent=${typeof agent} followup=${typeof agent?.followup} proto=${agent ? Object.getPrototypeOf(agent)?.constructor?.name : "-"}`)
+    log(`/${cmdName}: need_summary=${rsp.data?.need_summary} role=${role || "agent"} agent=${typeof agent} followup=${typeof agent?.followup} proto=${agent ? Object.getPrototypeOf(agent)?.constructor?.name : "-"}`)
     if (rsp.data?.need_summary) {
       if (typeof agent?.followup === "function") {
         try {
@@ -166,16 +172,19 @@ export function swarmCommands(ctx: any, opts: { directory: string; log: (msg: st
             content: [{ type: "text", text: `本项目刚注册到 agent_swarm（工作区 ID: ${id}），当前用途描述是占位文本。请读取项目目录下的文件（README/AGENTS.md/源码结构，没有说明文件就直接浏览目录归纳），然后调用 mcp__agent-swarm__update_info 工具：purpose 填一句话说明这个项目/工作区是干什么的，capabilities 填它能帮别的 agent 做什么（逗号分隔）。保持简短，不要做其它事。` }],
             source: { kind: "user" },
           })
-          log(`/swarm-add: followup submitted to session agent`)
+          log(`/${cmdName}: followup submitted to session agent`)
         } catch (e) {
-          log(`/swarm-add followup failed: ${e}`)
+          log(`/${cmdName} followup failed: ${e}`)
         }
       } else {
-        log(`/swarm-add: agent.followup unavailable; skip auto summary`)
+        log(`/${cmdName}: agent.followup unavailable; skip auto summary`)
       }
     }
-    return { kind: "success", text: `✅ 已注册工作区 ${id}（${directory}）${rsp.data?.need_summary ? "\n已让 agent 读项目目录总结用途，稍后自动回填。" : ""}` }
-  })
+    const suffix = role ? " · 规划器(planner)" : ""
+    return { kind: "success", text: `✅ 已注册工作区 ${id}（${directory}）${suffix}${rsp.data?.need_summary ? "\n已让 agent 读项目目录总结用途，稍后自动回填。" : ""}` }
+  }
+  register("swarm-add", "把当前项目注册到 agent_swarm 中枢", registerWorkspace(""))
+  register("swarm-add-planner", "把当前项目注册为规划器工作区（role=planner）", registerWorkspace("planner"))
 
   // /swarm-remove —— 注销（仅离线可删）
   register("swarm-remove", "从中枢注销当前工作区", async (_rawInput, invocation) => {

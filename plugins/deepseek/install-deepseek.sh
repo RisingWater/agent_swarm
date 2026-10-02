@@ -122,6 +122,7 @@ else
   echo "==> 已追加 MCP 挂载到 $PROFILE_PATCH"
 fi
 
-# 工作区注册不在安装脚本做：装好插件后，在 dsh 会话里对目标项目执行 /swarm-add 即可。
-echo "==> 下一步：在 dsh 里打开目标项目的会话，让 agent 执行 /swarm-add 注册工作区"
+# 工作区注册不在安装脚本做：装好插件后，在 dsh 会话里对目标项目执行 /swarm-add 即可；
+# 规划器工作区用 /swarm-add-planner（role=planner），脚本化可用 register.mjs --role planner。
+echo "==> 下一步：在 dsh 里打开目标项目的会话，让 agent 执行 /swarm-add 注册工作区（规划器用 /swarm-add-planner）"
 echo "✅ [deepseek] 安装完成！重启 dsh（dsh web）后插件自动加载。"

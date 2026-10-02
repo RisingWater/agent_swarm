@@ -1687,6 +1687,10 @@ agent: (a2a_call) → 对方 TUI 实时出现任务 → 执行 → 结果自动�
                 <td>注册当前目录为工作区。agent 会分析项目生成用途/能力描述，调 <code>workspace_add</code>，并把工作区 ID 写入项目根 <code>.agent_swarm/workspace.md</code></td>
               </tr>
               <tr>
+                <td><code>/swarm-add-planner</code></td>
+                <td>注册（或更新）当前目录为<b>规划器工作区</b>（<code>role=planner</code>）——其余流程同 <code>/swarm-add</code>，但 <code>/swarm-add</code> 本身<b>不加</b>任何参数。opencode / claude / deepseek(dsh) 三个 harness 均支持。注册后可在网页「规划器」只读页查看</td>
+              </tr>
+              <tr>
                 <td><code>/swarm-remove</code></td>
                 <td>把当前工作区从虫群移除（工作区在线时需先禁用，等心跳过期后才能删）</td>
               </tr>
@@ -1920,6 +1924,20 @@ agent: (a2a_call) → 对方 TUI 实时出现任务 → 执行 → 结果自动�
             该字段独立于 <code>agent_type</code>，<b>不参与</b>权限 / 提问分派，只用于标识与展示。
             设置方式：注册时 <code>workspace_add(role="planner")</code>、之后 <code>update_info(role=...)</code>，
             或 REST <code>POST /api/workspaces/&#123;id&#125;/role</code>（仅属主）。
+          </p>
+          <h3>如何注册规划器工作区？</h3>
+          <p>
+            在目标项目的 agent 对话里用 <b><code>/swarm-add-planner</code></b>（三个 harness 都支持）——
+            它与 <code>/swarm-add</code> 流程一致，但调用 <code>workspace_add</code> 时显式带 <code>role="planner"</code>：
+          </p>
+          <ul>
+            <li><b>opencode</b>：<code>/swarm-add-planner</code>（命令文件 <code>commands/swarm-add-planner.md</code>，用 <code>agent-swarm__workspace_add</code>）</li>
+            <li><b>claude code</b>：<code>/swarm-add-planner</code>（命令文件 <code>commands/swarm-add-planner.md</code>，用 <code>mcp__agent-swarm__workspace_add</code>）</li>
+            <li><b>deepseek harness (dsh)</b>：<code>/swarm-add-planner</code>（源码内注册在 <code>plugins/deepseek/src/commands.ts</code>）；脚本化注册可用 <code>node register.mjs ... --role planner</code></li>
+          </ul>
+          <p>
+            已注册的普通工作区也可再次执行该命令，把 <code>role</code> 改为 <code>planner</code>（按路径 upsert）。
+            <code>/swarm-add</code> 本身保持原样、不加任何参数。
           </p>
           <h3>「规划器」页能看什么？</h3>
           <p>
