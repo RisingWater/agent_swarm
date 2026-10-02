@@ -1837,17 +1837,17 @@ agent: (a2a_call) → 对方 TUI 实时出现任务 → 执行 → 结果自动�
           <h2>规划器</h2>
           <p>
             规划器把模糊的<b>长期目标</b>拆成带依赖的<b>任务树</b>，派给其它工作区执行并持续追踪验收。
-            它由 <b>planner-core（规划核心服务）</b>＋一个 agent harness（做拆解与决策的 agent）组成——
-            core 是确定性内核，管目标 / 任务 / 依赖 / 验收的持久化与调度——并作为平台上<b>特殊的「规划器工作区」</b>接入。
+            它由 <b>规划核心服务</b>＋一个 agent harness（做拆解与决策的 agent）组成——
+            核心服务是确定性内核，管目标 / 任务 / 依赖 / 验收的持久化与调度——并作为平台上<b>特殊的「规划器工作区」</b>接入。
           </p>
           <h3>规划器工作区是什么？</h3>
           <p>
             规划器工作区是一个<b>特殊的工作区</b>。普通工作区只代表一个 agent 实例；规划器工作区则是
-            「<b>planner-core（规划核心服务）＋一个 agent harness（负责拆解的 agent）</b>」的组合，两者跑在同一个项目目录里——
-            core 负责<b>目标 / 任务 / 依赖 / 验收的持久化与调度</b>，harness 里的 agent 负责把目标<b>拆解成任务树</b>并在执行中做决策。
+            「<b>规划核心服务＋一个 agent harness（负责拆解的 agent）</b>」的组合，两者跑在同一个项目目录里——
+            核心服务负责<b>目标 / 任务 / 依赖 / 验收的持久化与调度</b>，harness 里的 agent 负责把目标<b>拆解成任务树</b>并在执行中做决策。
           </p>
           <p>
-            正因为它不是一个普通 agent，接入方式也<b>特殊</b>：先安装并运行 <b>planner-core</b>（见下方「安装与准备」），
+            正因为它不是一个普通 agent，接入方式也<b>特殊</b>：先安装并运行<b>规划核心服务</b>（见下方「安装与准备」），
             再在<b>该目录里</b>用专门的 <b><code>/swarm-add-planner</code></b> 命令注册——而不是普通的 <code>/swarm-add</code>；
             注册后工作区会带上 <code>role=planner</code> 标识。
           </p>
@@ -1860,13 +1860,13 @@ agent: (a2a_call) → 对方 TUI 实时出现任务 → 执行 → 结果自动�
           <ol>
             <li><b>环境</b>：Python ≥ 3.11，以及一个已装 agent-swarm 插件的 harness（opencode / claude / deepseek 任一）。</li>
             <li>
-              <b>获取并安装 planner-core（规划核心服务）</b>：在 planner-core 仓库根执行安装脚本——Linux/macOS：
+              <b>获取并安装规划核心服务</b>：在其仓库根执行安装脚本——Linux/macOS：
               <code>./deploy/install.sh</code>；Windows：
               <code>.\deploy\install.ps1 -Server &lt;平台地址&gt; -ApiKey as_xxx</code>。
               脚本会建虚拟环境、装依赖、写配置、建库，并可注册开机自启。
             </li>
             <li><b>自检与常驻</b>：<code>planner doctor</code> 自检；<code>planner serve</code> 前台运行；<code>planner service install</code> 注册为开机自启服务（<code>planner service status</code> 查看）。</li>
-            <li><b>注册为规划器工作区</b>：在 planner-core 目录启动 harness，输入 <code>/swarm-add-planner</code>（opencode / claude / deepseek 都支持；dsh 脚本化可用 <code>register.mjs --role planner</code>）。成功后网页出现「规划器」入口。</li>
+            <li><b>注册为规划器工作区</b>：在规划核心服务的目录启动 harness，输入 <code>/swarm-add-planner</code>（opencode / claude / deepseek 都支持；dsh 脚本化可用 <code>register.mjs --role planner</code>）。成功后网页出现「规划器」入口。</li>
             <li>若该 harness 还没接入虫群：先在平台管理页复制「插件安装」一键命令装好插件，再执行上一步。</li>
           </ol>
           <h3>怎么用（上手步骤）</h3>
@@ -1874,7 +1874,7 @@ agent: (a2a_call) → 对方 TUI 实时出现任务 → 执行 → 结果自动�
             <li><b>新建目标</b>：在网页「规划器」页选一个 planner 工作区，新建目标——填标题 / 描述、优先级（高 / 中 / 低）、截止（可空）、成功标准；可指定<b>专家工作区</b>（选当前 planner 工作区自身即为<b>自评审</b>，不派 A2A）。</li>
             <li><b>确认与拆解</b>：规划器 agent 与专家确认成功标准并生成任务树（含<b>专家验收点</b>）。此阶段 <code>拆解=draft</code>，页面只展示、不派发。</li>
             <li><b>通过拆解</b>：人工点「通过拆解」后 agent 才按依赖层开始派发；点「重新拆解」让 agent 重做（回到 draft）。</li>
-            <li><b>派发执行</b>：任务逐个派给对应工作区的 agent（派单会自动要求对方先压缩上下文），worker 的终态自动回写到 core。</li>
+            <li><b>派发执行</b>：任务逐个派给对应工作区的 agent（派单会自动要求对方先压缩上下文），worker 的终态自动回写到核心服务。</li>
             <li><b>验收</b>：<code>auto</code> 自动判定；<code>manual</code> 任务完成后进入待验收，网页点「通过 / 拒绝」；<code>expert</code>「专家验收点」由规划器 agent 汇总情况后请专家裁决（专家可整树调整、回到 draft 再审）。</li>
             <li><b>生命周期</b>：「归档」（软隐藏，可「激活」恢复）/「删除」（级联任务树，不可恢复，二次确认）；全部任务完成后目标自动完成；列表可勾选「隐藏已归档目标」。</li>
           </ol>
@@ -1890,17 +1890,17 @@ agent: (a2a_call) → 对方 TUI 实时出现任务 → 执行 → 结果自动�
           </ul>
           <h3>运行前提与排错</h3>
           <ul>
-            <li><b>core 必须在线</b>：core 主动外连平台的 <code>WS /ws/planner</code>，页面顶部显示在线 / 离线。</li>
-            <li><b>离线时只读</b>：页面只显示 core 最后推送的快照（<b>展示缓存，非任务真相</b>）；新建 / 编辑 / 审批 / 验收等操作会返回「规划器离线」，恢复在线后重试。</li>
-            <li><b>数据真相在 core 的 SQLite</b>，平台只保存展示快照。</li>
-            <li>常见问题：页面离线 → core 的 <code>serve</code> 没在跑（<code>planner service status</code>）；派发失败 409 → 目标工作区不可派发（开着 harness，或改用后台模式）；一直无拆解 → 成功标准未确认或拆解未审批。</li>
+            <li><b>核心服务必须在线</b>：它主动外连平台的 <code>WS /ws/planner</code>，页面顶部显示在线 / 离线。</li>
+            <li><b>离线时只读</b>：页面只显示核心服务最后推送的快照（<b>展示缓存，非任务真相</b>）；新建 / 编辑 / 审批 / 验收等操作会返回「规划器离线」，恢复在线后重试。</li>
+            <li><b>数据真相在核心服务的 SQLite</b>，平台只保存展示快照。</li>
+            <li>常见问题：页面离线 → 核心服务的 <code>serve</code> 没在跑（<code>planner service status</code>）；派发失败 409 → 目标工作区不可派发（开着 harness，或改用后台模式）；一直无拆解 → 成功标准未确认或拆解未审批。</li>
           </ul>
-          <h3>planner-core 怎么连上平台？</h3>
+          <h3>规划核心服务怎么连上平台？</h3>
           <p>
-            因为 core 在用户内网 / 本机、平台访问不到它的端口，所以由 <b>core 主动外连</b>平台的
+            因为核心服务在用户内网 / 本机、平台访问不到它的端口，所以由它<b>主动外连</b>平台的
             <code>WS /ws/planner</code>（apikey + <code>workspace_id</code> 握手；一个工作区一条连接，新连接顶替旧的）。
-            平台的建目标 / 审批 / 验收等操作经该 WS 下发，core 把目标 + 任务树结构化快照从同一条 WS 推回，
-            平台缓存进 <code>planner_state</code> 表（<b>仅展示缓存</b>，真相在 core）。完整帧格式见
+            平台的建目标 / 审批 / 验收等操作经该 WS 下发，核心服务把目标 + 任务树结构化快照从同一条 WS 推回，
+            平台只缓存一份展示快照（<b>仅展示缓存</b>，真相在核心服务）。完整帧格式见
             <code>agent-swarm-planner/docs/planner-platform-protocol.md</code>。
           </p>
         </section>
@@ -4433,7 +4433,7 @@ function callerLabel(r: { caller: { name: string; path: string } | null; externa
 }
 
 /** 规划器（planner）控制页：仅列 role=planner 工作区，管理目标与任务树。
- *  快照经 GET /api/planner/{wid}/state 轮询（由 planner-core 从 /ws/planner 推回），
+ *  快照经 GET /api/planner/{wid}/state 轮询（由 规划核心服务 从 /ws/planner 推回），
  *  操作（建/改/归档目标、审批、催促、验收）经 POST /api/planner/{wid}/op 下发。 */
 function PlannerPage({ toast }: { toast: (m: string) => void }) {
   const [list, setList] = useState<Workspace[]>([])
@@ -4508,7 +4508,7 @@ function PlannerPage({ toast }: { toast: (m: string) => void }) {
     }
   }, [selected])
 
-  // 轮询 planner-core 推回的快照（状态 + 目标 + 任务树）
+  // 轮询 规划核心服务 推回的快照（状态 + 目标 + 任务树）
   const loadState = useCallback(() => {
     if (!selected) { setState(null); return }
     api.plannerState(selected).then(setState).catch(() => {})
@@ -4529,7 +4529,7 @@ function PlannerPage({ toast }: { toast: (m: string) => void }) {
   /** 下发操作：POST /api/planner/{wid}/op；成功后稍后刷新快照（回执经同一通道到达） */
   const runOp = async (op: string, payload: Record<string, unknown>, okMsg: string) => {
     if (!selected) return
-    if (!online) { toast("planner-core 未连接，无法下发操作"); return }
+    if (!online) { toast("规划核心服务未连接，无法下发操作"); return }
     setBusy(true)
     try {
       await api.plannerOp(selected, op, payload)
@@ -4540,7 +4540,7 @@ function PlannerPage({ toast }: { toast: (m: string) => void }) {
     } finally { setBusy(false) }
   }
 
-  /** 优先级选择值归一：core 约定 高=2 / 中=1 / 低=0；未知值回退「中」 */
+  /** 优先级选择值归一：核心服务约定 高=2 / 中=1 / 低=0；未知值回退「中」 */
   const normPriority = (p?: number | string) => {
     const s = String(p ?? "")
     return s === "2" || s === "0" ? s : "1"
@@ -4613,7 +4613,7 @@ function PlannerPage({ toast }: { toast: (m: string) => void }) {
     const s = String(p ?? "")
     return s === "2" ? "高" : s === "1" ? "中" : s === "0" ? "低" : (s || "-")
   }
-  /** 目标专家展示：优先 core 推的 expert_name，回退工作区名/ id */
+  /** 目标专家展示：优先核心服务推的 expert_name，回退工作区名/ id */
   const expertLabel = (g: PlannerGoal) =>
     g.expert_name || (g.expert_workspace_id ? (wsName[g.expert_workspace_id] || g.expert_workspace_id) : "")
   /** 工作区 id → 名字（无则回退 id / "-"） */
@@ -4665,13 +4665,13 @@ function PlannerPage({ toast }: { toast: (m: string) => void }) {
       <h1 className="page-title">规划器</h1>
       <p className="page-sub">
         管理<b>规划器工作区</b>（role=planner）的目标与任务树：新建 / 编辑目标、审批拆解、催促 agent、
-        人工验收。数据由 planner-core 经控制通道推回，操作实时下发。
+        人工验收。数据由规划核心服务经控制通道推回，操作实时下发。
       </p>
       <div className="nexus-picker" style={{ marginBottom: 12 }}>
         <NexusWorkspaceSelect list={list} value={selected} onChange={setSelected} showOwner />
         {selected && (
           <span className={`nexus-head-status ${online ? "on" : "off"}`}
-            title={online ? "planner-core 已连接" : "planner-core 未连接"}>
+            title={online ? "规划核心服务已连接" : "规划核心服务未连接"}>
             {online ? "● online" : "○ offline"}
           </span>
         )}
@@ -4685,13 +4685,13 @@ function PlannerPage({ toast }: { toast: (m: string) => void }) {
       {selected && !state?.updated_at && (
         <p style={{ color: "var(--text-weak)" }}>
           {online
-            ? "planner-core 已连接，等待首个状态快照…"
-            : "planner-core 未连接 — 启动 core（它会主动连上平台 /ws/planner）后这里会显示目标与任务树。"}
+            ? "规划核心服务已连接，等待首个状态快照…"
+            : "规划核心服务未连接 — 启动它（会主动连上平台 /ws/planner）后这里会显示目标与任务树。"}
         </p>
       )}
       {selected && state?.updated_at && !online && (
         <p style={{ color: "var(--text-weak)" }}>
-          planner-core 未连接 — 以下是最近一次快照（{fmtTime(state.updated_at, "datetime")}），core 启动后会自动刷新。
+          规划核心服务未连接 — 以下是最近一次快照（{fmtTime(state.updated_at, "datetime")}），启动后会自动刷新。
         </p>
       )}
 
@@ -4980,7 +4980,7 @@ function PlannerPage({ toast }: { toast: (m: string) => void }) {
             <dt>依赖</dt>
             <dd>{(taskDetail.depends_on ?? []).map((d) => taskTitle[d] || d).join("、") || "-"}</dd>
             <dt>建议执行 agent</dt><dd title={taskDetail.suggested_agent || undefined}>{agentName(taskDetail.suggested_agent)}</dd>
-            {/* core 暂无「实际执行 agent」独立字段（只有 assigned_agent 建议值）；留位显示 -，待 core 补字段后再填 */}
+            {/* 核心服务暂无「实际执行 agent」独立字段（只有 assigned_agent 建议值）；留位显示 -，待其补字段后再填 */}
             <dt>实际执行 agent</dt><dd>-</dd>
             <dt>验收类型</dt><dd>{acceptanceLabel(taskDetail.acceptance_type)}</dd>
             <dt>验收结果</dt><dd>{taskDetail.acceptance_result || "-"}</dd>
