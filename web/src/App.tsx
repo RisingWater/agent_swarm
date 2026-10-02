@@ -1276,6 +1276,7 @@ function HomePage({ toast, loggedIn, onGoAccount, onOpenLogin, onGoDocs }: { toa
           <b> agent 工作区</b>注册到中枢，虫群中的任何 agent 都可以把任务派发给其他 agent 执行——
           就像一群工蜂协作：你写代码，它跑测试，另一个整理文档。你还可以<b>组建团队、把工作区共享给团队</b>，
           让队友的 agent 也能调用它——共享的只是"调用权"，执行过程仍只对你可见。
+          对于需要长期推进的目标，还可以交给<b>规划器</b>工作区：把目标拆成任务树、自动调度虫群执行并追踪验收。
         </p>
         <div className="home-grid">
           <div className="home-card">
@@ -1298,6 +1299,13 @@ function HomePage({ toast, loggedIn, onGoAccount, onOpenLogin, onGoDocs }: { toa
               <h3>团队与工作区共享</h3>
             </div>
             <p>创建团队、邀请成员，把自己的工作区<b>共享</b>给团队当工具调用：队友（或用他们的 agent）只能拿到<b>最终答复</b>，看不到你的监控流、产物与调用细节。共享的是<b>调用权</b>，不是可见权。</p>
+          </div>
+          <div className="home-card">
+            <div className="home-card-head">
+              <FeatureIcon kind="planner" />
+              <h3>规划器：把目标拆成任务树</h3>
+            </div>
+            <p>把一个模糊的<b>长期目标</b>交给规划器工作区：由规划 agent 拆解成带依赖的<b>任务树</b>，逐个派发给其他 agent 执行、持续追踪验收。支持<b>专家拆解</b>与专家验收点、在网页上<b>审批拆解</b>与人工验收，关键待办还能外推到飞书 / 微信 / 桌宠。</p>
           </div>
           <div className="home-card">
             <div className="home-card-head">
@@ -1351,6 +1359,7 @@ function HomePage({ toast, loggedIn, onGoAccount, onOpenLogin, onGoDocs }: { toa
           <li>让前端 agent 把后端 bug 派发给后端工作区的 agent 修复</li>
           <li>让一个 agent 去另一个仓库执行测试、汇总结果</li>
           <li>组建团队、把工作区共享给团队：队友的 agent 像调用工具一样调用它，只回结果、不暴露过程</li>
+          <li>给规划器一个长期目标，让它自动拆成任务树、调度虫群里的 agent 执行并追踪验收</li>
           <li>在网页「中枢」里给任意在线 agent 直接下达指令，实时围观它干活</li>
           <li>把你在 agent 里的日常对话实时同步到网页，随时远程回看</li>
           <li>绑定飞书 / 微信等即时聊天工具，在聊天里派活、看进度、收完成简报</li>
@@ -1522,7 +1531,7 @@ function SupportedAgents() {
 }
 
 /** 特性卡黑白线性图标（与 SwarmMark 同风格：currentColor 描边） */
-function FeatureIcon({ kind }: { kind: "mcp" | "swarm" | "team" | "pulse" | "shield" | "terminal" | "eye" | "chat" | "package" }) {
+function FeatureIcon({ kind }: { kind: "mcp" | "swarm" | "team" | "pulse" | "shield" | "terminal" | "eye" | "chat" | "package" | "planner" }) {
   const common = {
     width: 22,
     height: 22,
@@ -1603,6 +1612,16 @@ function FeatureIcon({ kind }: { kind: "mcp" | "swarm" | "team" | "pulse" | "shi
         <path d="M21 8 12 3 3 8v8l9 5 9-5V8Z" />
         <path d="m3 8 9 5 9-5" />
         <path d="M12 13v8" />
+      </svg>
+    )
+  if (kind === "planner")
+    return (
+      <svg {...common}>
+        {/* 清单 + 勾 = 目标拆解 / 规划器 */}
+        <path d="M3.5 6.5 5 8l2.5-2.5" />
+        <path d="M3.5 12.5 5 14l2.5-2.5" />
+        <path d="M3.5 18.5 5 20l2.5-2.5" />
+        <path d="M10.5 6.5H21M10.5 12.5H21M10.5 18.5H17" />
       </svg>
     )
   return (
