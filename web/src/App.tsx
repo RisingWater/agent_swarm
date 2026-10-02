@@ -1849,12 +1849,7 @@ agent: (a2a_call) → 对方 TUI 实时出现任务 → 执行 → 结果自动�
           <p>
             正因为它不是一个普通 agent，接入方式也<b>特殊</b>：先安装并运行<b>规划核心服务</b>（见下方「安装与准备」），
             再在<b>该目录里</b>用专门的 <b><code>/swarm-add-planner</code></b> 命令注册——而不是普通的 <code>/swarm-add</code>；
-            注册后工作区会带上 <code>role=planner</code> 标识。
-          </p>
-          <p>
-            该 <code>role</code> 字段独立于 <code>agent_type</code>，<b>不参与</b>权限 / 提问分派，只用于标识与展示；
-            注册成功后网页顶栏才会出现「规划器」入口（仅当你拥有 <code>role=planner</code> 工作区时显示）。
-            已注册的普通工作区也能用同一命令<b>升级</b>为规划器（按路径 upsert，把 <code>role</code> 改为 <code>planner</code>）。
+            注册后这个工作区就会被平台识别为<b>规划器工作区</b>，顶栏出现「规划器」入口。
           </p>
           <h3>安装与准备</h3>
           <ol>
@@ -1920,7 +1915,7 @@ agent: (a2a_call) → 对方 TUI 实时出现任务 → 执行 → 结果自动�
               </tr>
               <tr>
                 <td><code>/swarm-add-planner</code></td>
-                <td>注册（或更新）当前目录为<b>规划器工作区</b>（<code>role=planner</code>）——其余流程同 <code>/swarm-add</code>，但 <code>/swarm-add</code> 本身<b>不加</b>任何参数。opencode / claude / deepseek(dsh) 三个 harness 均支持。注册后可在网页「规划器」页管理目标与任务树</td>
+                <td>注册（或更新）当前目录为<b>规划器工作区</b>——其余流程同 <code>/swarm-add</code>，但 <code>/swarm-add</code> 本身<b>不加</b>任何参数。opencode / claude / deepseek(dsh) 三个 harness 均支持。注册后可在网页「规划器」页管理目标与任务树</td>
               </tr>
               <tr>
                 <td><code>/swarm-remove</code></td>
@@ -4664,7 +4659,7 @@ function PlannerPage({ toast }: { toast: (m: string) => void }) {
     <div>
       <h1 className="page-title">规划器</h1>
       <p className="page-sub">
-        管理<b>规划器工作区</b>（role=planner）的目标与任务树：新建 / 编辑目标、审批拆解、催促 agent、
+        管理<b>规划器工作区</b>的目标与任务树：新建 / 编辑目标、审批拆解、催促 agent、
         人工验收。数据由规划核心服务经控制通道推回，操作实时下发。
       </p>
       <div className="nexus-picker" style={{ marginBottom: 12 }}>
