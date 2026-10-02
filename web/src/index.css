@@ -638,6 +638,12 @@ a.link:hover {
 .status-pill.accepted { color: #0550ae; background: #ddf4ff; border-color: #54aeff; }
 .status-pill.done { color: #1a7f37; background: #dafbe1; border-color: #4ac26b; }
 .status-pill.failed { color: #d1242f; background: #ffebe9; border-color: #ff8182; }
+/* 目标状态：进行中（绿）/ 已归档（灰） */
+.status-pill.active { color: #1a7f37; background: #dafbe1; border-color: #4ac26b; }
+.status-pill.archived { color: var(--text-weak); background: var(--bg-weak); border-color: var(--border); }
+
+/* 多行输入框只允许纵向拉伸（禁止横向拖宽，避免撑破弹窗） */
+textarea.field { resize: vertical; }
 
 /* 工作区角色标记：规划器（紫，区别于状态 pill） */
 .role-badge {
