@@ -52,12 +52,28 @@ def _make_conn(wid: str, mode: str = "ok") -> nexus_a2a.PluginConn:
     return conn
 
 
+def _cancel_active(wid: str) -> None:
+    """清掉该工作区遗留的未终态任务：前台串行门禁（2026-10-03）下，残留的
+    working/input-required 会让 dispatch_queued_for 正确地返回 0，影响本文件断言。"""
+    with Session(engine) as s:
+        rows = s.exec(
+            select(models.A2aTask)
+            .where(models.A2aTask.workspace_id == wid)
+            .where(models.A2aTask.status.in_(("queued", "working", "input-required")))
+        ).all()
+        for row in rows:
+            row.status = "canceled"
+            s.add(row)
+        s.commit()
+
+
 def test_dispatch_queued_decrypts_encrypted_message(as_user, ws, monkeypatch):
     """加密建行的 queued 任务派发时必须解出原文，而不是发空串。"""
     import shortuuid
 
     from server import crypto
 
+    _cancel_active(ws.id)
     with Session(engine) as s:
         t = models.A2aTask(
             id=shortuuid.uuid(),
@@ -93,6 +109,8 @@ def test_dispatch_queued_decrypts_encrypted_message(as_user, ws, monkeypatch):
 def test_dispatch_no_ack_keeps_queued(as_user, ws, monkeypatch):
     """发送失败（死连接）任务必须留在 queued 等重试，不能卡 working。"""
     import shortuuid
+
+    _cancel_active(ws.id)
 
     class _DeadWS:
         async def send_text(self, raw: str) -> None:
@@ -205,14 +223,8 @@ def test_dispatch_queued_plain_message_still_works(as_user, ws, monkeypatch):
     """未加密（ENC_KEY 未开 / 回退明文）路径不回归。"""
     import shortuuid
 
-    # 清场：前面测试故意留下的 queued 任务会影响派发计数
-    with Session(engine) as s:
-        for leftover in s.exec(
-            select(models.A2aTask).where(models.A2aTask.workspace_id == ws.id, models.A2aTask.status == "queued")
-        ).all():
-            leftover.status = "canceled"
-            s.add(leftover)
-        s.commit()
+    # 清场：前面测试故意留下的未终态任务会影响前台串行门禁/派发计数
+    _cancel_active(ws.id)
 
     with Session(engine) as s:
         t = models.A2aTask(

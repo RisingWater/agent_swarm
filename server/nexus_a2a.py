@@ -315,6 +315,32 @@ def dispatchable(workspace_id: str) -> bool:
         return True
     return (conn.execution_mode or "foreground") == "background"
 
+
+def _execution_mode(workspace_id: str) -> str:
+    """该工作区当前连接的执行模式（无连接按前台）。"""
+    conn = primary_conn(workspace_id)
+    return (conn.execution_mode or "foreground") if conn is not None else "foreground"
+
+
+def _foreground_active(workspace_id: str) -> bool:
+    """前台模式且已有 A2A 活动任务（working / input-required）→ 视为占用中。
+
+    服务端任务级串行（2026-10-03）：前台会话同一时刻只跑一个 A2A 任务，新任务保持
+    `queued`，等该任务终态后由 `_kick_queued` 拉下一个。**后台模式不串行**（各 caller
+    spawn 独立进程）；监控轮（caller=monitor，用户自己的 TUI 对话）不算占用。
+    """
+    if _execution_mode(workspace_id) == "background":
+        return False
+    with Session(engine) as s:
+        row = s.exec(
+            select(models.A2aTask.id)
+            .where(models.A2aTask.workspace_id == workspace_id)
+            .where(models.A2aTask.status.in_(("working", "input-required")))
+            .where(models.A2aTask.caller != "monitor")
+            .limit(1)
+        ).first()
+    return row is not None
+
 _user_ctx: contextvars.ContextVar[models.User] = contextvars.ContextVar("nexus_a2a_user")
 
 
@@ -660,6 +686,9 @@ async def handle_plugin_event(workspace_id: str, event: dict) -> None:
     # input-required 需要任务行带上应答信息（task_obj 的 status.message）
     if state == "input-required" and snapshot is not None:
         _task_broadcast(task_id, event_id, {"kind": "task-snapshot", "task": snapshot})
+    # 终态：释放前台串行位，拉下一个排队任务（2026-10-03 服务端任务级串行）
+    if state in TERMINAL_STATES:
+        _kick_queued(workspace_id)
 
 
 # ---------------------------------------------------------------- 前台监控（TUI 对话轮次上报）
@@ -1043,10 +1072,15 @@ async def a2a_rpc(workspace_id: str, request: Request):
             task_snap = {"id": task.id, "context_id": task.context_id, "workspace_id": ws_id}
 
         # —— await 段：连接已归还，长等待/推送不再占连接池 ——
+        # 前台串行（2026-10-03）：新任务走带门禁的队列派发器（已有活动任务则保持 queued，
+        # 等终态后补派）；续聊必须直接回到原任务，不受门禁限制。
         if method == "message/stream":
-            return await _stream_response(task_snap, text, caller)
-        # 非流式：推给插件，同步等终态（最多 CALL_TIMEOUT）
-        await _dispatch_to_plugin_plain(task_snap, text, caller)
+            return await _stream_response(task_snap, text, caller, bool(task_id))
+        if task_id:
+            await _dispatch_to_plugin_plain(task_snap, text, caller)
+        else:
+            await dispatch_queued_for(ws_id)
+        # 非流式：同步等终态（最多 CALL_TIMEOUT）
         await _wait_final(task_snap["id"], CALL_TIMEOUT_SECONDS)
         with Session(engine) as session2:
             t2 = session2.get(models.A2aTask, task_snap["id"])
@@ -1086,6 +1120,7 @@ async def a2a_rpc(workspace_id: str, request: Request):
             t2 = session2.get(models.A2aTask, task.id)
             snap = task_obj(t2, _owner_key(session2, t2)) if t2 is not None else task_obj(task)
         await _push_web(wid, status_event_from_snap(snap, True))
+        _kick_queued(wid)  # 取消释放前台串行位，拉下一个
         return _result(rpc_id, snap)
 
     return JSONResponse(_err(-32601, f"method not supported: {method}"))
@@ -1157,18 +1192,24 @@ async def _wait_final(task_id: str, timeout: float) -> None:
                 state = str((event.get("status") or {}).get("state", ""))
                 if state in TERMINAL_STATES:
                     return
-        # 超时：置 failed
+        # 超时：置 failed（并释放前台串行位，拉下一个排队任务）
+        wid = ""
         with Session(engine) as session:
+            t = session.get(models.A2aTask, task_id)
+            wid = (t.workspace_id if t is not None else "") or ""
             _mark_task(session, task_id, "failed", f"timeout after {int(timeout)}s")
             session.commit()
+        if wid:
+            _kick_queued(wid)
     finally:
         _task_unsubscribe(task_id, q)
 
 
-async def _stream_response(task_snap: dict, text: str, caller: str):
+async def _stream_response(task_snap: dict, text: str, caller: str, is_continuation: bool = False):
     """message/stream：SSE，事件总线驱动，实时推 status/artifact 事件，终态收尾。
 
     task_snap: {id, context_id, workspace_id}（纯字段，ORM 对象已随请求 session 关闭）
+    is_continuation=True 时直接派发该任务；否则走带前台门禁的队列派发器（可排队）。
     """
 
     async def gen():
@@ -1201,8 +1242,11 @@ async def _stream_response(task_snap: dict, text: str, caller: str):
                     replay.append((r.id, json.dumps(ev, ensure_ascii=False)))
             for eid, data in replay:
                 yield f"id: {eid}\ndata: {data}\n\n"
-            # 派发给插件（在回放之后，避免事件乱序）
-            await _dispatch_to_plugin_plain(task_snap, text, caller)
+            # 派发给插件（在回放之后，避免事件乱序）；新任务走队列派发器（前台串行门禁）
+            if is_continuation:
+                await _dispatch_to_plugin_plain(task_snap, text, caller)
+            else:
+                await dispatch_queued_for(task_snap["workspace_id"])
             deadline = time.monotonic() + CALL_TIMEOUT_SECONDS
             while time.monotonic() < deadline:
                 remaining = deadline - time.monotonic()
@@ -1229,6 +1273,7 @@ async def _stream_response(task_snap: dict, text: str, caller: str):
                     s.refresh(t)
                     timeout_ev = {"jsonrpc": "2.0", "id": None, "result": status_event(t, True)}
             if timeout_ev is not None:
+                _kick_queued(task_snap["workspace_id"])  # 超时释放前台串行位
                 yield f"data: {json.dumps(timeout_ev, ensure_ascii=False)}\n\n"
         finally:
             _task_unsubscribe(task_id, q)
@@ -1328,9 +1373,14 @@ async def _send_message_core(ws_row: models.Workspace, text: str, caller: str, t
             session.refresh(task)
         snap = task_obj(task)
     if dispatchable(ws_row.id):
-        import asyncio
+        if task_id:
+            # 续聊（input-required 应答）：必须立刻回到原任务，不受前台串行门禁限制
+            import asyncio
 
-        asyncio.ensure_future(_dispatch_to_plugin(task, text, caller))
+            asyncio.ensure_future(_dispatch_to_plugin(task, text, caller))
+        else:
+            # 新任务：交给带门禁的队列派发器——前台已有活动任务则保持 queued（2026-10-03 串行）
+            _kick_queued(ws_row.id)
     return snap
 
 
@@ -1478,6 +1528,7 @@ async def cancel_task_by_id(task_id: str, user_id: str) -> bool:
                 await listener(wid, status_event_from_snap(snap, True))
             except Exception:
                 pass
+        _kick_queued(wid)  # 取消释放前台串行位，拉下一个
     return True
 
 
@@ -1718,14 +1769,54 @@ def _ws_session_id(workspace_id: str) -> str:
         return (ws.session_id if ws else "") or ""
 
 
+# 每工作区派发锁：前台串行/并发调用时防止同一 queued 任务被重复派发
+_dispatch_locks: dict[str, asyncio.Lock] = {}
+
+
+def _dispatch_lock(workspace_id: str) -> asyncio.Lock:
+    lock = _dispatch_locks.get(workspace_id)
+    if lock is None:
+        lock = asyncio.Lock()
+        _dispatch_locks[workspace_id] = lock
+    return lock
+
+
+def _kick_queued(workspace_id: str) -> None:
+    """尽力触发一次队列派发（不阻塞调用方）。任务终态后拉下一个排队任务用。"""
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return
+    loop.create_task(dispatch_queued_for(workspace_id))
+
+
 async def dispatch_queued_for(workspace_id: str) -> int:
-    """把某工作区的 queued 任务推给在线插件（a2a_call / 插件上线共用）。返回派发数。"""
+    """把某工作区的 queued 任务推给在线插件（a2a_call / 插件上线 / 终态补派共用）。
+
+    前台模式（2026-10-03 服务端任务级串行）：已有 A2A 活动任务（working/input-required）
+    时返回 0、保持排队；否则**一次只派发一个**（最旧），等它终态后由 `_kick_queued` 再拉。
+    后台模式维持旧行为（一次性派发全部 queued）。
+    """
     conn = primary_conn(workspace_id)
     if conn is None:
         return 0
     # 没开 TUI 且非后台模式：不补推（否则 service 插件一连上就把排队任务跑了，没人看得见）
     if not dispatchable(workspace_id):
         return 0
+    foreground = _execution_mode(workspace_id) != "background"
+    if foreground and _foreground_active(workspace_id):
+        return 0  # 前台已有活动任务：排队等其终态
+    async with _dispatch_lock(workspace_id):
+        # 锁内复检（并发调用防重复派发）
+        conn = primary_conn(workspace_id)
+        if conn is None or not dispatchable(workspace_id):
+            return 0
+        if foreground and _foreground_active(workspace_id):
+            return 0
+        return await _dispatch_queued_locked(workspace_id, conn, foreground)
+
+
+async def _dispatch_queued_locked(workspace_id: str, conn: "PluginConn", foreground: bool) -> int:
     session_id = conn.session_id or _ws_session_id(workspace_id)
     with Session(engine) as session:
         rows = session.exec(
@@ -1742,6 +1833,8 @@ async def dispatch_queued_for(workspace_id: str) -> int:
         for t in rows:
             key = _owner_key(session, t)
             items.append((t.id, crypto.decrypt(key, t.message_enc, t.message), t.caller))
+    if foreground:
+        items = items[:1]  # 前台串行：一次只派最旧的一个，等终态再拉下一个
     n = 0
     for tid, text, caller in items:
         req = {

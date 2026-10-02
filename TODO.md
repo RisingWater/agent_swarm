@@ -185,6 +185,18 @@
 - [x] 成功标准输入**新建不含、仅编辑可改**（改动置回待确认）；任务详情「实际执行 agent」置 `-`（core 暂无独立字段）（945bb67 / aec36b6）
 - [x] 文档同步：requirements §15、README/README_CN、AGENTS.md、web 文档页、TODO
 
+### P16 服务端前台任务级串行（追加，2026-10-03）
+
+> 背景：用户发现"已有一个 A2A 任务 working（前台模式），后续任务不排队"——根因是服务端从无任务级门禁，新任务只要工作区可派发就立即 RPC，插件"接单即回 ack + 直接注入前台会话（V2 `delivery:steer` / V1 `promptAsync`）"，`queued` 秒变 `working`。
+
+- [x] `nexus_a2a._foreground_active(wid)`：前台模式且有非 monitor 的 `working`/`input-required` 任务 → 占用；后台模式豁免、监控轮不算占用
+- [x] 新任务统一经 `dispatch_queued_for` 派发（新增每工作区 `_dispatch_lock`；前台一次只派最旧的一个，ack 成功即置 working，锁内复检防重复）；后台模式维持并发全派
+- [x] `_send_message_core`（web/微信/飞书新任务）、`a2a_rpc` 非流式/流式新任务改走队列派发器；续聊（`task_id` 路径、`nexus_reply`）直发不受门禁
+- [x] 终态拉下一个：`handle_plugin_event` 终态、`tasks/cancel`、`cancel_task_by_id`、`_wait_final`/`_stream_response` 超时置 failed → `_kick_queued` 触发 `dispatch_queued_for`
+- [x] 测试：`tests/test_foreground_serial.py`（6 例：占用语义/后台豁免/监控轮豁免/一次一个/忙时不派/后台全派/终态拉下一个）；`test_dispatch_enc.py` 补清理残留未终态任务（共享 `w-test` 污染）
+- [x] 文档：AGENTS.md「前台任务级串行」条；本 TODO
+- [ ] 待验：真机「前台跑长任务时再发一个 → 第二个显示 queued、首个终态后自动开跑」
+
 ## 已完成（除注明外均已进 git）
 
 ### deepseek harness（dsh）全功能对齐 + 跨工作区长任务完成提醒（2026-09-30 ~ 10-01，E2E 实测）
