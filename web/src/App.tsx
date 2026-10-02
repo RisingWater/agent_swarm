@@ -40,6 +40,7 @@ function Md({ text }: { text: string | null | undefined }) {
 
 /** 表格上方搜索框（纯前端过滤） */
 export function SearchBox({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder: string }) {
+  const { t } = useI18n()
   return (
     <div className="search-box">
       <svg className="search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -54,7 +55,7 @@ export function SearchBox({ value, onChange, placeholder }: { value: string; onC
         onChange={(e) => onChange(e.target.value)}
       />
       {value && (
-        <button className="search-clear" title="清空" onClick={() => onChange("")}>×</button>
+        <button className="search-clear" title={t("清空", "Clear")} onClick={() => onChange("")}>×</button>
       )}
     </div>
   )
@@ -338,12 +339,13 @@ function Switch({ on, onClick }: { on: boolean; onClick: () => void }) {
 }
 
 function Confirm({ text, onOk, onClose }: { text: string; onOk: () => void; onClose: () => void }) {
+  const { t } = useI18n()
   return (
     <div className="confirm-pop" onClick={(e) => e.stopPropagation()}>
       {text}
       <div className="actions">
-        <Btn size="sm" variant="ghost" onClick={onClose}>cancel</Btn>
-        <Btn size="sm" variant="danger" onClick={() => { onOk(); onClose() }}>confirm</Btn>
+        <Btn size="sm" variant="ghost" onClick={onClose}>{t("取消", "cancel")}</Btn>
+        <Btn size="sm" variant="danger" onClick={() => { onOk(); onClose() }}>{t("确认", "confirm")}</Btn>
       </div>
     </div>
   )
@@ -352,6 +354,7 @@ function Confirm({ text, onOk, onClose }: { text: string; onOk: () => void; onCl
 // ---------------- 站内信 ----------------
 
 function NotificationBell({ onOpenTeam }: { onOpenTeam: (teamId?: string) => void }) {
+  const { t } = useI18n()
   const [count, setCount] = useState(0)
   const [open, setOpen] = useState(false)
   const [list, setList] = useState<Notification[]>([])
@@ -363,8 +366,8 @@ function NotificationBell({ onOpenTeam }: { onOpenTeam: (teamId?: string) => voi
   }, [])
   useEffect(() => {
     refreshCount()
-    const t = setInterval(refreshCount, 20_000)
-    return () => clearInterval(t)
+    const timer = setInterval(refreshCount, 20_000)
+    return () => clearInterval(timer)
   }, [refreshCount])
 
   const toggle = async () => {
@@ -421,7 +424,7 @@ function NotificationBell({ onOpenTeam }: { onOpenTeam: (teamId?: string) => voi
 
   return (
     <span className="notif-wrap">
-      <a className={`user notif-bell${open ? " active" : ""}`} title="站内信" onClick={toggle}>
+      <a className={`user notif-bell${open ? " active" : ""}`} title={t("站内信", "Notifications")} onClick={toggle}>
         <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor"
           strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
           <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" />
@@ -434,16 +437,16 @@ function NotificationBell({ onOpenTeam }: { onOpenTeam: (teamId?: string) => voi
           <div className="notif-backdrop" onClick={() => setOpen(false)} />
           <div className="notif-panel">
             <div className="notif-head">
-              <b>站内信</b>
+              <b>{t("站内信", "Notifications")}</b>
               <span style={{ display: "inline-flex", gap: 6 }}>
-                <Btn size="sm" variant="ghost" disabled={count === 0} onClick={readAll}>全部已读</Btn>
+                <Btn size="sm" variant="ghost" disabled={count === 0} onClick={readAll}>{t("全部已读", "Mark all read")}</Btn>
                 <Btn size="sm" variant="ghost" disabled={list.length === 0} onClick={removeAll}>
-                  {confirmClear ? "确认删除" : "全部删除"}
+                  {confirmClear ? t("确认删除", "Confirm delete") : t("全部删除", "Delete all")}
                 </Btn>
               </span>
             </div>
             {loading ? (
-              <p className="notif-empty">加载中…</p>
+              <p className="notif-empty">{t("加载中…", "Loading…")}</p>
             ) : list.length ? (
               <div className="notif-list">
                 {list.map((n) => (
@@ -455,7 +458,7 @@ function NotificationBell({ onOpenTeam }: { onOpenTeam: (teamId?: string) => voi
                     </div>
                     <button
                       className="notif-del"
-                      title="删除该消息"
+                      title={t("删除该消息", "Delete this message")}
                       onClick={(e) => { e.stopPropagation(); removeOne(n) }}
                     >
                       <TrashIcon size={14} />
@@ -464,7 +467,7 @@ function NotificationBell({ onOpenTeam }: { onOpenTeam: (teamId?: string) => voi
                 ))}
               </div>
             ) : (
-              <p className="notif-empty">暂无消息</p>
+              <p className="notif-empty">{t("暂无消息", "No messages")}</p>
             )}
           </div>
         </>
@@ -699,19 +702,20 @@ function LoginPage({ onLogin, onClose }: { onLogin: (token: string) => void; onC
 // ---------------- 账号（左侧二级菜单：API Key / 修改密码） ----------------
 
 function AccountPage({ toast }: { toast: (m: string) => void }) {
+  const { t } = useI18n()
   const [tab, setTab] = useState<"apikey" | "password" | "chatbinds">("apikey")
   return (
     <div className="subpage">
       <aside className="subpage-toc">
-        <p className="section-label">[ 账号 ]</p>
+        <p className="section-label">{t("[ 账号 ]", "[ Account ]")}</p>
         <a className={`subpage-item${tab === "apikey" ? " active" : ""}`} onClick={() => setTab("apikey")}>
           API Key
         </a>
         <a className={`subpage-item${tab === "chatbinds" ? " active" : ""}`} onClick={() => setTab("chatbinds")}>
-          聊天工具绑定
+          {t("聊天工具绑定", "Chat bindings")}
         </a>
         <a className={`subpage-item${tab === "password" ? " active" : ""}`} onClick={() => setTab("password")}>
-          修改密码
+          {t("修改密码", "Change password")}
         </a>
       </aside>
       <div className="subpage-body">
@@ -725,10 +729,11 @@ function AccountPage({ toast }: { toast: (m: string) => void }) {
 
 /** 飞书品牌图标（官方 SVG，web/public/feishu.svg） */
 function FeishuIcon({ size = 18 }: { size?: number }) {
+  const { t } = useI18n()
   return (
     <img
       src="/feishu.svg"
-      alt="飞书"
+      alt={t("飞书", "Feishu")}
       width={size}
       height={size}
       style={{ borderRadius: 5, flexShrink: 0 }}
@@ -738,10 +743,11 @@ function FeishuIcon({ size = 18 }: { size?: number }) {
 
 /** 微信品牌图标（官方 SVG，web/public/weixin.svg，绿色） */
 function WeixinIcon({ size = 18 }: { size?: number }) {
+  const { t } = useI18n()
   return (
     <img
       src="/weixin.svg"
-      alt="微信"
+      alt={t("微信", "WeChat")}
       width={size}
       height={size}
       style={{ flexShrink: 0 }}
@@ -750,6 +756,7 @@ function WeixinIcon({ size = 18 }: { size?: number }) {
 }
 
 function ChatBindPanel({ toast }: { toast: (m: string) => void }) {
+  const { t } = useI18n()
   const [info, setInfo] = useState<ChatBindInfo | null>(null)
   const [workspaces, setWorkspaces] = useState<Workspace[]>([])
   const [saving, setSaving] = useState("")
@@ -766,7 +773,7 @@ function ChatBindPanel({ toast }: { toast: (m: string) => void }) {
     setSaving(chatId)
     try {
       await api.updateChatBind(chatId, patch)
-      toast("已保存，飞书端会收到通知")
+      toast(t("已保存，飞书端会收到通知", "Saved; the Feishu side will be notified"))
       refresh()
     } catch (e: any) {
       toast(e.message)
@@ -779,7 +786,7 @@ function ChatBindPanel({ toast }: { toast: (m: string) => void }) {
   const hasAnyBinding = info.bindings.length > 0
   return (
     <>
-      <p className="section-label">[ 聊天工具绑定 ]</p>
+      <p className="section-label">{t("[ 聊天工具绑定 ]", "[ Chat bindings ]")}</p>
       {/* 飞书：有绑定显示已连接卡，否则显示未连接卡（列出支持 IM + 如何连接，不再有空文案分支） */}
       {!hasAnyBinding && (
         <div style={{
@@ -788,15 +795,19 @@ function ChatBindPanel({ toast }: { toast: (m: string) => void }) {
         }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <FeishuIcon size={18} />
-            <b style={{ fontSize: 14 }}>飞书</b>
+            <b style={{ fontSize: 14 }}>{t("飞书", "Feishu")}</b>
             <span style={{ fontSize: 12, color: "var(--text-weak)", display: "flex", alignItems: "center", gap: 4 }}>
               <span style={{ width: 7, height: 7, borderRadius: "50%", background: "var(--border)", display: "inline-block" }} />
-              未连接
+              {t("未连接", "Not connected")}
             </span>
           </div>
           <p style={{ fontSize: 12, color: "var(--text-weak)", margin: 0 }}>
-            在飞书里给机器人发送 <code>/swarm bind as_你的密钥</code> 完成绑定
-            （密钥在「API Key」页复制）。绑定后可在聊天里派任务、收时间线直播与完成简报、远程应答权限请求。
+            <L
+              zh={<>在飞书里给机器人发送 <code>/swarm bind as_你的密钥</code> 完成绑定
+                （密钥在「API Key」页复制）。绑定后可在聊天里派任务、收时间线直播与完成简报、远程应答权限请求。</>}
+              en={<>In Feishu, send the bot <code>/swarm bind as_your_key</code> to bind
+                (copy the key from the "API Key" page). Once bound you can dispatch tasks, receive the live timeline and completion briefs, and answer permission requests right in chat.</>}
+            />
           </p>
         </div>
       )}
@@ -811,30 +822,31 @@ function ChatBindPanel({ toast }: { toast: (m: string) => void }) {
               {/* 行1：logo + 名字 + 连接状态（飞书绑定即已连接） */}
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <FeishuIcon size={18} />
-                <b style={{ fontSize: 14 }}>飞书{g.feishu_name ? ` · ${g.feishu_name}` : ""}</b>
+                <b style={{ fontSize: 14 }}>{t("飞书", "Feishu")}{g.feishu_name ? ` · ${g.feishu_name}` : ""}</b>
                 <span style={{ fontSize: 12, color: "var(--ok, green)", display: "flex", alignItems: "center", gap: 4 }}>
                   <span style={{ width: 7, height: 7, borderRadius: "50%", background: "var(--ok, #2ecc71)", display: "inline-block" }} />
-                  已连接
+                  {t("已连接", "Connected")}
                 </span>
                 <span style={{ fontSize: 12, color: "var(--text-weak)" }}>
-                  {g.chats.length} 个窗口
+                  {t(`${g.chats.length} 个窗口`, `${g.chats.length} window${g.chats.length > 1 ? "s" : ""}`)}
                 </span>
                 <span style={{ flex: 1 }} />
-                <ConfirmWrap text="解绑后所有窗口取消工作区选择，需要重新 /swarm bind 才能使用。确认？" onOk={async () => {
+                <ConfirmWrap text={t("解绑后所有窗口取消工作区选择，需要重新 /swarm bind 才能使用。确认？",
+                  "After unbinding, all windows lose their workspace selection and you must run /swarm bind again. Continue?")} onOk={async () => {
                   try {
                     await api.unbindChatAccount(g.open_id)
-                    toast("已解绑，飞书窗口会收到通知")
+                    toast(t("已解绑，飞书窗口会收到通知", "Unbound; the Feishu windows will be notified"))
                     refresh()
                   } catch (e: any) {
                     toast(e.message)
                   }
                 }}>
-                  <Btn size="sm" variant="danger">🔌 断开连接</Btn>
+                  <Btn size="sm" variant="danger">{t("🔌 断开连接", "🔌 Disconnect")}</Btn>
                 </ConfirmWrap>
               </div>
               {/* 行2：账号标识（飞书 = open_id） */}
               <div style={{ fontSize: 12, color: "var(--text-weak)" }}>
-                ID：<code>{g.open_id.slice(0, 22)}…</code>
+                {t("ID：", "ID: ")}<code>{g.open_id.slice(0, 22)}…</code>
               </div>
               {/* 行3：监控 / 简报 */}
               <div style={{ display: "flex", gap: 18, alignItems: "center", flexWrap: "wrap" }}>
@@ -844,7 +856,7 @@ function ChatBindPanel({ toast }: { toast: (m: string) => void }) {
                     checked={c.monitor_on}
                     onChange={(e) => update(c.chat_id, { monitor_on: e.target.checked })}
                   />
-                  监控模式{c.monitor_on ? "（开）" : "（关）"}
+                  {t("监控模式", "Monitor mode")}{c.monitor_on ? t("（开）", " (on)") : t("（关）", " (off)")}
                 </label>
                 <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, cursor: "pointer" }}>
                   <input
@@ -852,12 +864,12 @@ function ChatBindPanel({ toast }: { toast: (m: string) => void }) {
                     checked={c.brief_on}
                     onChange={(e) => update(c.chat_id, { brief_on: e.target.checked })}
                   />
-                  简报模式{c.brief_on ? "（开）" : "（关）"}
+                  {t("简报模式", "Brief mode")}{c.brief_on ? t("（开）", " (on)") : t("（关）", " (off)")}
                 </label>
               </div>
               {/* 行4：所选工作区 */}
               <div style={{ fontSize: 13, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                所选工作区：
+                {t("所选工作区：", "Selected workspace: ")}
                 <NexusWorkspaceSelect
                   list={workspaces.map((w) => ({ id: w.id, name: w.name, path: w.path, agent_type: w.agent_type, owner: null }))}
                   value={c.workspace_id}
@@ -866,9 +878,14 @@ function ChatBindPanel({ toast }: { toast: (m: string) => void }) {
               </div>
               {/* 行5：说明文字 */}
               <p style={{ fontSize: 12, color: "var(--text-weak)", margin: 0 }}>
-                监控模式 = TUI 对话按时间线实时同步；简报模式 = 任务完成后推送结果摘要卡。
-                窗口：{c.chat_type === "group" ? "群聊" : "私聊"} <code>{c.chat_id.slice(0, 14)}…</code>。
-                修改会即时生效，飞书窗口会收到变更通知。
+                <L
+                  zh={<>监控模式 = TUI 对话按时间线实时同步；简报模式 = 任务完成后推送结果摘要卡。
+                    窗口：{c.chat_type === "group" ? "群聊" : "私聊"} <code>{c.chat_id.slice(0, 14)}…</code>。
+                    修改会即时生效，飞书窗口会收到变更通知。</>}
+                  en={<>Monitor mode = TUI conversations sync live as a timeline; brief mode = push a result summary card when a task finishes.
+                    Window: {c.chat_type === "group" ? "Group" : "Direct"} <code>{c.chat_id.slice(0, 14)}…</code>.
+                    Changes take effect immediately and the Feishu windows receive a change notification.</>}
+                />
               </p>
             </div>
           ))}
@@ -881,6 +898,7 @@ function ChatBindPanel({ toast }: { toast: (m: string) => void }) {
 
 /** 微信 ClawBot（扫码登录自己的微信号作为 bot，扫码后微信里出现 ClawBot 会话） */
 function WeixinPanel({ toast }: { toast: (m: string) => void }) {
+  const { t } = useI18n()
   const [st, setSt] = useState<WeixinStatus | null>(null)
   const [verifyCode, setVerifyCode] = useState("")
   const [busy, setBusy] = useState(false)
@@ -899,17 +917,17 @@ function WeixinPanel({ toast }: { toast: (m: string) => void }) {
       }
       return
     }
-    const t = setInterval(() => {
+    const timer = setInterval(() => {
       api.weixinLoginStatus().then((s) => {
         if (s.flow?.status === "expired" || s.flow?.status === "error") {
           setErrHint(s.flow.message)
         } else if (!s.flow && s.logged_in) {
-          toast("微信 ClawBot 已连接")
+          toast(t("微信 ClawBot 已连接", "WeChat ClawBot connected"))
         }
         setSt(s)
       }).catch(() => {})
     }, 1500)
-    return () => clearInterval(t)
+    return () => clearInterval(timer)
   }, [st?.flow?.status, st?.flow])
 
   const start = async () => {
@@ -924,10 +942,10 @@ function WeixinPanel({ toast }: { toast: (m: string) => void }) {
   }
   const submitVerify = async () => {
     if (!verifyCode.trim()) return
-    try { await api.weixinLoginVerify(verifyCode.trim()); setVerifyCode(""); toast("配对码已提交") } catch (e: any) { toast(e.message) }
+    try { await api.weixinLoginVerify(verifyCode.trim()); setVerifyCode(""); toast(t("配对码已提交", "Pairing code submitted")) } catch (e: any) { toast(e.message) }
   }
   const logout = async () => {
-    try { await api.weixinLogout(); toast("已断开微信连接"); refresh() } catch (e: any) { toast(e.message) }
+    try { await api.weixinLogout(); toast(t("已断开微信连接", "WeChat disconnected")); refresh() } catch (e: any) { toast(e.message) }
   }
 
   const wsList = useWorkspacesForSelect()
@@ -943,23 +961,27 @@ function WeixinPanel({ toast }: { toast: (m: string) => void }) {
           {/* 行1：logo + 名字 + 未连接灰点 */}
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <WeixinIcon size={18} />
-            <b style={{ fontSize: 14 }}>微信 ClawBot</b>
+            <b style={{ fontSize: 14 }}>{t("微信 ClawBot", "WeChat ClawBot")}</b>
             <span style={{ fontSize: 12, color: "var(--text-weak)", display: "flex", alignItems: "center", gap: 4 }}>
               <span style={{ width: 7, height: 7, borderRadius: "50%", background: "var(--border)", display: "inline-block" }} />
-              未连接
+              {t("未连接", "Not connected")}
             </span>
           </div>
           {/* 行2：说明 + 连接方式 */}
           <p style={{ fontSize: 12, color: "var(--text-weak)", margin: 0 }}>
-            扫码把<b>你自己的微信号</b>登录为本平台的 ClawBot。登录后微信里会出现一个 ClawBot
-            会话：发文字给它即可选择工作区、派任务、收简报、应答 AI 的提问与授权请求。
+            <L
+              zh={<>扫码把<b>你自己的微信号</b>登录为本平台的 ClawBot。登录后微信里会出现一个 ClawBot
+                会话：发文字给它即可选择工作区、派任务、收简报、应答 AI 的提问与授权请求。</>}
+              en={<>Scan the QR code to log <b>your own WeChat account</b> in as this platform's ClawBot. Once logged in, a ClawBot
+                conversation appears in WeChat: send it text to pick a workspace, dispatch tasks, receive briefs and answer the AI's questions and authorization requests.</>}
+            />
           </p>
           {errHint && (
             <p style={{ fontSize: 13, color: "var(--danger, #c0392b)", margin: 0 }}>{errHint}</p>
           )}
           <div>
             <Btn size="sm" disabled={busy} onClick={() => { setErrHint(""); start() }}>
-              {errHint ? "重新获取二维码" : busy ? "获取中…" : "扫码登录微信"}
+              {errHint ? t("重新获取二维码", "Get a new QR code") : busy ? t("获取中…", "Getting…") : t("扫码登录微信", "Log in to WeChat by QR")}
             </Btn>
           </div>
         </div>
@@ -973,39 +995,39 @@ function WeixinPanel({ toast }: { toast: (m: string) => void }) {
           {/* 行1：logo + 名字 + 扫码中状态 */}
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <WeixinIcon size={18} />
-            <b style={{ fontSize: 14 }}>微信 ClawBot</b>
+            <b style={{ fontSize: 14 }}>{t("微信 ClawBot", "WeChat ClawBot")}</b>
             <span style={{ fontSize: 12, color: "var(--text-weak)", display: "flex", alignItems: "center", gap: 4 }}>
               <span style={{ width: 7, height: 7, borderRadius: "50%", background: "var(--border)", display: "inline-block" }} />
-              连接中…
+              {t("连接中…", "Connecting…")}
             </span>
           </div>
           <div style={{ display: "flex", gap: 18, alignItems: "flex-start", flexWrap: "wrap" }}>
           {flow.qrcode_img ? (
             <div style={{ border: "1px solid var(--border)", borderRadius: 8, padding: 10, background: "#fff", position: "relative" }}>
-              <img src={flow.qrcode_img} alt="微信登录二维码"
+              <img src={flow.qrcode_img} alt={t("微信登录二维码", "WeChat login QR code")}
                 style={{ width: 180, height: 180, display: "block", opacity: flow.status === "scanned" ? 0.2 : 1 }} />
               {flow.status === "scanned" && (
                 <span style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center",
-                  fontSize: 13, color: "var(--ok, green)", fontWeight: 600 }}>✓ 已扫码</span>
+                  fontSize: 13, color: "var(--ok, green)", fontWeight: 600 }}>{t("✓ 已扫码", "✓ Scanned")}</span>
               )}
             </div>
           ) : (
             <div style={{ width: 180, height: 180, border: "1px dashed var(--border)", borderRadius: 8,
               display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, color: "var(--text-weak)" }}>
-              二维码加载中…
+              {t("二维码加载中…", "Loading QR code…")}
             </div>
           )}
           <div>
             <p style={{ fontSize: 13 }}>{flow.message}</p>
             {flow.status === "need_verifycode" && (
               <div className="keyrow" style={{ marginTop: 8 }}>
-                <input className="field" style={{ maxWidth: 140 }} placeholder="数字配对码"
+                <input className="field" style={{ maxWidth: 140 }} placeholder={t("数字配对码", "Numeric pairing code")}
                   value={verifyCode} onChange={(e) => setVerifyCode(e.target.value)} />
-                <Btn size="sm" onClick={submitVerify}>提交</Btn>
+                <Btn size="sm" onClick={submitVerify}>{t("提交", "Submit")}</Btn>
               </div>
             )}
             <div style={{ marginTop: 8 }}>
-              <Btn size="sm" variant="ghost" onClick={cancel}>取消</Btn>
+              <Btn size="sm" variant="ghost" onClick={cancel}>{t("取消", "Cancel")}</Btn>
             </div>
           </div>
         </div>
@@ -1020,37 +1042,38 @@ function WeixinPanel({ toast }: { toast: (m: string) => void }) {
           {/* 行1：logo + 名字 + 连接状态 */}
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <WeixinIcon size={18} />
-            <b style={{ fontSize: 14 }}>微信 ClawBot</b>
+            <b style={{ fontSize: 14 }}>{t("微信 ClawBot", "WeChat ClawBot")}</b>
             <span style={{ fontSize: 12, color: "var(--ok, green)", display: "flex", alignItems: "center", gap: 4 }}>
               <span style={{ width: 7, height: 7, borderRadius: "50%", background: "var(--ok, #2ecc71)", display: "inline-block" }} />
-              已连接
+              {t("已连接", "Connected")}
             </span>
             <span style={{ flex: 1 }} />
-            <ConfirmWrap text="断开后微信 ClawBot 会话停止工作，需要重新扫码登录。确认？" onOk={logout}>
-              <Btn size="sm" variant="danger">🔌 断开连接</Btn>
+            <ConfirmWrap text={t("断开后微信 ClawBot 会话停止工作，需要重新扫码登录。确认？",
+              "After disconnecting, the WeChat ClawBot conversation stops working and you must scan again to log in. Continue?")} onOk={logout}>
+              <Btn size="sm" variant="danger">{t("🔌 断开连接", "🔌 Disconnect")}</Btn>
             </ConfirmWrap>
           </div>
           {/* 行2：用户名 + user id + 登录时间 */}
           <div style={{ fontSize: 12, color: "var(--text-weak)" }}>
-            用户：微信用户 · <code>{(st.wx_user_id || "").slice(0, 18)}…</code>
-            {st.logged_at ? <> · 登录于 {st.logged_at.slice(0, 16).replace("T", " ")}Z</> : null}
+            {t("用户：微信用户", "User: WeChat user")} · <code>{(st.wx_user_id || "").slice(0, 18)}…</code>
+            {st.logged_at ? <> · {t("登录于", "logged in at")} {st.logged_at.slice(0, 16).replace("T", " ")}Z</> : null}
           </div>
           {/* 行3：监控 / 简报 */}
           <div style={{ display: "flex", gap: 18, alignItems: "center", flexWrap: "wrap" }}>
             <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, cursor: "pointer" }}>
               <input type="checkbox" checked={!!st.monitor_on}
                 onChange={async (e) => { try { setSt(await api.weixinSettings({ monitor_on: e.target.checked })) } catch (err: any) { toast(err.message) } }} />
-              监控模式{st.monitor_on ? "（开）" : "（关）"}
+              {t("监控模式", "Monitor mode")}{st.monitor_on ? t("（开）", " (on)") : t("（关）", " (off)")}
             </label>
             <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, cursor: "pointer" }}>
               <input type="checkbox" checked={st.brief_on !== false}
                 onChange={async (e) => { try { setSt(await api.weixinSettings({ brief_on: e.target.checked })) } catch (err: any) { toast(err.message) } }} />
-              简报模式{st.brief_on !== false ? "（开）" : "（关）"}
+              {t("简报模式", "Brief mode")}{st.brief_on !== false ? t("（开）", " (on)") : t("（关）", " (off)")}
             </label>
           </div>
           {/* 行4：所选工作区 */}
           <div style={{ fontSize: 13 }}>
-            所选工作区：
+            {t("所选工作区：", "Selected workspace: ")}
             <span style={{ marginLeft: 6 }}>
               <NexusWorkspaceSelect
                 list={wsList.map((w) => ({ id: w.id, name: w.name, path: w.path, agent_type: w.agent_type, owner: null }))}
@@ -1061,8 +1084,8 @@ function WeixinPanel({ toast }: { toast: (m: string) => void }) {
           </div>
           {/* 行5：说明文字 */}
           <p style={{ fontSize: 12, color: "var(--text-weak)", margin: 0 }}>
-            在微信 ClawBot 会话里也可以用指令管理：/swarm select、/swarm monitor on、/swarm brief off 等（发 help 查看）。
-            微信连接受官方约 24h 有效期限制，失效后会提示重新扫码。
+            {t("在微信 ClawBot 会话里也可以用指令管理：/swarm select、/swarm monitor on、/swarm brief off 等（发 help 查看）。微信连接受官方约 24h 有效期限制，失效后会提示重新扫码。",
+              "You can also manage it with commands in the WeChat ClawBot conversation: /swarm select, /swarm monitor on, /swarm brief off, etc. (send help). The WeChat connection is limited to about 24h by the official API; when it expires you'll be prompted to scan again.")}
           </p>
         </div>
       )}
@@ -1082,6 +1105,7 @@ function useWorkspacesForSelect(): Workspace[] {
 }
 
 function ApiKeyPanel({ toast }: { toast: (m: string) => void }) {
+  const { t } = useI18n()
   const [me, setMe] = useState<(User & { api_key: string }) | null>(null)
   const [showKey, setShowKey] = useState(false)
 
@@ -1093,7 +1117,7 @@ function ApiKeyPanel({ toast }: { toast: (m: string) => void }) {
   const reset = async () => {
     try {
       await api.resetApiKey()
-      toast("API Key 已重置")
+      toast(t("API Key 已重置", "API Key reset"))
       refresh()
     } catch (e: any) { toast(e.message) }
   }
@@ -1107,24 +1131,27 @@ function ApiKeyPanel({ toast }: { toast: (m: string) => void }) {
         <div className="keybox">
           {me ? (showKey ? key : maskKey(key)) : "loading..."}
         </div>
-        <Btn variant="icon" title={showKey ? "hide" : "show"} onClick={() => setShowKey(!showKey)}>
+        <Btn variant="icon" title={showKey ? t("隐藏", "hide") : t("显示", "show")} onClick={() => setShowKey(!showKey)}>
           <EyeIcon off={!showKey} />
         </Btn>
-        <Btn variant="icon" title="copy" onClick={async () => {
-          toast(await copyText(key) ? "已复制" : "复制失败，请手动选择复制")
+        <Btn variant="icon" title={t("复制", "copy")} onClick={async () => {
+          toast(await copyText(key) ? t("已复制", "Copied") : t("复制失败，请手动选择复制", "Copy failed, please select and copy manually"))
         }}>⧉</Btn>
-        <ConfirmWrap text="重置后旧 Key 立即失效，所有 agent 将断开连接。确认？" onOk={reset}>
-          <Btn size="sm" variant="danger">reset</Btn>
+        <ConfirmWrap text={t("重置后旧 Key 立即失效，所有 agent 将断开连接。确认？",
+          "After resetting, the old Key is invalidated immediately and every connected agent is disconnected. Continue?")} onOk={reset}>
+          <Btn size="sm" variant="danger">{t("重置", "reset")}</Btn>
         </ConfirmWrap>
       </div>
       <p style={{ marginTop: 12, color: "var(--text-weak)", fontSize: 13 }}>
-        安装接入命令在「接入」页生成，会自动带上当前 Key。
+        {t("安装接入命令在「接入」页生成，会自动带上当前 Key。",
+          "The install command is generated on the onboarding page and automatically includes the current Key.")}
       </p>
     </>
   )
 }
 
 function PasswordForm({ toast }: { toast: (m: string) => void }) {
+  const { t } = useI18n()
   const [username] = useState(localStorage.getItem("swarm_user") ?? "")
   const [oldPwd, setOldPwd] = useState("")
   const [newPwd, setNewPwd] = useState("")
@@ -1133,50 +1160,55 @@ function PasswordForm({ toast }: { toast: (m: string) => void }) {
   const [show, setShow] = useState(false)
 
   const submit = async () => {
-    if (!oldPwd || !newPwd) return toast("请填写完整")
-    if (newPwd !== newPwd2) return toast("两次输入的新密码不一致")
-    if (newPwd.length < 6) return toast("新密码至少 6 位")
+    if (!oldPwd || !newPwd) return toast(t("请填写完整", "Please fill in all fields"))
+    if (newPwd !== newPwd2) return toast(t("两次输入的新密码不一致", "The new passwords do not match"))
+    if (newPwd.length < 6) return toast(t("新密码至少 6 位", "The new password must be at least 6 characters"))
     setLoading(true)
     try {
       await api.changePassword(oldPwd, newPwd)
       setOldPwd("")
       setNewPwd("")
       setNewPwd2("")
-      toast("密码修改成功")
+      toast(t("密码修改成功", "Password changed"))
     } catch (e) {
-      toast(e instanceof Error ? e.message : "修改失败")
+      toast(e instanceof Error ? e.message : t("修改失败", "Change failed"))
     } finally {
       setLoading(false)
     }
   }
 
   const eye = (
-    <button className="pwd-eye" title={show ? "隐藏" : "显示"} onClick={() => setShow(!show)}>
+    <button className="pwd-eye" title={show ? t("隐藏", "Hide") : t("显示", "Show")} onClick={() => setShow(!show)}>
       <EyeIcon off={show} />
     </button>
   )
 
   return (
     <div style={{ width: 400, display: "grid", gap: 12, paddingTop: 20 }}>
-      <label className="pwd-label">账号 <span style={{ color: "var(--text-strong)" }}>{username}</span> · 修改后需用新密码重新登录</label>
+      <label className="pwd-label">
+        <L
+          zh={<>账号 <span style={{ color: "var(--text-strong)" }}>{username}</span> · 修改后需用新密码重新登录</>}
+          en={<>Account <span style={{ color: "var(--text-strong)" }}>{username}</span> · you must log in again with the new password</>}
+        />
+      </label>
       <div className="pwd-row">
-        <input className="field" type={show ? "text" : "password"} placeholder="当前密码" value={oldPwd}
+        <input className="field" type={show ? "text" : "password"} placeholder={t("当前密码", "Current password")} value={oldPwd}
           onChange={(e) => setOldPwd(e.target.value)} />
         {eye}
       </div>
       <div className="pwd-row">
-        <input className="field" type={show ? "text" : "password"} placeholder="新密码（至少 6 位）" value={newPwd}
+        <input className="field" type={show ? "text" : "password"} placeholder={t("新密码（至少 6 位）", "New password (min 6 chars)")} value={newPwd}
           onChange={(e) => setNewPwd(e.target.value)} />
         {eye}
       </div>
       <div className="pwd-row">
-        <input className="field" type={show ? "text" : "password"} placeholder="再输入一次新密码" value={newPwd2}
+        <input className="field" type={show ? "text" : "password"} placeholder={t("再输入一次新密码", "Repeat the new password")} value={newPwd2}
           onChange={(e) => setNewPwd2(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && submit()} />
         {eye}
       </div>
       <button className="btn btn-primary" style={{ justifyContent: "center", marginTop: 4 }} disabled={loading} onClick={submit}>
-        {loading ? "..." : "确认修改"}
+        {loading ? "..." : t("确认修改", "Change password")}
       </button>
     </div>
   )
@@ -2726,6 +2758,7 @@ export function NexusWorkspaceSelect({ list, value, onChange, showOwner }: {
   onChange: (id: string) => void
   showOwner?: boolean
 }) {
+  const { t } = useI18n()
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
   // 菜单弹出方向/高度：在容器（弹窗优先）内测量可用空间，空间不足则向上弹，避免撑出滚动条
@@ -2770,7 +2803,7 @@ export function NexusWorkspaceSelect({ list, value, onChange, showOwner }: {
             {showOwner && ownerName(current) ? <span className="nexus-select-item-path">@{ownerName(current)}</span> : null}
           </>
         ) : (
-          <span className="nexus-select-placeholder">选择工作区…</span>
+          <span className="nexus-select-placeholder">{t("选择工作区…", "Select a workspace…")}</span>
         )}
         <svg className="nexus-select-caret" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
           <path d="M6 9l6 6 6-6" />
@@ -2781,7 +2814,11 @@ export function NexusWorkspaceSelect({ list, value, onChange, showOwner }: {
           className={`nexus-select-menu${menuPos.up ? " open-up" : ""}`}
           style={{ maxHeight: menuPos.maxHeight }}
         >
-          {list.map((w) => (
+          {list.length === 0 ? (
+            <div style={{ padding: "8px 10px", fontSize: 12, color: "var(--text-weak)" }}>
+              {t("暂无工作区", "No workspaces")}
+            </div>
+          ) : list.map((w) => (
             <button
               key={w.id}
               type="button"
