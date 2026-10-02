@@ -2084,7 +2084,7 @@ agent: (a2a_call) → 对方 TUI 实时出现任务 → 执行 → 结果自动�
           <ul>
             <li><b>目标</b>：新建 / 编辑 / 归档（标题、描述、优先级、截止、成功标准），列表显示状态、拆解审批徽标与进度</li>
             <li><b>任务树</b>：选中目标后按依赖层级折叠 / 展开展示任务（状态 / 依赖 / 执行 agent / 验收）</li>
-            <li><b>操作</b>：<code>催促</code>（让 agent 干活）、<code>通过拆解</code>（仅拆解状态为 <code>draft</code> 时出现）/ <code>重新拆解</code>（审批计划）、<code>通过</code> / <code>拒绝</code>（人工验收）；离线时全部禁用</li>
+            <li><b>操作</b>：<code>催促</code>（让 agent 干活）、<code>通过拆解</code>（仅拆解状态为 <code>draft</code> 时出现）/ <code>重新拆解</code>（审批计划）、<code>通过</code> / <code>拒绝</code>（人工验收）、<code>归档</code>（<b>软隐藏</b>，保留数据、不参与调度，可 <code>激活</code> 恢复）/ <code>删除</code>（<b>硬删除，二次确认，不可恢复</b>，连同任务树 / 执行记录一起删除）；离线时全部禁用</li>
             <li><b>拆解审批</b>：目标的 <code>plan_status</code> 为 <code>draft</code>（草稿，待审批）/ <code>approved</code>（已通过）；draft 时任务树提示「待审批，通过后 agent 才会开始派发」，点 <code>通过拆解</code> 后才开始派发</li>
             <li><b>专家工作区</b>：新建 / 编辑目标时都可选一个专家工作区（自有 + 团队共享，排除当前 planner 自身；清空可移除专家）；指定后由该专家拆解任务树并设<b>专家验收点</b>（<code>acceptance_type=expert</code>，状态 <code>waiting_expert</code> 显示「待专家验收」）。验收类型文案：<code>auto</code>「自动验收」/ <code>manual</code>「人工验收」/ <code>expert</code>「专家验收点」；人工「通过 / 拒绝」按钮<b>仅</b> <code>manual</code> 任务显示，专家验收点由 planner agent 汇总后自动裁决、平台不介入</li>
           </ul>
@@ -4366,6 +4366,8 @@ function PlannerPage({ toast }: { toast: (m: string) => void }) {
   const [state, setState] = useState<PlannerState | null>(null)
   const [goalId, setGoalId] = useState<string>("")
   const [busy, setBusy] = useState(false)
+  /** 待硬删除的目标（二次确认用） */
+  const [delGoal, setDelGoal] = useState<PlannerGoal | null>(null)
   /** 任务树里被折叠的节点 id 集合 */
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
   /** 工作区 id → 名字（把任务的 assigned_agent 显示成名字而非 id） */
@@ -4603,7 +4605,7 @@ function PlannerPage({ toast }: { toast: (m: string) => void }) {
                 <th style={{ width: 90 }}>优先级</th>
                 <th style={{ width: 120 }}>截止</th>
                 <th style={{ width: 70 }}>进度</th>
-                <th style={{ width: 430 }}>操作</th>
+                <th style={{ width: 520 }}>操作</th>
               </tr>
             </thead>
             <tbody>
@@ -4642,8 +4644,15 @@ function PlannerPage({ toast }: { toast: (m: string) => void }) {
                         onClick={() => { setNoteText(""); setNoteModal({ op: "plan.revise", goalId: g.id, label: "重新拆解" }) }}>重新拆解</ActionBtn>
                       <ActionBtn icon={<PencilIcon />} disabled={busy || !online} title="编辑目标"
                         onClick={() => openEdit(g)}>编辑</ActionBtn>
-                      <ActionBtn icon={<ArchiveIcon />} danger disabled={busy || !online} title="归档目标"
-                        onClick={() => runOp("goal.archive", { goal_id: g.id }, "目标已归档")}>归档</ActionBtn>
+                      {g.status === "archived" ? (
+                        <ActionBtn icon={<RefreshIcon />} disabled={busy || !online} title="恢复已归档目标为 active"
+                          onClick={() => runOp("goal.activate", { goal_id: g.id }, "目标已激活")}>激活</ActionBtn>
+                      ) : (
+                        <ActionBtn icon={<ArchiveIcon />} disabled={busy || !online} title="归档：软隐藏，保留数据、不参与调度，可再「激活」恢复"
+                          onClick={() => runOp("goal.archive", { goal_id: g.id }, "目标已归档")}>归档</ActionBtn>
+                      )}
+                      <ActionBtn icon={<TrashIcon size={14} />} danger disabled={busy || !online} title="删除目标：不可恢复，连同任务树/执行记录一起删除"
+                        onClick={() => setDelGoal(g)}>删除</ActionBtn>
                     </div>
                   </td>
                 </tr>
@@ -4790,6 +4799,30 @@ function PlannerPage({ toast }: { toast: (m: string) => void }) {
           <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
             <Btn size="sm" variant="ghost" onClick={() => setNoteModal(null)}>取消</Btn>
             <Btn size="sm" variant={noteModal.op === "task.reject" ? "danger" : "primary"} disabled={busy || !online} onClick={submitNote}>确认</Btn>
+          </div>
+        </Modal>
+      )}
+
+      {delGoal && (
+        <Modal title={`删除目标「${delGoal.title}」？`} onClose={() => setDelGoal(null)}>
+          <p style={{ margin: 0, color: "var(--text-weak)", fontSize: 14 }}>
+            删除<b style={{ color: "#d1242f" }}>不可恢复</b>，将连同该目标的<b>任务树 / 执行记录</b>一起删除。
+            若只是想隐藏、保留数据，请改用「归档」（可随时用「激活」恢复）。
+          </p>
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
+            <Btn size="sm" variant="ghost" onClick={() => setDelGoal(null)}>取消</Btn>
+            <Btn
+              size="sm"
+              variant="danger"
+              disabled={busy || !online}
+              onClick={() => {
+                runOp("goal.delete", { goal_id: delGoal.id }, "目标已删除")
+                setGoalId("")  // 清空选中；刷新后自动落到剩余第一个目标
+                setDelGoal(null)
+              }}
+            >
+              确认删除
+            </Btn>
           </div>
         </Modal>
       )}

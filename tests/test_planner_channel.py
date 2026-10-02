@@ -120,6 +120,21 @@ def test_planner_op_payload_passthrough(client, ws):
         assert frame["payload"] == payload  # 一字不改
 
 
+def test_planner_goal_lifecycle_ops(client, ws):
+    """goal.archive / goal.activate / goal.delete 三个 op 原样下发（归档=软，删除=硬）。"""
+    wid = ws.id
+    with client.websocket_connect("/ws/planner") as wsc:
+        wsc.send_json({"type": "hello", "apikey": APIKEY, "workspace_id": wid})
+        assert wsc.receive_json()["type"] == "hello_ok"
+        for op in ("goal.archive", "goal.activate", "goal.delete"):
+            r = client.post(f"/api/planner/{wid}/op", headers=_auth(),
+                            json={"op": op, "payload": {"goal_id": "g1"}})
+            assert r.status_code == 200 and r.json()["op"] == op
+            frame = wsc.receive_json()
+            assert frame["type"] == "op" and frame["op"] == op
+            assert frame["payload"] == {"goal_id": "g1"}
+
+
 def test_planner_ws_hello_errors(client, ws):
     with client.websocket_connect("/ws/planner") as wsc:
         wsc.send_json({"type": "hello", "apikey": "bad-key", "workspace_id": ws.id})

@@ -142,6 +142,16 @@
 - [x] 测试 `test_planner_channel.py` 扩展断言（plan_status + 专家字段 + expert/waiting_expert 任务透传）；全套通过、web build 通过
 - [x] 文档：requirements §15、README/README_CN、web 文档页「规划器」节
 
+### P11 规划器：目标删除 / 激活（追加，2026-10-03）
+
+> core 新增 `goal.delete`（硬删除，级联任务树/执行记录）与 `goal.activate`（archived→active）；`goal.archive` 为软隐藏。
+
+- [x] 目标列表「归档 / 激活」按 `goals[].status` 切换（active→归档，archived→激活）；归档按钮文案注明可激活恢复
+- [x] 「删除」按钮 + **二次确认 Modal**（文案：不可恢复、连同任务树/执行记录删除、想隐藏请用归档）；确认后发 `goal.delete`、清空选中
+- [x] 操作列宽度 430→520（多一个按钮，保持一行）
+- [x] 测试 `test_planner_goal_lifecycle_ops`（archive/activate/delete 三个 op 原样下发）；全套 93 例通过、web build 通过
+- [x] 文档：requirements §15、README/README_CN、web 文档页、AGENTS.md
+
 ## 已完成（除注明外均已进 git）
 
 ### deepseek harness（dsh）全功能对齐 + 跨工作区长任务完成提醒（2026-09-30 ~ 10-01，E2E 实测）
