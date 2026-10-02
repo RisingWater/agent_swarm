@@ -247,10 +247,15 @@ def _apply_monitor_event(rc: RoundCards, round_key: str, mtype: str, payload: di
                        input_ if isinstance(input_, dict) else None,
                        str(output) if output else None)
     elif mtype == "text":
-        # TUI 上的 assistant 文本 = 本轮回答流式快照，暂存到 finalize
+        # TUI 上的 assistant 文本 = 本轮回答（V2 为 append delta、V1/dsh 为全量快照）：
+        # 按 mode 拼接/覆盖，暂存到 finalize 一次性出卡
+        mode = str(payload.get("mode", "replace"))
         t = str(payload.get("text", ""))
         if t:
-            rc.pending_final_text = t
+            if mode == "append":
+                rc.pending_final_text = (rc.pending_final_text or "") + t
+            else:
+                rc.pending_final_text = t
     elif mtype in ("permission", "question"):
         # 权限按钮按工作区 agent 类型决定（dsh 无"始终允许"）
         from server.db import engine

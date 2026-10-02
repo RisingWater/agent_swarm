@@ -2622,12 +2622,22 @@ function NexusPage({ toast }: { toast: (m: string) => void }) {
       const partId = String(p.partId ?? p.part_id ?? "")
       const key = `${mtype === "reasoning" ? "r" : "t"}-${partId || round}`
       const kind = mtype === "reasoning" ? "reasoning" : "text"
+      // mode: "append"=增量 delta（opencode V2）→ 拼接累积；
+      //       "replace"/缺省=全量快照（V1 / dsh）→ 覆盖（旧插件无 mode 走此分支）
+      const appendMode = p.mode === "append"
       setItems((prev) => {
         const next = [...prev]
         const i = next.findIndex((it) => it.key === key)
         const incoming = String(p.text ?? "")
-        if (i >= 0) next[i] = { ...next[i], text: incoming, time: Date.now() } // replace 全量快照
-        else next.push({ key, kind, text: incoming, time: Date.now() })
+        if (i >= 0) {
+          next[i] = {
+            ...next[i],
+            text: appendMode ? (next[i].text ?? "") + incoming : incoming,
+            time: Date.now(),
+          }
+        } else {
+          next.push({ key, kind, text: incoming, time: Date.now() })
+        }
         return next
       })
       return

@@ -417,8 +417,9 @@ function applyInner(ctx: any): void {
         const stream = Array.isArray(data.stream) ? data.stream : []
         const { text, reasoning } = streamText(data.stream)
         log(`monitor ${round.roundKey}: attempt text=${text.length} reasoning=${reasoning.length}`)
-        if (reasoning.trim()) monEmit(round.roundKey, sid, { type: "reasoning", partId: `mon-${sid.slice(0, 6)}-r`, text: reasoning })
-        if (text.trim()) monEmit(round.roundKey, sid, { type: "text", partId: `mon-${sid.slice(0, 6)}-t`, text })
+        // streamText 返回累计全文（快照）→ 监控轮带 mode=replace 供消费方覆盖渲染
+        if (reasoning.trim()) monEmit(round.roundKey, sid, { type: "reasoning", partId: `mon-${sid.slice(0, 6)}-r`, text: reasoning, mode: "replace" })
+        if (text.trim()) monEmit(round.roundKey, sid, { type: "text", partId: `mon-${sid.slice(0, 6)}-t`, text, mode: "replace" })
         break
       }
       case "assistant/message": {
@@ -427,8 +428,8 @@ function applyInner(ctx: any): void {
         if (t) round.finalText = t
         // 宿主根监听收不到 assistant/attempt——从 stream 快照补 thinking/text 帧
         const { text: mtext, reasoning: mreasoning } = streamText(data.stream)
-        if (mreasoning.trim()) monEmit(round.roundKey, sid, { type: "reasoning", partId: `mon-${sid.slice(0, 6)}-r`, text: mreasoning })
-        if (mtext.trim()) monEmit(round.roundKey, sid, { type: "text", partId: `mon-${sid.slice(0, 6)}-t`, text: mtext })
+        if (mreasoning.trim()) monEmit(round.roundKey, sid, { type: "reasoning", partId: `mon-${sid.slice(0, 6)}-r`, text: mreasoning, mode: "replace" })
+        if (mtext.trim()) monEmit(round.roundKey, sid, { type: "text", partId: `mon-${sid.slice(0, 6)}-t`, text: mtext, mode: "replace" })
         break
       }
       case "tool/call": {

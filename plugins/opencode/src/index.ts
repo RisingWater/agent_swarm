@@ -492,9 +492,10 @@ const plugin: Plugin = async (input) => {
         const ev = toolEventFromPart(part)
         if (ev) monEmit(round, sid, { type: "tool", tool: ev.name, toolState: ev.state, callId: ev.callId, input: ev.input, output: ev.output })
       } else if (part.type === "reasoning") {
-        if (part.text?.trim()) monEmit(round, sid, { type: "reasoning", partId, text: part.text })
+        // V1 的 part.updated 带整段 part.text（全量快照）→ mode=replace
+        if (part.text?.trim()) monEmit(round, sid, { type: "reasoning", partId, text: part.text, mode: "replace" })
       } else if (part.type === "text" && !part.synthetic) {
-        if (part.text?.trim()) monEmit(round, sid, { type: "text", partId, text: part.text })
+        if (part.text?.trim()) monEmit(round, sid, { type: "text", partId, text: part.text, mode: "replace" })
       }
     } else if (type === "permission.asked") {
       const request = props as Record<string, any>

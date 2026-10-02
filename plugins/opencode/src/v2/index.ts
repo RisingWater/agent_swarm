@@ -186,7 +186,8 @@ const plugin: PluginDef = {
         return
       }
       const round = monRounds.get(sid)
-      if (round) monitorEmit({ roundKey: round.roundKey, sessionId: sid, type: kind, partId, text })
+      // mode 一并下发：监控轮消费方（飞书/微信/web）据此 append 拼接 vs replace 覆盖
+      if (round) monitorEmit({ roundKey: round.roundKey, sessionId: sid, type: kind, partId, text, mode })
     }
 
     function emitTool(

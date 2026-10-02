@@ -209,6 +209,8 @@
 - [x] 时间线卡 `config.streaming_config`（`print_step=5000`/`print_frequency_ms=1`/`print_strategy=fast`）压掉飞书打字机（`streaming_mode` 必须保持 true，否则流式更新接口 300309）
 - [x] `feishu/bridge.py`：A2A 与监控两条 reasoning 路径都把 `mode` 传给 `ensure_thinking`
 - [x] 测试 `tests/test_feishu_stream_card.py`（拼接/覆盖/启发式/既有卡替换 + schema streaming_config）；全套 131 passed
+- [x] 插件补 `mode`（2026-10-03）：opencode V2 `emitStream` 监控分支透传 append/replace；opencode V1 与 deepseek 监控 reasoning/text 固定 `replace`（全量快照）；`feishu/bridge` 监控 text 也按 mode 拼接；web 监控渲染按 mode 拼接/覆盖。**改插件需重装 + 重启 opencode 才生效**
+- [ ] 待用户真机验证：飞书思考卡连续增长（不再一段一段）、无逐字慢放
 
 ## 已完成（除注明外均已进 git）
 
