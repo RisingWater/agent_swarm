@@ -59,7 +59,7 @@ def test_planner_state_cache_and_op_roundtrip(client, ws):
             "workspace_id": wid,
             "updated_at": "2026-10-03T00:00:00Z",
             "goals": [{"id": "g1", "title": "目标一", "status": "planning",
-                       "progress": {"done": 1, "total": 3}}],
+                       "plan_status": "draft", "progress": {"done": 1, "total": 3}}],
             "tasks": [{"id": "t1", "goal_id": "g1", "title": "任务一",
                        "status": "pending", "depends_on": [], "acceptance_type": "manual"}],
         }})
@@ -70,6 +70,8 @@ def test_planner_state_cache_and_op_roundtrip(client, ws):
         assert b["online"] is True
         assert b["updated_at"] == "2026-10-03T00:00:00Z"
         assert b["goals"][0]["id"] == "g1" and b["tasks"][0]["title"] == "任务一"
+        # 拆解审批状态原样透传（前端按 draft/approved 展示徽标并门控 plan.approve）
+        assert b["goals"][0]["plan_status"] == "draft"
 
         # 下发操作 → core 侧收到 op 帧
         r = client.post(f"/api/planner/{wid}/op", headers=_auth(),

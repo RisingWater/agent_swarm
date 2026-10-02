@@ -129,6 +129,8 @@ export interface PlannerGoal {
   title: string
   description?: string
   status?: string
+  /** 拆解审批状态：draft（已拆解待审批）/ approved（已通过）。缺失按 draft 处理 */
+  plan_status?: string
   priority?: string
   deadline?: string
   success_criteria?: string

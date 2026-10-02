@@ -2082,9 +2082,10 @@ agent: (a2a_call) → 对方 TUI 实时出现任务 → 执行 → 结果自动�
             选中一个 planner 工作区后，页面管理它的<b>目标与任务树</b>：
           </p>
           <ul>
-            <li><b>目标</b>：新建 / 编辑 / 归档（标题、描述、优先级、截止、成功标准），列表显示状态与进度</li>
-            <li><b>任务树</b>：选中目标后按依赖层级缩进展示任务（状态 / 依赖 / 执行 agent / 验收）</li>
-            <li><b>操作</b>：<code>催促</code>（让 agent 干活）、<code>通过拆解</code> / <code>重新拆解</code>（审批计划）、<code>通过</code> / <code>拒绝</code>（人工验收）</li>
+            <li><b>目标</b>：新建 / 编辑 / 归档（标题、描述、优先级、截止、成功标准），列表显示状态、拆解审批徽标与进度</li>
+            <li><b>任务树</b>：选中目标后按依赖层级折叠 / 展开展示任务（状态 / 依赖 / 执行 agent / 验收）</li>
+            <li><b>操作</b>：<code>催促</code>（让 agent 干活）、<code>通过拆解</code>（仅拆解状态为 <code>draft</code> 时出现）/ <code>重新拆解</code>（审批计划）、<code>通过</code> / <code>拒绝</code>（人工验收）；离线时全部禁用</li>
+            <li><b>拆解审批</b>：目标的 <code>plan_status</code> 为 <code>draft</code>（草稿，待审批）/ <code>approved</code>（已通过）；draft 时任务树提示「待审批，通过后 agent 才会开始派发」，点 <code>通过拆解</code> 后才开始派发</li>
           </ul>
           <p>
             数据来自 planner-core 经控制通道推回的快照（<code>GET /api/planner/&#123;wid&#125;/state</code>，页面每 2.5s 轮询），
@@ -4570,6 +4571,7 @@ function PlannerPage({ toast }: { toast: (m: string) => void }) {
               <tr>
                 <th>标题</th>
                 <th style={{ width: 90 }}>状态</th>
+                <th style={{ width: 90 }}>拆解</th>
                 <th style={{ width: 90 }}>优先级</th>
                 <th style={{ width: 120 }}>截止</th>
                 <th style={{ width: 70 }}>进度</th>
@@ -4585,6 +4587,13 @@ function PlannerPage({ toast }: { toast: (m: string) => void }) {
                     {g.success_criteria ? <div style={{ fontSize: 12, color: "var(--text-weak)" }}>{g.success_criteria}</div> : null}
                   </td>
                   <td><span className={pill(g.status)}>{g.status || "-"}</span></td>
+                  <td>
+                    {(g.plan_status || "draft") === "approved" ? (
+                      <span className="status-pill done" title="拆解已通过，agent 可开始派发">已通过</span>
+                    ) : (
+                      <span className="status-pill pending" title="拆解待审批，通过后 agent 才会派发">草稿</span>
+                    )}
+                  </td>
                   <td>{g.priority || "-"}</td>
                   <td style={{ fontSize: 12, color: "var(--text-weak)" }}>{g.deadline || "-"}</td>
                   <td style={{ fontSize: 12 }}>{g.progress ? `${g.progress.done}/${g.progress.total}` : "-"}</td>
@@ -4592,8 +4601,10 @@ function PlannerPage({ toast }: { toast: (m: string) => void }) {
                     <div style={{ display: "flex", gap: 4, flexWrap: "nowrap" }}>
                       <ActionBtn icon={<BoltIcon />} disabled={busy || !online} title="催促规划器 agent 决策"
                         onClick={() => runOp("goal.nudge", { goal_id: g.id }, "已催促规划器")}>催促</ActionBtn>
-                      <ActionBtn icon={<CheckIcon />} disabled={busy || !online} title="审批通过拆解，通知 agent 开始派发"
-                        onClick={() => runOp("plan.approve", { goal_id: g.id }, "已通过拆解")}>通过拆解</ActionBtn>
+                      {(g.plan_status || "draft") === "draft" && (
+                        <ActionBtn icon={<CheckIcon />} disabled={busy || !online} title="审批通过拆解，通知 agent 开始派发"
+                          onClick={() => runOp("plan.approve", { goal_id: g.id }, "已通过拆解")}>通过拆解</ActionBtn>
+                      )}
                       <ActionBtn icon={<RefreshIcon />} disabled={busy || !online} title="要求重新拆解"
                         onClick={() => { setNoteText(""); setNoteModal({ op: "plan.revise", goalId: g.id, label: "重新拆解" }) }}>重新拆解</ActionBtn>
                       <ActionBtn icon={<PencilIcon />} disabled={busy || !online} title="编辑目标"
@@ -4605,7 +4616,7 @@ function PlannerPage({ toast }: { toast: (m: string) => void }) {
                 </tr>
               ))}
               {!goals.length && (
-                <tr><td colSpan={6} style={{ color: "var(--text-weak)", textAlign: "center", padding: 32 }}>
+                <tr><td colSpan={7} style={{ color: "var(--text-weak)", textAlign: "center", padding: 32 }}>
                   [*] 暂无目标 — 点「新建目标」
                 </td></tr>
               )}
@@ -4618,6 +4629,11 @@ function PlannerPage({ toast }: { toast: (m: string) => void }) {
                 <NotebookIcon />
                 任务树：{goal.title}
               </h3>
+              {(goal.plan_status || "draft") === "draft" && (
+                <p style={{ color: "var(--text-weak)", fontSize: 13, margin: "0 0 8px" }}>
+                  待审批：通过拆解后 agent 才会开始派发任务。
+                </p>
+              )}
               <table className="grid">
                 <thead>
                   <tr>
