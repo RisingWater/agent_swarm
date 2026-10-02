@@ -1640,6 +1640,7 @@ const DOC_SECTIONS = [
   { id: "install", title: "安装插件" },
   { id: "register", title: "注册工作区" },
   { id: "concepts", title: "核心概念" },
+  { id: "planner", title: "规划器" },
   { id: "commands", title: "命令" },
   { id: "chat", title: "即时聊天工具" },
   { id: "mcp", title: "MCP 工具" },
@@ -1827,6 +1828,68 @@ agent: (a2a_call) → 对方 TUI 实时出现任务 → 执行 → 结果自动�
           <p>
             插件每 30 秒心跳一次并上报当前会话信息。
             在线状态可在「工作区」页实时查看。
+          </p>
+        </section>
+
+        <section id="doc-planner" className="docs-section">
+          <h2>规划器</h2>
+          <p>
+            规划器把模糊的<b>长期目标</b>拆成带依赖的<b>任务树</b>，派给其它工作区执行并持续追踪验收。
+            它由 <b>planner-core</b>（确定性内核：目标 / 任务 / 依赖 / 验收的状态与调度）＋一个 agent harness
+            （做拆解与决策的 agent）组成，作为平台上 <code>role=planner</code> 的工作区接入。
+          </p>
+          <h3>规划器工作区是什么？</h3>
+          <p>
+            工作区可带一个 <code>role</code>（默认 <code>agent</code>，可设为 <code>planner</code>）。
+            该字段独立于 <code>agent_type</code>，<b>不参与</b>权限 / 提问分派，只用于标识与展示。
+            顶栏「规划器」入口仅在你拥有 <code>role=planner</code> 工作区时出现。
+          </p>
+          <h3>安装与准备</h3>
+          <ol>
+            <li><b>环境</b>：Python ≥ 3.11，以及一个已装 agent-swarm 插件的 harness（opencode / claude / deepseek 任一）。</li>
+            <li>
+              <b>获取并安装 planner-core</b>：在 planner-core 仓库根执行安装脚本——Linux/macOS：
+              <code>./deploy/install.sh</code>；Windows：
+              <code>.\deploy\install.ps1 -Server &lt;平台地址&gt; -ApiKey as_xxx</code>。
+              脚本会建虚拟环境、装依赖、写配置、建库，并可注册开机自启。
+            </li>
+            <li><b>自检与常驻</b>：<code>planner doctor</code> 自检；<code>planner serve</code> 前台运行；<code>planner service install</code> 注册为开机自启服务（<code>planner service status</code> 查看）。</li>
+            <li><b>注册为规划器工作区</b>：在 planner-core 目录启动 harness，输入 <code>/swarm-add-planner</code>（opencode / claude / deepseek 都支持；dsh 脚本化可用 <code>register.mjs --role planner</code>）。成功后网页出现「规划器」入口。</li>
+            <li>若该 harness 还没接入虫群：先在平台管理页复制「插件安装」一键命令装好插件，再执行上一步。</li>
+          </ol>
+          <h3>怎么用（上手步骤）</h3>
+          <ol>
+            <li><b>新建目标</b>：在网页「规划器」页选一个 planner 工作区，新建目标——填标题 / 描述、优先级（高 / 中 / 低）、截止（可空）、成功标准；可指定<b>专家工作区</b>（选当前 planner 工作区自身即为<b>自评审</b>，不派 A2A）。</li>
+            <li><b>确认与拆解</b>：规划器 agent 与专家确认成功标准并生成任务树（含<b>专家验收点</b>）。此阶段 <code>拆解=draft</code>，页面只展示、不派发。</li>
+            <li><b>通过拆解</b>：人工点「通过拆解」后 agent 才按依赖层开始派发；点「重新拆解」让 agent 重做（回到 draft）。</li>
+            <li><b>派发执行</b>：任务逐个派给对应工作区的 agent（派单会自动要求对方先压缩上下文），worker 的终态自动回写到 core。</li>
+            <li><b>验收</b>：<code>auto</code> 自动判定；<code>manual</code> 任务完成后进入待验收，网页点「通过 / 拒绝」；<code>expert</code>「专家验收点」由规划器 agent 汇总情况后请专家裁决（专家可整树调整、回到 draft 再审）。</li>
+            <li><b>生命周期</b>：「归档」（软隐藏，可「激活」恢复）/「删除」（级联任务树，不可恢复，二次确认）；全部任务完成后目标自动完成；列表可勾选「隐藏已归档目标」。</li>
+          </ol>
+          <h3>「规划器」页能做什么？</h3>
+          <p>
+            选中一个 planner 工作区后，页面管理它的<b>目标与任务树</b>：
+          </p>
+          <ul>
+            <li><b>目标</b>：新建 / 编辑 / 归档（标题、描述、优先级下拉 高/中/低、截止可选、成功标准）。列表标题列显示标题 + 专家；状态列用中文彩色 tag（进行中 / 已归档 + 草稿 / 已通过 + 专家已确认 / 待专家确认）。优先级提交为整数（高=2 / 中=1 / 低=0）、截止为空显示「无截止」。<b>新建表单不含成功标准输入</b>——由专家侧设定 / 确认；仅编辑时可改，改动会置回「待专家确认」。</li>
+            <li><b>任务树</b>：选中目标后按依赖层级折叠 / 展开展示任务（状态 / 依赖标题 / 执行 agent 名 / 验收）；<b>点任务标题</b>弹出详情（描述 / 依赖 / 建议与实际执行 agent / 验收类型 / 状态 / 验收结果 / 更新时间）。</li>
+            <li><b>操作</b>：<code>催促</code>（让 agent 干活）、<code>通过拆解</code>（仅 <code>draft</code> 时出现）/ <code>重新拆解</code>、<code>通过</code> / <code>拒绝</code>（人工验收）、<code>归档</code> / <code>激活</code> / <code>删除</code>（二次确认）；离线时全部禁用。</li>
+            <li><b>专家工作区</b>：新建 / 编辑目标时可选专家工作区（自有 + 团队共享，<b>也可选当前 planner 工作区自身＝自评审</b>）。指定后由专家拆解任务树并设专家验收点（<code>acceptance_type=expert</code>，状态 <code>waiting_expert</code>）。验收类型：<code>auto</code>「自动验收」/ <code>manual</code>「人工验收」/ <code>expert</code>「专家验收点」；人工「通过 / 拒绝」按钮<b>仅</b> <code>manual</code> 任务显示。</li>
+          </ul>
+          <h3>运行前提与排错</h3>
+          <ul>
+            <li><b>core 必须在线</b>：core 主动外连平台的 <code>WS /ws/planner</code>，页面顶部显示在线 / 离线。</li>
+            <li><b>离线时只读</b>：页面只显示 core 最后推送的快照（<b>展示缓存，非任务真相</b>）；新建 / 编辑 / 审批 / 验收等操作会返回「规划器离线」，恢复在线后重试。</li>
+            <li><b>数据真相在 core 的 SQLite</b>，平台只保存展示快照。</li>
+            <li>常见问题：页面离线 → core 的 <code>serve</code> 没在跑（<code>planner service status</code>）；派发失败 409 → 目标工作区不可派发（开着 harness，或改用后台模式）；一直无拆解 → 成功标准未确认或拆解未审批。</li>
+          </ul>
+          <h3>planner-core 怎么连上平台？</h3>
+          <p>
+            因为 core 在用户内网 / 本机、平台访问不到它的端口，所以由 <b>core 主动外连</b>平台的
+            <code>WS /ws/planner</code>（apikey + <code>workspace_id</code> 握手；一个工作区一条连接，新连接顶替旧的）。
+            平台的建目标 / 审批 / 验收等操作经该 WS 下发，core 把目标 + 任务树结构化快照从同一条 WS 推回，
+            平台缓存进 <code>planner_state</code> 表（<b>仅展示缓存</b>，真相在 core）。完整帧格式见
+            <code>agent-swarm-planner/docs/planner-platform-protocol.md</code>。
           </p>
         </section>
 
@@ -2071,54 +2134,6 @@ agent: (a2a_call) → 对方 TUI 实时出现任务 → 执行 → 结果自动�
             团队动态——被邀请、申请/审批结果、有人加入、被移出、移交队长、团队解散——都会记一条<b>站内信</b>；
             顶栏的铃铛显示未读数，点开可查看列表并标记已读（点击某条会跳到「团队」页并打开对应团队）；
             支持<b>全部已读 / 全部删除</b>，每条消息也可用垃圾桶按钮单独删除。
-          </p>
-        </section>
-
-        <section id="doc-planner" className="docs-section">
-          <h2>规划器</h2>
-          <h3>规划器工作区是什么？</h3>
-          <p>
-            工作区可带一个 <code>role</code>（默认 <code>agent</code>，可设为 <code>planner</code>）。
-            该字段独立于 <code>agent_type</code>，<b>不参与</b>权限 / 提问分派，只用于标识与展示。
-            设置方式：注册时 <code>workspace_add(role="planner")</code>、之后 <code>update_info(role=...)</code>，
-            或 REST <code>POST /api/workspaces/&#123;id&#125;/role</code>（仅属主）。
-          </p>
-          <h3>如何注册规划器工作区？</h3>
-          <p>
-            在目标项目的 agent 对话里用 <b><code>/swarm-add-planner</code></b>（三个 harness 都支持）——
-            它与 <code>/swarm-add</code> 流程一致，但调用 <code>workspace_add</code> 时显式带 <code>role="planner"</code>：
-          </p>
-          <ul>
-            <li><b>opencode</b>：<code>/swarm-add-planner</code>（命令文件 <code>commands/swarm-add-planner.md</code>，用 <code>agent-swarm__workspace_add</code>）</li>
-            <li><b>claude code</b>：<code>/swarm-add-planner</code>（命令文件 <code>commands/swarm-add-planner.md</code>，用 <code>mcp__agent-swarm__workspace_add</code>）</li>
-            <li><b>deepseek harness (dsh)</b>：<code>/swarm-add-planner</code>（源码内注册在 <code>plugins/deepseek/src/commands.ts</code>）；脚本化注册可用 <code>node register.mjs ... --role planner</code></li>
-          </ul>
-          <p>
-            已注册的普通工作区也可再次执行该命令，把 <code>role</code> 改为 <code>planner</code>（按路径 upsert）。
-            <code>/swarm-add</code> 本身保持原样、不加任何参数。
-          </p>
-          <h3>「规划器」页能做什么？</h3>
-          <p>
-            选中一个 planner 工作区后，页面管理它的<b>目标与任务树</b>：
-          </p>
-          <ul>
-            <li><b>目标</b>：新建 / 编辑 / 归档（标题、描述、优先级下拉 高/中/低、截止可选、成功标准），列表**标题列只显示标题 + 专家**，**状态列**用中文彩色 tag（进行中 / 已归档 + 拆解 草稿/已通过 + 成功标准 专家已确认/待专家确认）；优先级提交为整数（高=2/中=1/低=0）、截止为空显示「无截止」（<b>新建表单不含成功标准输入</b>——由专家侧设定/确认；仅编辑时可改，改动会置回「待专家确认」）</li>
-            <li><b>任务树</b>：选中目标后按依赖层级折叠 / 展开展示任务（状态 / 依赖标题 / 执行 agent 名 / 验收）；<b>点任务标题</b>弹出详情（描述 / 依赖 / 建议与实际执行 agent / 验收类型 / 状态 / 验收结果 / 更新时间）</li>
-            <li><b>操作</b>：<code>催促</code>（让 agent 干活）、<code>通过拆解</code>（仅拆解状态为 <code>draft</code> 时出现）/ <code>重新拆解</code>（审批计划）、<code>通过</code> / <code>拒绝</code>（人工验收）、<code>归档</code>（<b>软隐藏</b>，保留数据、不参与调度，可 <code>激活</code> 恢复）/ <code>删除</code>（<b>硬删除，二次确认，不可恢复</b>，连同任务树 / 执行记录一起删除）；离线时全部禁用。目标列表上方有「隐藏已归档目标」复选框（默认勾选、cookie 记忆），取消勾选即可查看归档目标并「激活」/「删除」</li>
-            <li><b>拆解审批</b>：目标的 <code>plan_status</code> 为 <code>draft</code>（草稿，待审批）/ <code>approved</code>（已通过）；draft 时任务树提示「待审批，通过后 agent 才会开始派发」，点 <code>通过拆解</code> 后才开始派发</li>
-            <li><b>专家工作区</b>：新建 / 编辑目标时都可选一个专家工作区（自有 + 团队共享，<b>也可以选当前 planner 工作区自身</b>——此时为<b>自评审</b>，planner agent 自行拆解、不走 A2A，列表标注「本工作区（自评审）」；清空可移除专家）；指定后由该专家拆解任务树并设<b>专家验收点</b>（<code>acceptance_type=expert</code>，状态 <code>waiting_expert</code> 显示「待专家验收」）。验收类型文案：<code>auto</code>「自动验收」/ <code>manual</code>「人工验收」/ <code>expert</code>「专家验收点」；人工「通过 / 拒绝」按钮<b>仅</b> <code>manual</code> 任务显示，专家验收点由 planner agent 汇总后自动裁决、平台不介入</li>
-          </ul>
-          <p>
-            数据来自 planner-core 经控制通道推回的快照（<code>GET /api/planner/&#123;wid&#125;/state</code>，页面每 2.5s 轮询），
-            操作经 <code>POST /api/planner/&#123;wid&#125;/op</code> 下发；core 用 <code>op_result</code> 回执。
-          </p>
-          <h3>planner-core 怎么连上平台？</h3>
-          <p>
-            因为 core 在用户内网 / 本机、平台访问不到它的端口，所以由 <b>core 主动外连</b>平台的
-            <code>WS /ws/planner</code>（apikey + <code>workspace_id</code> 握手；一个工作区一条连接，新连接顶替旧的）。
-            平台的建目标 / 审批 / 验收等操作经该 WS 下发，core 把目标 + 任务树结构化快照从同一条 WS 推回，
-            平台缓存进 <code>planner_state</code> 表（<b>仅展示缓存</b>，真相在 core）。完整帧格式见
-            <code>agent-swarm-planner/docs/planner-platform-protocol.md</code>。
           </p>
         </section>
 
