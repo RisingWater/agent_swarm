@@ -24,6 +24,8 @@ import { join } from "node:path"
 import { readWorkspaceId } from "../wsfile"
 import { readSessionMap, writeSessionEntry } from "../sessions"
 import { loadConfig } from "../config"
+import { SwarmClient } from "../client"
+import { desktopHasProject } from "../desktop_heartbeat"
 import { runBackgroundTask } from "./background"
 import {
   startNexusA2AClient,
@@ -115,9 +117,35 @@ const plugin: PluginDef = {
       return
     }
     const config = cfg // 闭包内使用（TS 收窄在嵌套函数里失效，固定非空引用）
-    // 注意：**心跳/在线判定不在这里** —— 本插件由 service 按 location 常驻加载，
-    // 若在此心跳，凡是 service 加载过的项目（哪怕没开 TUI）都会 online（用户实测问题）。
-    // 在线改由 CLI 插件（TUI 进程，src/v2/tui.ts）心跳：开着 TUI 才在线。
+    // 注意：**心跳/在线判定默认不在这里** —— 本插件由 service 按 location 常驻加载，
+    // 若无条件在此心跳，凡是 service 加载过的项目（哪怕没开 TUI）都会 online（用户实测问题）。
+    // 在线由 CLI 插件（TUI 进程，src/v2/tui.ts）心跳：开着 TUI 才在线。
+    //
+    // 例外：opencode Desktop（Electron 版）没有 TUI 进程，CLI 插件不会跑，其项目会
+    // 永远离线。Desktop 把「当前打开的项目」持久化在 drafts.sqlite（projects.local，
+    // 关掉即挪 recentlyClosed，实测），本目录在列表里就代为心跳（desktop_heartbeat.ts）。
+    // TUI 心跳与之并存且幂等，谁在跳都一样；Desktop 关掉项目 → 停跳 → 90s 自然离线。
+    const HEARTBEAT_MS = 30_000
+    const hbClient = new SwarmClient({ serverUrl: config.serverUrl, apiKey: config.apiKey })
+    let hbTimer: ReturnType<typeof setInterval> | null = null
+    let hbWasIn = false
+    async function desktopBeat() {
+      const wid = readWorkspaceId(directory)
+      if (!wid) return
+      const inDesktop = desktopHasProject(directory)
+      if (inDesktop !== hbWasIn) {
+        log(`desktop heartbeat ${inDesktop ? "on" : "off"}: wid=${wid.slice(0, 8)} dir=${locTag}`)
+        hbWasIn = inDesktop
+      }
+      if (!inDesktop) return
+      try {
+        await hbClient.heartbeat(wid, currentSessionId, "opencode", "")
+      } catch (e) {
+        log(`desktop heartbeat failed: ${e}`)
+      }
+    }
+    void desktopBeat()
+    hbTimer = setInterval(() => void desktopBeat(), HEARTBEAT_MS)
 
     let currentSessionId = ""
     let stopped = false
@@ -581,6 +609,10 @@ const plugin: PluginDef = {
       stopped = true
       controller.abort()
       nexus?.close()
+      if (hbTimer) {
+        clearInterval(hbTimer)
+        hbTimer = null
+      }
       // 不主动 workspace_offline：在线由 CLI 插件的心跳维持，同项目可能多开 TUI，
       // 主动下线会把还开着的那台一起打下去（让它 90s 心跳超时自然过期更稳）
       log("v2 disposed")
