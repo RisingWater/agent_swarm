@@ -43,6 +43,16 @@ fi
 
 # 探测 opencode 版本：major >= 2 用 V2 插件（全新插件 API），否则 V1（老 API）
 OC_VER="$(opencode --version 2>/dev/null | head -1 || true)"
+# 回退：opencode Desktop（Electron 版）不把 CLI 放进 PATH——其内置 CLI 在
+# ~/AppData/Roaming/ai.opencode.desktop/cli/<版本>/opencode-cli.exe（Windows，带版本号
+# 子目录）。PATH 探测失败时找它拿版本，避免桌面版用户被误判成 V1。
+if [ -z "$OC_VER" ] && [ -n "$APPDATA" ]; then
+    OC_CLI="$(ls -1d "$APPDATA"/ai.opencode.desktop/cli/*/ 2>/dev/null | sort -Vr | head -1)"
+    if [ -n "$OC_CLI" ] && [ -f "${OC_CLI}opencode-cli.exe" ]; then
+        OC_VER="$("${OC_CLI}opencode-cli.exe" --version 2>/dev/null | head -1 || true)"
+        echo "==> [opencode] PATH 无 opencode，使用 Desktop 内置 CLI: ${OC_CLI}opencode-cli.exe"
+    fi
+fi
 OC_MAJOR="$(printf '%s' "$OC_VER" | grep -oE '[0-9]+' | head -1 || true)"
 if [ -n "$OC_MAJOR" ] && [ "$OC_MAJOR" -ge 2 ] 2>/dev/null; then
     OC_MODE="v2"

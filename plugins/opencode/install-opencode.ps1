@@ -69,6 +69,18 @@ if (-not (Test-Path (Join-Path $Src "package.json"))) {
 # 探测 opencode 版本：major >= 2 用 V2 插件（全新插件 API），否则 V1（老 API）
 $ocVer = ""
 try { $ocVer = (& opencode --version 2>$null | Select-Object -First 1) } catch {}
+# 回退：opencode Desktop（Electron 版）不把 CLI 放进 PATH——其内置 CLI 在
+# %APPDATA%\ai.opencode.desktop\cli\<版本>\opencode-cli.exe（带版本号子目录）。
+# PATH 探测失败时找它拿版本，避免桌面版用户被误判成 V1。
+if (-not $ocVer) {
+    $ocCli = Get-ChildItem (Join-Path $env:APPDATA "ai.opencode.desktop\cli") -Directory -ErrorAction SilentlyContinue |
+        Sort-Object Name -Descending | Get-ChildItem -Filter "opencode-cli.exe" -ErrorAction SilentlyContinue |
+        Select-Object -First 1 -ExpandProperty FullName
+    if ($ocCli) {
+        try { $ocVer = (& $ocCli --version 2>$null | Select-Object -First 1) } catch {}
+        Write-Host "==> [opencode] PATH 无 opencode，使用 Desktop 内置 CLI: $ocCli"
+    }
+}
 $ocMajor = 0
 if ("$ocVer" -match '(\d+)') { $ocMajor = [int]$Matches[1] }
 if ($ocMajor -ge 2) { $OcMode = "v2" } else { $OcMode = "v1" }
