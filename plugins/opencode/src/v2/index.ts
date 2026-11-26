@@ -608,6 +608,27 @@ const plugin: PluginDef = {
     return () => {
       stopped = true
       controller.abort()
+      // 收尾残留轮次（2026-11-26）：dispose（插件热重载/服务重启）可能发生在轮次中间，
+      // monRounds/a2aRuns 都在内存里，新实例不继承——旧轮的 idle/终态帧就永远发不出去：
+      //   - 监控轮停在 working，nexus 一直显示「执行中」，只能等下一轮开轮时被服务端
+      //     supersede 兜底（handle_monitor_event 715-727）；
+      //   - A2A 任务轮停在 working，等 AGENT_SWARM_CALL_TIMEOUT（默认 1h）才置 failed。
+      // 这里在关 WS 前尽力补发：监控轮补 idle；已注入未收尾的 A2A 任务标 failed
+      // （「插件实例重启，任务被中断」——比挂 1 小时诚实，failed 也会让服务端
+      // _kick_queued 立刻拉起排队中的下一个任务）。WS 已断时帧进 send 缓冲，进程
+      // 直接退出则随缓冲丢失——尽力而为，服务端兜底仍在。
+      for (const [sid, round] of monRounds) {
+        monitorEmit({ roundKey: round.roundKey, sessionId: sid, type: "idle" })
+        log(`monitor ${round.roundKey.slice(0, 28)}: idle (dispose flush)`)
+      }
+      monRounds.clear()
+      for (const [taskId, run] of a2aRuns) {
+        if (!run.injected) continue
+        const task: A2aTaskRef = { taskId, contextId: taskId }
+        a2aEmit(statusUpdate(task, "failed", { final: true, message: agentMessage("插件实例重启，任务被中断", task), metadata: { session_id: run.sessionId } }))
+        log(`a2a ${taskId.slice(0, 8)}: failed (dispose flush)`)
+      }
+      a2aRuns.clear()
       nexus?.close()
       if (hbTimer) {
         clearInterval(hbTimer)
