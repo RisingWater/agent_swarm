@@ -104,6 +104,25 @@ def test_workspace_add_update_remove(as_user):
     assert mcp_endpoint.workspace_remove(workspace_id=r3["workspace_id"])["ok"] is True
 
 
+def test_codex_registration_preserves_adapter_and_disabled_status(as_user):
+    path = "/tmp/codex-workspace"
+    result = mcp_endpoint.workspace_add(path=path, agent_type="codex")
+    wid = result["workspace_id"]
+    assert mcp_endpoint.workspace_add(path=path)["workspace_id"] == wid
+    assert next(w for w in mcp_endpoint.list_workspaces()["workspaces"] if w["workspace_id"] == wid)["agent_type"] == "codex"
+    with Session(engine) as session:
+        assert session.get(models.Workspace, wid).agent_type == "codex"
+    mcp_endpoint.workspace_disable(workspace_id=wid)
+    assert mcp_endpoint.workspace_add(path=path, agent_type="codex")["status"] == "disabled"
+    mcp_endpoint.workspace_remove(workspace_id=wid)
+    other = "/tmp/other-adapter"
+    other_wid = mcp_endpoint.workspace_add(path=other)["workspace_id"]
+    with pytest.raises(ValueError, match="different adapter"):
+        mcp_endpoint.workspace_add(path=other, agent_type="codex")
+    mcp_endpoint.workspace_disable(workspace_id=other_wid)
+    mcp_endpoint.workspace_remove(workspace_id=other_wid)
+
+
 def test_enable_disable_offline_cycle(as_user, ws):
     assert mcp_endpoint.workspace_disable(workspace_id=ws.id)["status"] == "disabled"
     # disabled 状态心跳不复活（AGENTS.md 事实）

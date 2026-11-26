@@ -1860,18 +1860,18 @@ async def _dispatch_queued_locked(workspace_id: str, conn: "PluginConn", foregro
         items = []
         for t in rows:
             key = _owner_key(session, t)
-            items.append((t.id, crypto.decrypt(key, t.message_enc, t.message), t.caller))
+            items.append((t.id, t.context_id, crypto.decrypt(key, t.message_enc, t.message), t.caller, t.from_workspace_id))
     if foreground:
         items = items[:1]  # 前台串行：一次只派最旧的一个，等终态再拉下一个
     n = 0
-    for tid, text, caller in items:
+    for tid, context_id, text, caller, from_workspace in items:
         req = {
             "jsonrpc": "2.0",
             "id": f"srv-{tid}",
             "method": "message/send",
             "params": {
-                "message": user_message(text, task_id=tid, context_id=""),
-                "metadata": {"caller": caller or "agent", "session_id": session_id},
+                "message": user_message(text, task_id=tid, context_id=context_id, message_id=f"msg-{tid}"),
+                "metadata": {"caller": caller or "agent", "session_id": session_id, "from_workspace": from_workspace or ""},
             },
         }
         # 先发送，ack 成功后才置 working（2026-09-25 修复）：旧顺序「先置 working 再发送」

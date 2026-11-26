@@ -1505,8 +1505,10 @@ function VideoPlayer({ src }: { src: string }) {
   )
 }
 
+type AgentToolKind = "opencode" | "claude" | "deepseek" | "codex" | "pi" | "more"
+
 /** agent 工具图标（黑白单色，统一 24x24 viewBox 线条风格） */
-function AgentToolIcon({ tool }: { tool: "opencode" | "claude" | "deepseek" | "pi" | "more" }) {
+function AgentToolIcon({ tool }: { tool: AgentToolKind }) {
   const common = {
     width: 20,
     height: 20,
@@ -1542,6 +1544,8 @@ function AgentToolIcon({ tool }: { tool: "opencode" | "claude" | "deepseek" | "p
           <path d="M33.615 2.598c-.36-.176-.515.16-.726.33-.072.055-.132.127-.193.193-.526.562-1.14.93-1.943.887-1.174-.067-2.176.302-3.062 1.2-.188-1.107-.814-1.767-1.766-2.191-.498-.22-1.002-.441-1.35-.92-.244-.341-.31-.721-.433-1.096-.077-.226-.154-.457-.415-.496-.282-.044-.393.193-.504.391-.443.81-.614 1.702-.598 2.605.04 2.033.898 3.652 2.603 4.803.193.132.243.264.182.457-.116.397-.254.782-.376 1.179-.078.253-.194.308-.465.198-.936-.391-1.744-.97-2.458-1.669-1.213-1.173-2.31-2.467-3.676-3.48a16.254 16.254 0 0 0-.975-.668c-1.395-1.354.183-2.467.548-2.599.382-.138.133-.612-1.102-.606-1.234.005-2.364.42-3.803.97a4.34 4.34 0 0 1-.66.193 13.577 13.577 0 0 0-4.08-.143c-2.667.297-4.799 1.558-6.365 3.712C.116 8.436-.327 11.378.215 14.444c.57 3.233 2.22 5.91 4.755 8.002 2.63 2.17 5.658 3.233 9.113 3.03 2.098-.122 4.434-.403 7.07-2.633.664.33 1.362.463 2.518.562.892.083 1.75-.044 2.414-.182 1.04-.22.97-1.184.593-1.36-3.05-1.421-2.38-.843-2.99-1.311 1.55-1.834 3.918-5.093 4.648-9.531.072-.49.164-1.18.153-1.577-.006-.242.05-.336.326-.364a5.903 5.903 0 0 0 2.187-.672c1.977-1.08 2.774-2.853 2.962-4.978.028-.325-.006-.661-.35-.832ZM16.39 21.73c-2.956-2.324-4.39-3.089-4.982-3.056-.554.033-.454.667-.332 1.08.127.407.293.688.526 1.046.16.237.271.59-.161.854-.952.589-2.607-.198-2.685-.237-1.927-1.134-3.537-2.632-4.673-4.68-1.096-1.972-1.733-4.087-1.838-6.345-.028-.545.133-.738.676-.837A6.643 6.643 0 0 1 5.086 9.5c3.017.441 5.586 1.79 7.74 3.927 1.229 1.217 2.159 2.671 3.116 4.092 1.02 1.509 2.115 2.946 3.51 4.125.494.413.887.727 1.263.958-1.135.127-3.028.154-4.324-.87v-.002Zm1.417-9.114a.434.434 0 0 1 .587-.408c.06.022.117.055.16.105a.426.426 0 0 1 .122.303.434.434 0 0 1-.437.435.43.43 0 0 1-.432-.435Zm4.402 2.257c-.283.116-.565.215-.836.226-.421.022-.88-.149-1.13-.358-.387-.325-.664-.506-.78-1.073-.05-.242-.022-.617.022-.832.1-.463-.011-.76-.338-1.03-.265-.22-.603-.28-.974-.28a.8.8 0 0 1-.36-.11c-.155-.078-.283-.27-.161-.508.039-.077.227-.264.271-.297.504-.286 1.085-.193 1.623.022.498.204.875.578 1.417 1.107.553.639.653.815.968 1.295.25.374.476.76.632 1.2.094.275-.028.5-.354.638Z" />
         </svg>
       )
+    case "codex":
+      return <svg {...common}><path d="m8 7-5 5 5 5m8-10 5 5-5 5M14 5l-4 14" /></svg>
     case "pi":
       // Pi 官方 logo（fill 路径，viewBox 0 0 470 470）
       return (
@@ -1563,11 +1567,12 @@ function AgentToolIcon({ tool }: { tool: "opencode" | "claude" | "deepseek" | "p
 }
 
 /** 按 agent_type 字符串取图标（未识别的用"其它"问号图标） */
-function agentToolKind(agentType: string | null | undefined): "opencode" | "claude" | "deepseek" | "pi" | "more" {
+function agentToolKind(agentType: string | null | undefined): AgentToolKind {
   const t = (agentType ?? "").trim().toLowerCase()
   if (t.includes("opencode")) return "opencode"
   if (t.includes("claude")) return "claude"
   if (t.includes("deepseek")) return "deepseek"
+  if (t === "codex") return "codex"
   if (t === "pi" || t.startsWith("pi ")) return "pi"
   return "more"
 }
@@ -1576,7 +1581,7 @@ function agentToolKind(agentType: string | null | undefined): "opencode" | "clau
 function AgentTypeIcon({ type, inherit }: { type: string | null | undefined; inherit?: boolean }) {
   const { t } = useI18n()
   const kind = agentToolKind(type)
-  const label = (type ?? "").trim() || t("未知 agent", "unknown agent")
+  const label = kind === "codex" ? "Codex" : (type ?? "").trim() || t("未知 agent", "unknown agent")
   // inherit=true：跟随容器文字色（如 TUI 黑底头部要白色），否则用品牌色
   const color = inherit ? "" : kind === "claude" ? "#D97757" : kind === "more" ? "" : "var(--text-strong)"
   return (
@@ -1589,10 +1594,11 @@ function AgentTypeIcon({ type, inherit }: { type: string | null | undefined; inh
 /** 首页"已支持的 agent 工具"图标组 */
 function SupportedAgents() {
   const { t } = useI18n()
-  const tools: { tool: "opencode" | "claude" | "deepseek" | "pi" | "more"; name: string; supported: boolean }[] = [
+  const tools: { tool: AgentToolKind; name: string; supported: boolean }[] = [
     { tool: "opencode", name: "opencode", supported: true },
     { tool: "claude", name: "claude code", supported: true },
     { tool: "deepseek", name: "deepseek harness", supported: true },
+    { tool: "codex", name: "Codex", supported: true },
     { tool: "pi", name: "pi", supported: false },
     { tool: "more", name: t("更多 MCP 客户端", "More MCP clients"), supported: false },
   ]
@@ -1857,6 +1863,10 @@ function DocsPage() {
                   (see the support table in the "Commands" section).</>}
               />
             </li>
+            <li><L
+              zh={<><b>Codex</b>：按原方式运行 <code>codex</code>。安装器添加 <code>agent-swarm</code> MCP 和 <code>$swarm-*</code> 技能。只装 Codex 时用 PowerShell 的 <code>-Only codex</code> 或 Bash 的 <code>--only codex</code>。需要接单时运行安装器输出的独立 worker 命令。</>}
+              en={<><b>Codex</b>: launch with <code>codex</code>. The installer adds the <code>agent-swarm</code> MCP and <code>$swarm-*</code> skills. Use <code>-Only codex</code> in PowerShell or <code>--only codex</code> in Bash to install just Codex. To receive tasks, run the separate worker command printed by the installer.</>}
+            /></li>
           </ul>
           <h3>{t("验证安装", "Verify the installation")}</h3>
           <p>
@@ -1871,6 +1881,7 @@ function DocsPage() {
                 for deepseek harness check <code>~/.config/dsh/agent-swarm/plugin.log</code>.</>}
             />
           </p>
+          <p>{t("Codex 中可用 /mcp 查看 agent-swarm，用 /skills 查看快捷技能。后台 worker 连接后可在「中枢」派单并查看结果。", "In Codex, use /mcp to find agent-swarm and /skills to list shortcuts. Once the worker connects, dispatch tasks and see results in Nexus.")}</p>
         </section>
 
         <section id="doc-register" className="docs-section">
@@ -1887,6 +1898,7 @@ function DocsPage() {
           <p>{t("任选其一：", "Pick either way:")}</p>
           <ul>
             <li>{t("在该项目的 agent 对话里使用 /swarm-add 命令（opencode、claude 与 deepseek harness 均可用）", "Use the /swarm-add command in that project's agent conversation (available in opencode, claude and deepseek harness)")}</li>
+            <li>{t("在 Codex 中输入 $swarm-add，或从 /skills 选择该技能。", "In Codex, type $swarm-add or choose it from /skills.")}</li>
             <li><L
               zh={<>直接让 agent：「帮我把当前目录注册到虫群」（它会调用 <code>workspace_add</code> 工具）</>}
               en={<>Just tell the agent: "register the current directory to the swarm" (it calls the <code>workspace_add</code> tool)</>}
@@ -2163,6 +2175,10 @@ function DocsPage() {
                 they run silently with a toast). They are shortcuts for the MCP tools, so you don't have to remember tool arguments.</>}
             />
           </p>
+          <p><L
+            zh={<>Codex 使用 <code>$swarm-add</code>、<code>$swarm-register</code>、<code>$swarm-add-planner</code>、<code>$swarm-enable</code>、<code>$swarm-disable</code>、<code>$swarm-remove</code>、<code>$swarm-list</code> 和 <code>$swarm-notes</code>。也可在 <code>/skills</code> 中选择。</>}
+            en={<>Codex supports <code>$swarm-add</code>, <code>$swarm-register</code>, <code>$swarm-add-planner</code>, <code>$swarm-enable</code>, <code>$swarm-disable</code>, <code>$swarm-remove</code>, <code>$swarm-list</code>, and <code>$swarm-notes</code>. You can also select them in <code>/skills</code>.</>}
+          /></p>
           <table>
             <thead><tr><th>{t("命令", "Command")}</th><th>{t("说明", "Description")}</th></tr></thead>
             <tbody>
@@ -2176,8 +2192,8 @@ function DocsPage() {
               <tr>
                 <td><code>/swarm-add-planner</code></td>
                 <td><L
-                  zh={<>注册（或更新）当前目录为<b>规划器工作区</b>——其余流程同 <code>/swarm-add</code>，但 <code>/swarm-add</code> 本身<b>不加</b>任何参数。opencode / claude / deepseek(dsh) 三个 harness 均支持。注册后可在网页「规划器」页管理目标与任务树</>}
-                  en={<>Register (or update) the current directory as a <b>planner workspace</b> — otherwise the same as <code>/swarm-add</code>, but <code>/swarm-add</code> itself takes <b>no</b> arguments. Supported by all three harnesses: opencode / claude / deepseek(dsh). Once registered you can manage goals and the task tree on the web "Planner" page</>}
+                  zh={<>注册当前目录为<b>规划器工作区</b>。Codex 使用 <code>$swarm-add-planner</code>。规划核心服务连接后，可在网页「规划器」页管理目标与任务树。</>}
+                  en={<>Register the current directory as a <b>planner workspace</b>. In Codex, use <code>$swarm-add-planner</code>. Once the planner core connects, manage goals and the task tree on the Planner page.</>}
                 /></td>
               </tr>
               <tr>
@@ -2208,14 +2224,14 @@ function DocsPage() {
           </p>
           <h3>{t("各 agent 支持情况", "Per-agent support")}</h3>
           <table>
-            <thead><tr><th>{t("能力", "Capability")}</th><th>opencode</th><th>claude code</th><th>deepseek harness</th></tr></thead>
+            <thead><tr><th>{t("能力", "Capability")}</th><th>opencode</th><th>claude code</th><th>deepseek harness</th><th>Codex</th></tr></thead>
             <tbody>
-              <tr><td>{t("注册 / 保活 / 启停管理", "Register / keep-alive / enable-disable")}</td><td>✅</td><td>✅</td><td>✅</td></tr>
-              <tr><td><code>/swarm-*</code> {t("命令", "commands")}</td><td>✅</td><td>{t("✅（不含 /swarm-mode）", "✅ (no /swarm-mode)")}</td><td>✅</td></tr>
-              <tr><td>{t("前台注入（任务进入当前会话）", "Foreground injection (task enters current session)")}</td><td>✅</td><td>—</td><td>{t("✅（注入最近活跃会话）", "✅ (most recently active session)")}</td></tr>
-              <tr><td>{t("后台会话（独立会话静默执行）", "Background session (isolated, silent)")}</td><td>✅</td><td>✅</td><td>✅</td></tr>
-              <tr><td>{t("前台会话监控（TUI 对话同步中枢）", "Foreground monitoring (TUI syncs to Nexus)")}</td><td>✅</td><td>—</td><td>✅</td></tr>
-              <tr><td>{t("权限 / 提问实时应答（input-required）", "Permission / question answering (input-required)")}</td><td>✅</td><td>—</td><td>{t("✅（先答先算，无\"始终允许\"）", "✅ (first answer wins, no \"always allow\")")}</td></tr>
+              <tr><td>{t("注册 / 保活 / 启停管理", "Register / keep-alive / enable-disable")}</td><td>✅</td><td>✅</td><td>✅</td><td>{t("注册、启停管理，worker 保活", "Registration, enable/disable, worker keep-alive")}</td></tr>
+              <tr><td>{t("Swarm 快捷入口", "Swarm shortcuts")}</td><td>✅</td><td>{t("✅（不含 /swarm-mode）", "✅ (no /swarm-mode)")}</td><td>✅</td><td><code>$swarm-*</code></td></tr>
+              <tr><td>{t("前台注入（任务进入当前会话）", "Foreground injection (task enters current session)")}</td><td>✅</td><td>—</td><td>{t("✅（注入最近活跃会话）", "✅ (most recently active session)")}</td><td>—</td></tr>
+              <tr><td>{t("后台会话（独立会话静默执行）", "Background session (isolated, silent)")}</td><td>✅</td><td>✅</td><td>✅</td><td>{t("独立 worker", "Separate worker")}</td></tr>
+              <tr><td>{t("前台会话监控（TUI 对话同步中枢）", "Foreground monitoring (TUI syncs to Nexus)")}</td><td>✅</td><td>—</td><td>✅</td><td>—</td></tr>
+              <tr><td>{t("权限 / 提问实时应答（input-required）", "Permission / question answering (input-required)")}</td><td>✅</td><td>—</td><td>{t("✅（先答先算，无\"始终允许\"）", "✅ (first answer wins, no \"always allow\")")}</td><td>—</td></tr>
             </tbody>
           </table>
         </section>
@@ -2613,11 +2629,9 @@ function DocsPage() {
           <p>
             <L
               zh={<>我们基于开放协议（MCP + A2A）设计，目标是让<b>所有兼容的 agent 客户端</b>都能加入虫群。
-                目前 opencode 与 deepseek harness 全功能支持；claude code 支持注册管理与后台会话任务执行，
-                前台注入暂不支持（见「命令」章节的支持情况表）。其它客户端会逐步支持。</>}
+                目前 opencode 与 deepseek harness 全功能支持。Claude Code 和 Codex 支持工作区管理与后台任务执行，详见「命令」章节的支持情况表。</>}
               en={<>We design around open protocols (MCP + A2A) so that <b>all compatible agent clients</b> can join the swarm.
-                Today opencode and deepseek harness are fully supported; claude code supports registration management and background-session task execution,
-                but not foreground injection yet (see the support table in the "Commands" section). More clients are coming.</>}
+                Today opencode and deepseek harness are fully supported. Claude Code and Codex support workspace management and background tasks. See the support table in the "Commands" section.</>}
             />
           </p>
           <h3>{t("claude 工作区能执行任务吗？", "Can a claude workspace execute tasks?")}</h3>
@@ -3446,6 +3460,8 @@ function NexusPage({ toast }: { toast: (m: string) => void }) {
   }
 
   const current = list.find((w) => w.id === selected)
+  const currentKind = agentToolKind(current?.agent_type)
+  const terminalStyle = currentKind === "opencode" ? "tui" : currentKind === "deepseek" ? "dsh-ui" : currentKind === "codex" ? "" : "claude-tui"
 
   return (
     <div className="nexus-page">
@@ -3464,11 +3480,14 @@ function NexusPage({ toast }: { toast: (m: string) => void }) {
       </div>
 
       {selected && (
-        <div className={`nexus-terminal ${agentToolKind(current?.agent_type) === "opencode" ? "tui" : agentToolKind(current?.agent_type) === "deepseek" ? "dsh-ui" : "claude-tui"}`}>
+        <div className={`nexus-terminal ${terminalStyle}`}>
           <div className="nexus-terminal-head">
             <AgentTypeIcon type={current?.agent_type} inherit />
             <span className="nexus-head-title">{current?.name ?? selected}</span>
-            {current?.session_title && (
+            {currentKind === "codex" && (
+              <span className="nexus-head-session">{t("Codex 后台接单", "Codex background worker")}</span>
+            )}
+            {currentKind !== "codex" && current?.session_title && (
               <span className="nexus-head-session" title={current.session_title}>{current.session_title}</span>
             )}
             <span className={`nexus-head-status ${pluginOnline ? "on" : "off"}`}>{pluginOnline ? "● online" : "○ offline"}</span>

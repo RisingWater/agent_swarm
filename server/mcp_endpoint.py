@@ -126,6 +126,7 @@ def workspace_add(
     capabilities: str = "",
     name: str = "",
     role: str = "",
+    agent_type: str = "",
 ) -> dict:
     """添加（或更新）当前工作区到 agent_swarm。
 
@@ -141,12 +142,16 @@ def workspace_add(
         role: 工作区角色（可选，留空 = 不修改）。普通工作区为 "agent"；
             规划器（planner）传 "planner"——它会在网页「规划器」只读页中展示。
             合法值：agent / planner。
+        agent_type: Codex 注册工作区时传 "codex"，其余调用方可省略。
     """
     user = get_user()
     session = next(get_session())
     try:
         path = path.strip().rstrip("/") or "/"
         role = models.normalize_role(role)  # 非法值在此直接抛错（不落库）
+        agent_type = agent_type.strip().lower()
+        if agent_type not in ("", "codex"):
+            raise ValueError("agent_type must be codex or empty")
 
         ws = session.exec(
             select(models.Workspace).where(
@@ -155,6 +160,8 @@ def workspace_add(
             )
         ).first()
         now = utcnow()
+        if agent_type and ws is not None and ws.agent_type != agent_type:
+            raise ValueError("workspace path already belongs to a different adapter")
         if ws is None:
             import shortuuid
 
@@ -167,7 +174,7 @@ def workspace_add(
             created = True
         else:
             created = False
-            if name:
+            if name and not agent_type:
                 ws.name = name
         if purpose:
             purpose_enc = crypto.encrypt(user.api_key or "", purpose)
@@ -177,9 +184,11 @@ def workspace_add(
             ws.capabilities = capabilities
         if role:
             ws.role = role
-        ws.agent_type = "opencode"
-        ws.status = "online"
-        ws.last_heartbeat = now
+        if agent_type or ws.agent_type != "codex":
+            ws.agent_type = agent_type or "opencode"
+        if ws.agent_type != "codex" or ws.status != "disabled":
+            ws.status = "online"
+            ws.last_heartbeat = now
         ws.updated_at = now
         session.add(ws)
         session.commit()
@@ -429,6 +438,7 @@ def list_workspaces(include_offline: bool = False) -> dict:
                     "purpose": crypto.decrypt(key, ws.purpose_enc, ws.purpose),
                     "capabilities": ws.capabilities,
                     "notes": crypto.decrypt(key, ws.notes_enc, ws.notes),
+                    "agent_type": ws.agent_type or None,
                     "status": "online" if online else ("disabled" if ws.status == "disabled" else "offline"),
                     "owner": owner.username if owner else None,
                     "role": ws.role or "agent",

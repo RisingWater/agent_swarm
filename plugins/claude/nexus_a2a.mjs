@@ -91,12 +91,12 @@ const MAX_RECONNECT_DELAY_MS = 15_000
  *   url          ws(s)://host:port/ws/plugin
  *   apiKey       用户 apikey
  *   workspaceId  () => string（每轮重读，/swarm-add 换 ID 无需重启）
- *   onTask       (task, text, caller) => Promise<string|null>  执行任务，返回 sessionId 或 null
+ *   onTask       (task, text, caller, messageId, fromWorkspace) => Promise<string|null>
  *   onTaskCancel (taskId) => void
  *   log          (msg) => void
  */
 export function startNexusA2AClient(options) {
-  const { url, apiKey, workspaceId, onTask, onTaskCancel, log } = options
+  const { url, apiKey, workspaceId, onTask, onTaskCancel, log, executionMode, onRejected } = options
 
   let ws = null
   let ready = false
@@ -120,13 +120,20 @@ export function startNexusA2AClient(options) {
 
   /** 事件发送：断连时入缓冲，重连后 flush */
   function sendEvent(event) {
-    if (send({ type: "event", payload: event })) return
-    if (pendingEvents.length < MAX_PENDING_EVENTS) pendingEvents.push(event)
+    if (ready && send({ type: "event", payload: event })) return
+    if (pendingEvents.length >= MAX_PENDING_EVENTS) {
+      const index = pendingEvents.findIndex(e => !e.final && !e.lastChunk)
+      if (index >= 0) pendingEvents.splice(index, 1)
+      else if (!event.final && !event.lastChunk) return
+      else pendingEvents.shift()
+    }
+    pendingEvents.push(event)
   }
 
   function flushPendingEvents() {
     while (pendingEvents.length) {
-      if (!send({ type: "event", payload: pendingEvents.shift() })) break // 又断了，剩下的下次发
+      if (!send({ type: "event", payload: pendingEvents[0] })) break
+      pendingEvents.shift()
     }
   }
 
@@ -174,6 +181,7 @@ export function startNexusA2AClient(options) {
         log(`nexus hello rejected: ${msg.error}`)
         closed = true // 注册被拒不会自愈，停止重连
         try { ws?.close() } catch { /* ignore */ }
+        onRejected?.()
         break
       case "pong":
         break
@@ -198,7 +206,7 @@ export function startNexusA2AClient(options) {
           // DataPart（input-required 续聊应答）：claude 后台模式不支持交互应答
           const dataPart = parts.find((p) => p.kind === "data")?.data
           if (dataPart) {
-            rpcError(id, -32000, "claude background tasks do not support interactive replies")
+            rpcError(id, -32000, "background tasks do not support interactive replies")
             return
           }
           const text = parts
@@ -211,7 +219,7 @@ export function startNexusA2AClient(options) {
           }
           log(`a2a task ${task.taskId.slice(0, 8)} (caller=${caller})`)
           Promise.resolve()
-            .then(() => onTask(task, text, caller))
+            .then(() => onTask(task, text, caller, message.messageId, metadata.from_workspace))
             .then((sid) => {
               if (sid === null) {
                 rpcError(id, -32000, "task execution failed")
@@ -257,7 +265,7 @@ export function startNexusA2AClient(options) {
     ws = socket
 
     socket.addEventListener("open", () => {
-      send({ type: "hello", apikey: apiKey, workspace_id: wid })
+      send({ type: "hello", apikey: apiKey, workspace_id: wid, execution_mode: executionMode })
     })
     socket.addEventListener("message", (e) => handle(String(e.data)))
     socket.addEventListener("close", () => {
