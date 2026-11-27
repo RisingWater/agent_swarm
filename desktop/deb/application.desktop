@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Agent Swarm Manager
+Name[zh_CN]=Agent Swarm 插件管理器
+Exec=/usr/lib/agent-swarm-manager/agent-swarm-manager --install-user
+Icon=agent-swarm-manager
+Terminal=false
+Categories=Development;

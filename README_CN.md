@@ -73,15 +73,7 @@ docker build -t agent-swarm -f docker/Dockerfile .
 
 ### 接入 agent 工作区
 
-在装有 AI 编程工具的目标机器上执行首页生成的安装命令：
-
-```bash
-# Linux / macOS
-curl -fsSL http://<server>:8700/download/install.sh | bash -s -- --api-key <你的key>
-
-# Windows (PowerShell)
-& ([scriptblock]::Create((irm http://<server>:8700/download/install.ps1))) -ApiKey <你的key>
-```
+在运行 AI 编程工具的电脑上，从 Swarm 首页下载桌面插件管理器。Windows 运行 EXE，Linux 用软件安装器安装 DEB，macOS 解压后打开应用。Windows 和 Linux 会添加菜单入口，并默认启用开机启动。打开管理器并用 Swarm 账号登录，即可分别或批量安装、更新四个客户端的插件。使用和打包方式见[桌面插件管理器](docs/plugin-manager.md)。
 
 - **opencode**：写入服务配置 → 注册 MCP 端点 → 部署心跳插件 → 拷贝 `/swarm-*` 命令。**重启 opencode 后生效**（V1/V2 双版本自动分流）
 - **claude code**：注册 remote MCP + 本地 keepalive（心跳保活）→ 拷贝 `/swarm-*` 命令。**重启后生效**；claude 仅支持后台会话，不支持前台注入

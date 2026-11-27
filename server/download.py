@@ -4,10 +4,12 @@
 - GET /download/install.ps1    Windows 一键安装脚本（PowerShell 5.1+，同上注入 server 地址）
 """
 from pathlib import Path
+import tarfile
 
 from starlette.requests import Request
-from starlette.responses import FileResponse, PlainTextResponse, Response
+from starlette.responses import FileResponse, JSONResponse, PlainTextResponse, RedirectResponse, Response
 from starlette.routing import Route
+from server.plugin_release import archive_manifest
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 # 插件包查找顺序：本机开发包（data/，start.sh 打包）→ Docker 镜像内置包（/app/plugin-dist/，
@@ -39,6 +41,33 @@ async def plugin_tarball(request: Request) -> FileResponse:
         media_type="application/gzip",
         filename="agent-swarm-plugin.tar.gz",
     )
+
+
+def plugin_manifest(request: Request) -> Response:
+    tgz = _plugin_tgz()
+    if tgz is None:
+        return PlainTextResponse("plugin package not found", 404)
+    try:
+        return JSONResponse(archive_manifest(tgz), headers={"Cache-Control": "no-cache"})
+    except (OSError, tarfile.TarError):
+        return PlainTextResponse("plugin package unavailable", 503)
+
+
+def plugin_manager(request: Request) -> Response:
+    platform = request.path_params["platform"]
+    names = {
+        "windows": "AgentSwarmManager-windows-x64-setup.exe",
+        "linux": "AgentSwarmManager-linux-x64.deb",
+        "macos": "AgentSwarmManager-macos-arm64.zip",
+    }
+    if platform not in names:
+        return PlainTextResponse("platform not supported", 404)
+    name = names[platform]
+    local = PROJECT_ROOT / "data" / name
+    if local.is_file():
+        media_type = "application/vnd.debian.binary-package" if platform == "linux" else "application/octet-stream"
+        return FileResponse(local, filename=name, media_type=media_type)
+    return RedirectResponse(f"https://github.com/RisingWater/agent_swarm/releases/latest/download/{name}")
 
 
 def _server_base(request: Request) -> str:
@@ -101,6 +130,8 @@ async def planner_installer_ps1(request: Request) -> Response:
 
 routes = [
     Route("/download/plugin.tar.gz", plugin_tarball, methods=["GET"]),
+    Route("/download/plugin-manifest.json", plugin_manifest, methods=["GET"]),
+    Route("/download/plugin-manager/{platform}", plugin_manager, methods=["GET"]),
     Route("/download/install.sh", installer, methods=["GET"]),
     Route("/download/install.ps1", installer_ps1, methods=["GET"]),
     Route("/download/planner-install.sh", planner_installer, methods=["GET"]),

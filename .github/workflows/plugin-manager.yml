@@ -1,0 +1,68 @@
+name: plugin-manager
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*", "alpha*", "beta*", "release*"]
+
+jobs:
+  package:
+    strategy:
+      matrix:
+        include:
+          - runner: windows-latest
+            file: AgentSwarmManager-windows-x64-setup.exe
+          - runner: ubuntu-22.04
+            file: AgentSwarmManager-linux-x64.deb
+          - runner: macos-14
+            file: AgentSwarmManager-macos-arm64.zip
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -r desktop/requirements.txt "PyInstaller>=6.11,<7" Pillow
+      - run: python desktop/manager.py --self-test
+      - run: python desktop/build.py
+      - if: runner.os == 'Windows'
+        run: |
+          $installer = (Resolve-Path "desktop/dist/${{ matrix.file }}").Path
+          $process = Start-Process -FilePath $installer -ArgumentList '--self-test' -WindowStyle Hidden -Wait -PassThru
+          exit $process.ExitCode
+      - if: runner.os == 'Linux'
+        run: |
+          package="desktop/dist/${{ matrix.file }}"
+          dpkg-deb --info "$package"
+          dpkg-deb --extract "$package" "$RUNNER_TEMP/swarm-deb"
+          test -f "$RUNNER_TEMP/swarm-deb/usr/share/applications/agent-swarm-manager.desktop"
+          test -f "$RUNNER_TEMP/swarm-deb/etc/xdg/autostart/agent-swarm-manager.desktop"
+          "$RUNNER_TEMP/swarm-deb/usr/lib/agent-swarm-manager/agent-swarm-manager" --self-test
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.file }}
+          path: desktop/dist/${{ matrix.file }}
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: package
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: assets
+          merge-multiple: true
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          if ! gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
+            gh release create "$TAG" --repo "$REPO" --verify-tag --generate-notes
+          fi
+          gh release upload "$TAG" --repo "$REPO" assets/*

@@ -1,0 +1,6 @@
+[Desktop Entry]
+Type=Application
+Name=Agent Swarm Manager
+Exec=/usr/lib/agent-swarm-manager/agent-swarm-manager --install-user --tray
+Icon=agent-swarm-manager
+Terminal=false

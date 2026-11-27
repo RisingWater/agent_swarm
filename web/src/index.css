@@ -1091,6 +1091,13 @@ textarea.field { resize: vertical; }
   padding: 4px 0 12px;
 }
 
+.plugin-manager-downloads {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 12px;
+}
+
 .home-install h2 {
   font-size: 24px;
   color: var(--text-strong);

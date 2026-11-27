@@ -75,15 +75,7 @@ Open `http://localhost:8700`, register an account, and copy your API key from th
 
 ### Connect an agent workspace
 
-On the machine that runs your AI coding tool, run the install command generated on the home page:
-
-```bash
-# Linux / macOS
-curl -fsSL http://<server>:8700/download/install.sh | bash -s -- --api-key <your-key>
-
-# Windows (PowerShell)
-& ([scriptblock]::Create((irm http://<server>:8700/download/install.ps1))) -ApiKey <your-key>
-```
+Download the desktop Plugin Manager from the Swarm home page. Run the Windows EXE, open the Linux DEB in your software installer, or open the app from the macOS ZIP. Windows and Linux add a menu entry and enable startup at login. Sign in with your server address, username, and password to install or update OpenCode, Claude Code, dsh, and Codex. See the [desktop manager guide](docs/plugin-manager.md).
 
 - **opencode**: detects your opencode version (`opencode --version`) and installs the matching plugin — **V1** (`plugin` array in `opencode.jsonc` + `tui.jsonc`) or **V2** (auto-discovered under `~/.config/opencode/plugins/agent-swarm/`, no config entry / no `node_modules` needed) — writes the service config, registers the MCP endpoint, and copies `/swarm-*` commands. **Takes effect after restarting opencode**
 - **claude code**: registers a remote MCP + local keepalive (heartbeat) → copies `/swarm-*` commands. **Takes effect after restarting claude**; claude supports background sessions only, no foreground injection

@@ -596,10 +596,6 @@ export default function App() {
       <main className={effectivePage === "home" || effectivePage === "docs" ? "page page-full" : "page"}>
         {effectivePage === "home" && (
           <HomePage
-            toast={toast}
-            loggedIn={loggedIn}
-            onGoAccount={() => goto("account")}
-            onOpenLogin={() => setPage("login")}
             onGoDocs={() => goto("docs")}
           />
         )}
@@ -1227,24 +1223,19 @@ export function ConfirmWrap({ text, onOk, children }: { text: string; onOk: () =
 
 // ---------------- 首页 ----------------
 
-function HomePage({ toast, loggedIn, onGoAccount, onOpenLogin, onGoDocs }: { toast: (m: string) => void; loggedIn: boolean; onGoAccount: () => void; onOpenLogin: () => void; onGoDocs: () => void }) {
+function PluginManagerDownloads() {
   const { t } = useI18n()
-  const [me, setMe] = useState<(User & { api_key: string }) | null>(null)
-  const [plat, setPlat] = useState<"sh" | "ps1">(
-    /Win/i.test(navigator.platform) ? "ps1" : "sh",
+  return (
+    <div className="plugin-manager-downloads" aria-label={t("下载桌面安装管理器", "Download the desktop plugin manager")}>
+      <a className="btn btn-primary" href="/download/plugin-manager/windows">Windows x64 (.exe)</a>
+      <a className="btn" href="/download/plugin-manager/linux">Linux x64 (.deb)</a>
+      <a className="btn" href="/download/plugin-manager/macos">macOS Apple Silicon (.zip)</a>
+    </div>
   )
+}
 
-  useEffect(() => {
-    if (loggedIn) api.me().then(setMe).catch(() => {})
-  }, [loggedIn])
-
-  const key = me?.api_key ?? ""
-  const placeholder = "你的apikey"
-  const cmdKey = loggedIn ? key : placeholder
-  const installCmd =
-    plat === "sh"
-      ? `curl -fsSL ${pageOrigin}/download/install.sh | bash -s -- --api-key ${cmdKey}`
-      : `& ([scriptblock]::Create((irm ${pageOrigin}/download/install.ps1))) -ApiKey ${cmdKey}`
+function HomePage({ onGoDocs }: { onGoDocs: () => void }) {
+  const { t } = useI18n()
 
   return (
     <div className="home">
@@ -1265,40 +1256,9 @@ function HomePage({ toast, loggedIn, onGoAccount, onOpenLogin, onGoDocs }: { toa
       {/* 2. 马上安装 */}
       <section className="home-install">
         <h2>{t("马上安装", "Install now")}</h2>
-        <div className="tablist tablist-inline">
-          <button role="tab" aria-selected={plat === "sh"} onClick={() => setPlat("sh")}>
-            macOS / linux
-          </button>
-          <button role="tab" aria-selected={plat === "ps1"} onClick={() => setPlat("ps1")}>
-            windows
-          </button>
-        </div>
-        <div className="cmdblock cmdblock-joined">
-          <span className="cmd-text">
-            <span className="prompt">{plat === "sh" ? "$" : "PS>"}</span>
-            {loggedIn && !key ? "# 正在获取 api key…" : installCmd}
-          </span>
-          {loggedIn && (
-            <Btn variant="icon" title="copy" onClick={async () => {
-              toast(await copyText(installCmd) ? "安装命令已复制" : "复制失败，请手动选择复制")
-            }}>⧉</Btn>
-          )}
-        </div>
-        {loggedIn ? (
-          <p className="home-hint" style={{ marginTop: 10 }}>
-            <L
-              zh={<>命令中的 API Key 可在 <a className="link" onClick={onGoAccount}>账号</a> 页查看或重置。</>}
-              en={<>The API Key in the command can be viewed or reset on the <a className="link" onClick={onGoAccount}>Account</a> page.</>}
-            />
-          </p>
-        ) : (
-          <p className="home-hint" style={{ marginTop: 10 }}>
-            <L
-              zh={<><a className="link" onClick={onOpenLogin}>注册</a>或者<a className="link" onClick={onOpenLogin}>登录</a>账号即可安装。</>}
-              en={<><a className="link" onClick={onOpenLogin}>Sign up</a> or <a className="link" onClick={onOpenLogin}>log in</a> to install.</>}
-            />
-          </p>
-        )}
+        <PluginManagerDownloads />
+        <p className="home-hint">{t("下载安装包，打开 Agent Swarm 插件管理器并登录，即可安装或更新插件。",
+          "Download the installer, then open Agent Swarm Manager and sign in to install or update plugins.")}</p>
         <SupportedAgents />
       </section>
 
@@ -1813,21 +1773,20 @@ function DocsPage() {
           <h2>{t("安装插件", "Install plugins")}</h2>
           <p>
             <L
-              zh={<>插件是 agent 接入虫群的载体，负责心跳保活与接收任务。每个 agent 工具一个插件，
-                一条安装命令可以把所有已支持的插件一次装好。</>}
-              en={<>A plugin is how an agent joins the swarm; it keeps the heartbeat alive and receives tasks.
-                There is one plugin per agent tool, and a single install command can set them all up at once.</>}
+              zh={<>插件为 agent 提供心跳保活与任务接收。桌面管理器可以分别或批量安装已检测到的客户端插件。</>}
+              en={<>Plugins handle presence and incoming tasks. The desktop manager can install plugins for detected clients individually or in one batch.</>}
             />
           </p>
           <h3>{t("安装方式", "How to install")}</h3>
-          <p>
-            <L
-              zh={<>在目标机器上执行<b>首页</b>生成的安装命令（已自动带上你的账号 API Key）。
-                安装器会下载分发包并逐个安装各 agent 插件（可选参数只装指定插件）。</>}
-              en={<>Run the install command generated on the <b>Home</b> page on the target machine (it already carries your account API Key).
-                The installer downloads the distribution and installs each agent plugin in turn (optional flags install only the ones you pick).</>}
-            />
-          </p>
+          <PluginManagerDownloads />
+          <p><L
+            zh={<>Windows 运行 EXE。Linux 用软件安装器打开 DEB，再从应用菜单打开 Agent Swarm Manager。Windows 和 Linux 将管理器安装到用户目录下的 <code>agent-swarm-manager</code>，添加菜单入口，并默认启用开机启动。macOS 解压后打开应用。</>}
+            en={<>Run the EXE on Windows. On Linux, open the DEB in your software installer, then open Agent Swarm Manager from the application menu. Both platforms install the manager in <code>agent-swarm-manager</code> under your home directory, add a menu entry, and enable startup at login. On macOS, unzip and open the app.</>}
+          /></p>
+          <p><L
+            zh={<>打开管理器后输入 Swarm 服务地址，用账号密码登录。在界面中安装或更新单个插件，也可以批量操作。换账号或服务地址时会重装已有插件，退出登录会卸载本机 Swarm 插件。双击托盘图标可打开窗口。</>}
+            en={<>Open the desktop manager, enter your Swarm server address, and sign in. Install or update plugins individually or in batches. Switching accounts or servers reinstalls existing plugins. Signing out uninstalls local Swarm plugins. Double-click the tray icon to reopen the window.</>}
+          /></p>
           <ul>
             <li>
               <L
@@ -1864,8 +1823,8 @@ function DocsPage() {
               />
             </li>
             <li><L
-              zh={<><b>Codex</b>：按原方式运行 <code>codex</code>。安装器添加 <code>agent-swarm</code> MCP 和 <code>$swarm-*</code> 技能。只装 Codex 时用 PowerShell 的 <code>-Only codex</code> 或 Bash 的 <code>--only codex</code>。后台 worker 随 Codex 的 MCP 子进程自动启动，无需手动运行。</>}
-              en={<><b>Codex</b>: launch with <code>codex</code>. The installer adds the <code>agent-swarm</code> MCP and <code>$swarm-*</code> skills. Use <code>-Only codex</code> in PowerShell or <code>--only codex</code> in Bash to install just Codex. The background worker starts automatically with the Codex MCP subprocess.</>}
+              zh={<><b>Codex</b>：按原方式运行 <code>codex</code>。管理器添加 <code>agent-swarm</code> MCP 和 <code>$swarm-*</code> 技能。只装 Codex 时，点 Codex 那一行的「安装」。后台 worker 随 Codex 的 MCP 子进程自动启动。</>}
+              en={<><b>Codex</b>: launch with <code>codex</code>. The manager adds the <code>agent-swarm</code> MCP and <code>$swarm-*</code> skills. To install only Codex, click Install in its row. The background worker starts with the Codex MCP subprocess.</>}
             /></li>
           </ul>
           <h3>{t("验证安装", "Verify the installation")}</h3>
@@ -2138,8 +2097,8 @@ function DocsPage() {
               zh={<><b>注册为规划器工作区</b>：在规划核心服务的目录启动 harness，输入 <code>/swarm-add-planner</code>（opencode / claude / deepseek 都支持；dsh 脚本化可用 <code>register.mjs --role planner</code>）。成功后网页出现「规划器」入口。</>}
               en={<><b>Register as a planner workspace</b>: start the harness in the planning core service's directory and enter <code>/swarm-add-planner</code> (supported by opencode / claude / deepseek; for scripted dsh use <code>register.mjs --role planner</code>). Afterwards the "Planner" entry appears on the web.</>}
             /></li>
-            <li>{t("若该 harness 还没接入虫群：先在平台管理页复制「插件安装」一键命令装好插件，再执行上一步。",
-              "If the harness hasn't joined the swarm yet: first copy the one-click \"plugin install\" command on the platform page to install the plugin, then do the previous step.")}</li>
+            <li>{t("若该 harness 还没接入虫群，先从首页下载插件管理器并安装对应插件，再注册规划器工作区。",
+              "If the harness is new to the swarm, download the manager from the home page and install its plugin before registering the planner workspace.")}</li>
           </ol>
           <h3>{t("怎么用（上手步骤）", "How to use it (getting started)")}</h3>
           <ol>
