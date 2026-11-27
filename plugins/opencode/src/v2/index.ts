@@ -22,7 +22,7 @@ import { appendFileSync, existsSync, readFileSync, statSync, truncateSync } from
 import { homedir } from "node:os"
 import { join } from "node:path"
 import { readWorkspaceId } from "../wsfile"
-import { readSessionMap, writeSessionEntry } from "../sessions"
+import { readBoundSession, readSessionMap, writeSessionEntry } from "../sessions"
 import { loadConfig } from "../config"
 import { SwarmClient } from "../client"
 import { desktopHasProject } from "../desktop_heartbeat"
@@ -189,9 +189,9 @@ const plugin: PluginDef = {
     }
 
     /** 该会话是否属于本 location（服务端下发的 session_id 可能是脏数据） */
-    async function ownsSession(sessionId: string): Promise<boolean> {
+    async function ownsSession(sessionId: string, checkStore = false): Promise<boolean> {
       if (!sessionId) return false
-      if (seenSessions.has(sessionId)) return true
+      if (!checkStore && seenSessions.has(sessionId)) return true
       try {
         const s: any = await ctx.session.get({ sessionID: sessionId })
         return String(s?.location?.directory ?? "") === directory
@@ -359,7 +359,12 @@ const plugin: PluginDef = {
     ): Promise<string | null> {
       // 每个任务重读配置：/swarm-mode 切换执行模式无需重启
       const live = loadConfig() ?? config
-      if (live.executionMode === "background") {
+      const bound = readBoundSession(directory)
+      if (bound && !await ownsSession(bound, true)) {
+        a2aEmit(statusUpdate(task, "failed", { final: true, message: agentMessage("绑定的 OpenCode 会话不可用，请重新绑定或运行 /swarm-unbind", task) }))
+        return null
+      }
+      if (!bound && live.executionMode === "background") {
         // 后台模式：spawn headless opencode 进程（V2 不需要 --pure——插件由 service 加载，
         // run 只是客户端）。会话按来源映射表续聊；不碰前台会话。
         const resume = readSessionMap(directory)[caller] ?? ""
@@ -381,11 +386,11 @@ const plugin: PluginDef = {
       }
       // 服务端下发的 session_id 可能是别 location 的（历史脏数据）：用 session.get 的
       // location.directory 校验归属，通过才用；否则退回本 location 当前会话，再不行新建。
-      const serverOwned = serverSessionId ? await ownsSession(serverSessionId) : false
-      if (serverSessionId && !serverOwned) {
+      const serverOwned = !bound && serverSessionId ? await ownsSession(serverSessionId) : false
+      if (!bound && serverSessionId && !serverOwned) {
         log(`a2a ${task.taskId.slice(0, 8)}: ignore foreign serverSessionId ${serverSessionId.slice(0, 14)}`)
       }
-      let sessionId = (serverOwned ? serverSessionId : "") || currentSessionId
+      let sessionId = bound || (serverOwned ? serverSessionId : "") || currentSessionId
       if (!sessionId) {
         try {
           const created: any = await ctx.session.create({ title: `A2A-${task.taskId.slice(0, 8)}` })
@@ -402,6 +407,7 @@ const plugin: PluginDef = {
       } catch {
         /* 快照失败不阻塞注入 */
       }
+      if (bound && a2aRunFor(sessionId)) return null
       a2aRuns.set(task.taskId, { sessionId, injected: false, lastAssistantIdBefore, inputSeen: new Set() })
       log(`a2a ${task.taskId.slice(0, 8)}: session ${sessionId}`)
       onAccepted?.(sessionId) // 接单即回 ack：服务端只等 30s，不能等整轮结束
@@ -571,7 +577,7 @@ const plugin: PluginDef = {
       apiKey: config.apiKey,
       workspaceId: () => readWorkspaceId(directory),
       sessionId: () => currentSessionId,
-      executionMode: () => (loadConfig() ?? config).executionMode,
+      executionMode: () => readBoundSession(directory) ? "foreground" : (loadConfig() ?? config).executionMode,
       onTask: executeTask,
       onReply: async (task, data) => {
         if (data.type === "permission") {

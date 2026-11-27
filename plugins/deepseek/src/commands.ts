@@ -19,7 +19,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { randomUUID } from "node:crypto"
 import { basename, join } from "node:path"
 import { loadConfig, saveExecutionMode, type SwarmConfig } from "./config.ts"
-import { readWorkspaceId, writeWorkspaceId, workspaceFilePath } from "./workspace.ts"
+import { readWorkspaceId, writeBoundSession, writeWorkspaceId, workspaceFilePath } from "./workspace.ts"
 import { updateWorkspaceList } from "./workspaces.ts"
 
 interface McpResult {
@@ -185,6 +185,24 @@ export function swarmCommands(ctx: any, opts: { directory: string; log: (msg: st
   }
   register("swarm-add", "把当前项目注册到 agent_swarm 中枢", registerWorkspace(""))
   register("swarm-add-planner", "把当前项目注册为规划器工作区（role=planner）", registerWorkspace("planner"))
+
+  register("swarm-bind", "将当前会话设为工作区的接单会话", async (_rawInput, invocation) => {
+    const header = invocation?.agent?.session?.header
+    if (typeof header?.id !== "string" || !header.id || typeof header.cwd !== "string" || !header.cwd) {
+      return { kind: "error", text: "请打开要接单的会话后再绑定" }
+    }
+    const wid = workspaceIdOrError(header.cwd)
+    if ("error" in wid) return { kind: "error", text: wid.error }
+    writeBoundSession(header.cwd, header.id)
+    return { kind: "success", text: "已绑定当前会话，后续任务将发到这里" }
+  })
+
+  register("swarm-unbind", "解除会话绑定并恢复原来的任务路由", async (_rawInput, invocation) => {
+    const cwd = invocation?.agent?.session?.header?.cwd
+    if (typeof cwd !== "string" || !cwd) return { kind: "error", text: "请在工作区会话中解除绑定" }
+    writeBoundSession(cwd, "")
+    return { kind: "success", text: "已解除绑定，后续任务按执行模式投递" }
+  })
 
   // /swarm-remove —— 注销（仅离线可删）
   register("swarm-remove", "从中枢注销当前工作区", async (_rawInput, invocation) => {

@@ -1854,12 +1854,12 @@ function DocsPage() {
                 zh={<><b>deepseek harness</b>：安装 cordis bundle 插件（<code>dsh plugin add</code>，按 profile 安装）
                   → 写入 MCP 配置（agent-swarm-mcp）→ 拷贝 <code>/swarm-*</code> 命令。
                   <b>重启 dsh 后生效</b>。注册工作区走会话内 <code>/swarm-add</code>（安装脚本不注册）。
-                  支持前台注入（最近活跃会话）、后台 per-caller 会话、监控同步与权限/提问应答
+                  支持绑定接单会话、前台注入、后台 per-caller 会话、监控同步与权限/提问应答
                   （详见「命令」章节的支持情况表）。</>}
                 en={<><b>deepseek harness</b>: install the cordis bundle plugin (<code>dsh plugin add</code>, per profile)
                   → write the MCP config (agent-swarm-mcp) → copy the <code>/swarm-*</code> commands.
                   <b>Takes effect after restarting dsh</b>. Register a workspace with <code>/swarm-add</code> inside a session (the installer does not register it).
-                  Supports foreground injection (most recently active session), per-caller background sessions, monitor sync and permission/question answering
+                  Supports session binding, foreground injection, per-caller background sessions, monitor sync and permission/question answering
                   (see the support table in the "Commands" section).</>}
               />
             </li>
@@ -2000,9 +2000,14 @@ function DocsPage() {
               en={<>Discovery and calls both go through MCP (<code>list_workspaces</code> marks them <code>shared:true</code>); the web console provides no call entry for shared workspaces</>}
             /></li>
           </ul>
+          <h3>{t("绑定接单会话", "Bind a session to receive tasks")}</h3>
+          <p><L
+            zh={<>在已注册的 OpenCode 或 dsh 工作区里，打开要接单的会话，输入 <code>/swarm-bind</code>。后续任务优先进入该会话，切换窗口也会保持绑定。在另一会话重复该命令可更换目标，用 <code>/swarm-unbind</code> 恢复原有路由。绑定的会话不可用时，请重新打开或绑定会话。</>}
+            en={<>In a registered OpenCode or dsh workspace, open the session that should receive tasks and enter <code>/swarm-bind</code>. Future tasks go to that session even when you switch windows. Run the command in another session to change the target, or use <code>/swarm-unbind</code> to restore normal routing. If the bound session is unavailable, reopen it or bind another session.</>}
+          /></p>
           <h3>{t("前台会话与后台会话", "Foreground vs. background sessions")}</h3>
           <p>
-            {t("每个工作区收到任务时，按配置选择执行方式：", "When a workspace receives a task, it picks an execution mode by configuration:")}
+            {t("工作区没有绑定会话时，按配置选择执行方式。", "Without a bound session, the workspace uses its configured execution mode.")}
           </p>
           <ul>
             <li>
@@ -2212,9 +2217,14 @@ function DocsPage() {
                   "Disable the current workspace (hidden, no longer receives tasks)")}</td>
               </tr>
               <tr>
+                <td><code>/swarm-bind</code> / <code>/swarm-unbind</code></td>
+                <td>{t("在 OpenCode 或 dsh 绑定当前会话，或解除绑定并恢复原有路由。Codex 使用 $swarm-bind 绑定。",
+                  "Bind the current OpenCode or dsh session, or clear the binding to restore normal routing. Codex uses $swarm-bind.")}</td>
+              </tr>
+              <tr>
                 <td><code>/swarm-mode</code></td>
-                <td>{t("切换任务执行模式：前台注入（foreground）或后台会话（background），即时生效（opencode / deepseek harness）",
-                  "Switch the task execution mode: foreground injection (foreground) or background session (background); takes effect immediately (opencode / deepseek harness)")}</td>
+                <td>{t("切换未绑定工作区的执行方式（opencode / deepseek harness）：前台注入（foreground）或后台会话（background）。",
+                  "Switch routing for unbound workspaces (OpenCode / DeepSeek harness) between foreground and background.")}</td>
               </tr>
             </tbody>
           </table>
@@ -2237,7 +2247,7 @@ function DocsPage() {
           </table>
           <p>{t("Codex 的后台 worker 随 Codex 的 MCP 子进程自动启动和退出，无需手动运行；日志在安装目录的 worker.log。", "The Codex background worker starts and stops with the Codex MCP subprocess automatically — no manual command needed. Its log is worker.log in the install directory.")}</p>
           <p>{t("Codex 前台投递需要先完成一轮对话，再在目标会话输入 $swarm-bind。用 worker.mjs --clear-thread 恢复后台执行。", "For Codex foreground delivery, complete a turn and enter $swarm-bind in the target session. Use worker.mjs --clear-thread to restore background execution.")}</p>
-          <p>{t("Claude Code 无 /swarm-mode。DeepSeek 前台任务进入最近活跃的会话，权限应答先答先算，选项为允许一次或拒绝。", "Claude Code has no /swarm-mode. DeepSeek sends foreground tasks to the most recently active session. The first permission response wins, with Allow Once and Reject as options.")}</p>
+          <p>{t("Claude Code 无 /swarm-mode。未绑定时，DeepSeek 前台任务仍进入最近活跃的会话。权限应答先答先算，选项为允许一次或拒绝。", "Claude Code has no /swarm-mode. Without a binding, DeepSeek still sends foreground tasks to the most recently active session. The first permission response wins, with Allow Once and Reject as options.")}</p>
         </section>
 
         <section id="doc-chat" className="docs-section">

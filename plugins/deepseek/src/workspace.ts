@@ -1,10 +1,37 @@
 /** 项目根 .agent_swarm/ 读写：WORKSPACE_ID（workspace.md）与 per-caller 会话映射（sessions.json）。
  * 与 opencode / claude 插件同一文件格式，三个 harness 可共用同一个工作区目录。 */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs"
+import { randomUUID } from "node:crypto"
 import { join } from "node:path"
 
 const DIR = ".agent_swarm"
+
+export function readBoundSession(dir: string): string {
+  try {
+    return readFileSync(join(dir, DIR, "dsh-session"), "utf-8").trim()
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return ""
+    throw error
+  }
+}
+
+export function writeBoundSession(dir: string, id: string): void {
+  const root = join(dir, DIR)
+  const file = join(root, "dsh-session")
+  if (!id) {
+    rmSync(file, { force: true })
+    return
+  }
+  mkdirSync(root, { recursive: true })
+  const temp = `${file}.${randomUUID()}.tmp`
+  try {
+    writeFileSync(temp, id + "\n", { flag: "wx" })
+    renameSync(temp, file)
+  } finally {
+    rmSync(temp, { force: true })
+  }
+}
 
 function workspaceFile(dir: string): string {
   return join(dir, DIR, "workspace.md")

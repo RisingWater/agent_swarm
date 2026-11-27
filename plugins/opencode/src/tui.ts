@@ -17,6 +17,7 @@
  */
 
 import type { TuiPlugin } from "@opencode-ai/plugin/tui"
+import { writeBoundSession } from "./sessions"
 
 const CFG_PATH = (() => {
   const home = process.env.HOME || process.env.USERPROFILE || ""
@@ -158,6 +159,40 @@ const tui: TuiPlugin = async (api) => {
 
   if (!api.command) return
   api.command.register(() => [
+    {
+      title: "Swarm: Bind Current Session",
+      value: "swarm.bind",
+      description: "将当前会话设为工作区的接单会话",
+      slash: { name: "swarm-bind" },
+      onSelect: (dialog) => {
+        dialog?.clear()
+        const route = api.route.current
+        const sessionId = route.name === "session" ? route.params?.sessionID : undefined
+        if (typeof sessionId !== "string" || !sessionId) return toastErr("请打开要接单的会话后再绑定")
+        if (!file.getLine("WORKSPACE_ID")) return toastErr("当前目录未注册，请先运行 /swarm-add")
+        try {
+          writeBoundSession(api.state.path.directory, sessionId)
+          api.ui.toast({ variant: "success", message: "已绑定当前会话，后续任务将发到这里" })
+        } catch (e) {
+          toastErr(`写入绑定失败：${e}`)
+        }
+      },
+    },
+    {
+      title: "Swarm: Clear Session Binding",
+      value: "swarm.unbind",
+      description: "解除会话绑定并恢复原来的任务路由",
+      slash: { name: "swarm-unbind" },
+      onSelect: (dialog) => {
+        dialog?.clear()
+        try {
+          writeBoundSession(api.state.path.directory, "")
+          api.ui.toast({ variant: "success", message: "已解除绑定，后续任务按执行模式投递" })
+        } catch (e) {
+          toastErr(`解除绑定失败：${e}`)
+        }
+      },
+    },
     {
       title: "Swarm: Execution Mode",
       value: "swarm.mode",

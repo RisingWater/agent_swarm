@@ -16,6 +16,7 @@
 
 import type { Context, Definition } from "@opencode/plugin/tui/plugin"
 import { SwarmClient } from "../client"
+import { writeBoundSession } from "../sessions"
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { homedir } from "node:os"
 import { join } from "node:path"
@@ -157,6 +158,39 @@ const plugin: Definition = {
           mode: "global",
           priority: 10,
           commands: [
+        {
+          id: "agent-swarm.bind",
+          title: "Swarm: Bind Current Session",
+          group: "agent_swarm",
+          description: "将当前会话设为工作区的接单会话",
+          slash: { name: "swarm-bind" },
+          run: () => {
+            const { id } = currentSession()
+            if (!id) return toastErr("请打开要接单的会话后再绑定")
+            if (!file.getLine("WORKSPACE_ID")) return toastErr("当前目录未注册，请先运行 /swarm-add")
+            try {
+              writeBoundSession(worktree, id)
+              toastOk("已绑定当前会话，后续任务将发到这里")
+            } catch (e) {
+              toastErr(`写入绑定失败：${e}`)
+            }
+          },
+        },
+        {
+          id: "agent-swarm.unbind",
+          title: "Swarm: Clear Session Binding",
+          group: "agent_swarm",
+          description: "解除会话绑定并恢复原来的任务路由",
+          slash: { name: "swarm-unbind" },
+          run: () => {
+            try {
+              writeBoundSession(worktree, "")
+              toastOk("已解除绑定，后续任务按执行模式投递")
+            } catch (e) {
+              toastErr(`解除绑定失败：${e}`)
+            }
+          },
+        },
         {
           id: "agent-swarm.mode",
           title: "Swarm: Execution Mode",

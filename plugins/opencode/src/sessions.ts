@@ -6,11 +6,38 @@
  * 键 = 任务 caller（nexus-web / 调用方工作区 ID / 外部 A2A 端点 URL）。
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs"
+import { randomUUID } from "node:crypto"
 import { join } from "node:path"
 
 const DIR = ".agent_swarm"
 const SESSIONS_FILE = "sessions.json"
+
+export function readBoundSession(dir: string): string {
+  try {
+    return readFileSync(join(dir, DIR, "opencode-session"), "utf-8").trim()
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return ""
+    throw error
+  }
+}
+
+export function writeBoundSession(dir: string, id: string): void {
+  const root = join(dir, DIR)
+  const file = join(root, "opencode-session")
+  if (!id) {
+    rmSync(file, { force: true })
+    return
+  }
+  mkdirSync(root, { recursive: true })
+  const temp = `${file}.${randomUUID()}.tmp`
+  try {
+    writeFileSync(temp, id + "\n", { flag: "wx" })
+    renameSync(temp, file)
+  } finally {
+    rmSync(temp, { force: true })
+  }
+}
 
 export function sessionsFilePath(dir: string): string {
   return join(dir, DIR, SESSIONS_FILE)

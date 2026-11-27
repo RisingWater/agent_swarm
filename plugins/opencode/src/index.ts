@@ -16,9 +16,9 @@
 import type { Plugin } from "@opencode-ai/plugin"
 import { appendFileSync, existsSync, readFileSync, statSync, truncateSync } from "node:fs"
 import { homedir } from "node:os"
-import { join } from "node:path"
+import { join, resolve } from "node:path"
 import { readWorkspaceId } from "./wsfile"
-import { readSessionMap, writeSessionEntry } from "./sessions"
+import { readBoundSession, readSessionMap, writeSessionEntry } from "./sessions"
 import { SwarmClient } from "./client"
 import { loadConfig } from "./config"
 import {
@@ -251,6 +251,17 @@ const plugin: Plugin = async (input) => {
   ): Promise<string | null> {
     // 每次收任务重读配置：/swarm-mode 切换执行模式无需重启 opencode
     const liveCfg = loadConfig() ?? config
+    const bound = readBoundSession(directory)
+    if (bound) {
+      const reply = await client.session.get({ path: { id: bound } }).catch(() => null)
+      const session = reply?.data
+      const normalize = (dir: string) => process.platform === "win32" ? resolve(dir).toLowerCase() : resolve(dir)
+      if (!session || normalize(session.directory) !== normalize(directory)) {
+        a2aEmit(statusUpdate(task, "failed", { final: true, message: agentMessage("绑定的 OpenCode 会话不可用，请重新绑定或运行 /swarm-unbind", task) }))
+        return null
+      }
+      return executeTaskForeground(task, text, caller, bound, onAccepted, true)
+    }
     if (liveCfg.executionMode === "background") {
       // 后台模式：headless 进程执行（不碰前台会话状态；--pure 不加载插件；--auto 全自动批准）。
       // 会话按来源映射表（.agent-swarm-sessions.json）路由：同一 caller 的任务复用同一
@@ -288,6 +299,7 @@ const plugin: Plugin = async (input) => {
     caller: string,
     serverSessionId = "",
     onAccepted?: (sessionId: string) => void,
+    bound = false,
   ): Promise<string | null> {
     let sessionId = serverSessionId || currentSessionId || (await pickRecentSession())
     if (!sessionId) {
@@ -304,6 +316,7 @@ const plugin: Plugin = async (input) => {
       const msgsBefore: any[] = Array.isArray(before?.data) ? before.data : []
       lastAssistantIdBefore = lastAssistantMsgId(msgsBefore)
     } catch { /* 快照失败不阻塞注入 */ }
+    if (bound && [...a2aRuns.values()].some(run => run.sessionId === sessionId)) return null
     const run: A2aRun = { sessionId, injected: false, lastAssistantIdBefore }
     a2aRuns.set(task.taskId, run)
     log(`a2a ${task.taskId.slice(0, 8)}: session ${sessionId}`)
@@ -607,7 +620,7 @@ const plugin: Plugin = async (input) => {
     apiKey: cfg.apiKey,
     workspaceId: () => readWorkspaceId(directory),
     sessionId: () => currentSessionId,
-    executionMode: () => (loadConfig() ?? config).executionMode,
+    executionMode: () => readBoundSession(directory) ? "foreground" : (loadConfig() ?? config).executionMode,
     onTask: executeTask,
     onReply: async (task, data) => {
       // input-required 续聊应答：路由到 opencode 权限/提问 API

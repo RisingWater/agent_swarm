@@ -24,7 +24,7 @@ import { homedir } from "node:os"
 import { join, resolve } from "node:path"
 import { randomUUID } from "node:crypto"
 import { loadConfig } from "./config.ts"
-import { readWorkspaceId, readSessionMap, writeSessionEntry } from "./workspace.ts"
+import { readBoundSession, readWorkspaceId, readSessionMap, writeSessionEntry } from "./workspace.ts"
 import { readWorkspaceList } from "./workspaces.ts"
 import { SwarmHeartbeat } from "./heartbeat.ts"
 import {
@@ -147,6 +147,11 @@ function applyInner(ctx: any): void {
    * 每次派任务现读：/swarm-mode 热切换立即生效。 */
   function currentMode(): "foreground" | "background" {
     return loadConfig()?.executionMode ?? "foreground"
+  }
+
+  function directoryForWorkspace(wid: string): string | undefined {
+    return readWorkspaceList().find(entry => entry.workspaceId === wid)?.directory
+      ?? (readWorkspaceId(directory) === wid ? directory : undefined)
   }
 
   async function anchorSession(caller: string, serverSessionId: string): Promise<{ agent: any; sessionId: string } | null> {
@@ -563,11 +568,24 @@ function applyInner(ctx: any): void {
     caller: string,
     serverSessionId: string,
     onAccepted?: (sessionId: string) => void,
+    workspaceDirectory?: string,
   ): Promise<string | null> {
-    const anchored = await anchorSession(caller, serverSessionId)
+    const bound = workspaceDirectory ? readBoundSession(workspaceDirectory) : ""
+    const anchored = bound
+      ? { agent: (ctx as any).agents?.get?.(bound), sessionId: bound }
+      : await anchorSession(caller, serverSessionId)
     if (!anchored) return null
     const { agent, sessionId } = anchored
-    writeSessionEntry(directory, caller, sessionId)
+    if (bound && workspaceDirectory) {
+      const cwd = agent?.session?.header?.cwd
+      const normalize = (dir: string) => process.platform === "win32" ? resolve(dir).toLowerCase() : resolve(dir)
+      if (typeof cwd !== "string" || !cwd || normalize(cwd) !== normalize(workspaceDirectory)) {
+        a2aEmit(statusUpdate(task, "failed", { final: true, message: agentMessage("绑定的 dsh 会话不可用，请打开该会话、重新绑定或运行 /swarm-unbind", task) }))
+        return null
+      }
+    } else {
+      writeSessionEntry(directory, caller, sessionId)
+    }
 
     if (sessionTasks.has(sessionId)) {
       // 同会话上一任务还没收尾：拒绝（服务端保持 queued 等下次派发）
@@ -794,9 +812,12 @@ function applyInner(ctx: any): void {
     // WS 连接的工作区：清单第一条（dsh 宿主 cwd 是 profile 目录，readWorkspaceId(cwd)
     // 永远空——hello 需要一个 wid 才能注册连接；清单由 /swarm-add 维护）
     workspaceId: () => readWorkspaceList()[0]?.workspaceId ?? readWorkspaceId(directory),
-    executionMode: () => currentMode(),
-    onTask: (task, text, caller, serverSessionId, onAccepted) =>
-      executeTask(task, text, caller, serverSessionId ?? "", onAccepted),
+    executionMode: (wid) => {
+      const cwd = directoryForWorkspace(wid)
+      return cwd && readBoundSession(cwd) ? "foreground" : currentMode()
+    },
+    onTask: (task, text, caller, serverSessionId, onAccepted, wid) =>
+      executeTask(task, text, caller, serverSessionId ?? "", onAccepted, directoryForWorkspace(wid)),
     onReply: async (task, data) => {
       if (data.type === "permission") {
         replyPermission(task.taskId, data.requestId, String(data.reply ?? "once"))

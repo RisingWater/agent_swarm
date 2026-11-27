@@ -31,14 +31,15 @@ export interface A2aOptions {
   workspaceId: () => string
   /** 任务执行模式（foreground/background）。服务端 dispatchable 据此判断：心跳过期时
    * 只有 background 的工作区仍可派任务。hello 与 ping 都带上（热切换即时生效） */
-  executionMode?: () => string
+  executionMode?: (workspaceId: string) => string
   /** 收到 message/send：执行任务。onAccepted：已锚定会话时立即回 ack（服务端只等 30s） */
   onTask: (
     task: A2aTaskRef,
     text: string,
     caller: string,
     serverSessionId: string | undefined,
-    onAccepted?: (sessionId: string) => void,
+    onAccepted: (sessionId: string) => void,
+    workspaceId: string,
   ) => Promise<string | null>
   /** 收到 input-required 续聊应答（权限/提问） */
   onReply: (task: A2aTaskRef, data: { type: string; requestId: string; reply?: string; answers?: string[][] }) => Promise<void>
@@ -196,9 +197,9 @@ export function startNexusA2AClient(options: A2aOptions): NexusA2AClient {
     }
   }
 
-  function startPing() {
+  function startPing(wid: string) {
     stopPing()
-    pingTimer = setInterval(() => send({ type: "ping", execution_mode: options.executionMode?.() }), PING_INTERVAL_MS)
+    pingTimer = setInterval(() => send({ type: "ping", execution_mode: options.executionMode?.(wid) }), PING_INTERVAL_MS)
   }
 
   function stopPing() {
@@ -217,7 +218,7 @@ export function startNexusA2AClient(options: A2aOptions): NexusA2AClient {
     }, reconnectDelay)
   }
 
-  function handle(raw: string) {
+  function handle(raw: string, wid: string) {
     let msg: Record<string, unknown>
     try {
       msg = JSON.parse(raw)
@@ -228,7 +229,7 @@ export function startNexusA2AClient(options: A2aOptions): NexusA2AClient {
       case "hello_ok":
         ready = true
         reconnectDelay = 1_000
-        startPing()
+        startPing(wid)
         flushPendingMessages()
         log("nexus a2a ready")
         break
@@ -308,7 +309,7 @@ export function startNexusA2AClient(options: A2aOptions): NexusA2AClient {
             // 接单即回 ack（服务端 dispatch 等 30s）：后续进展走 event 通道
             send({ type: "rpc", id, payload: { jsonrpc: "2.0", id, result: { sessionId: sid } } })
           }
-          onTask(task, text, caller, serverSessionId, ackNow)
+          onTask(task, text, caller, serverSessionId, ackNow, wid)
             .then((sid) => {
               if (sid === null) {
                 if (!acked) {
@@ -372,9 +373,9 @@ export function startNexusA2AClient(options: A2aOptions): NexusA2AClient {
     ws = socket
 
     socket.addEventListener("open", () => {
-      send({ type: "hello", apikey: apiKey, workspace_id: wid, execution_mode: options.executionMode?.() ?? "foreground" })
+      send({ type: "hello", apikey: apiKey, workspace_id: wid, execution_mode: options.executionMode?.(wid) ?? "foreground" })
     })
-    socket.addEventListener("message", (e: MessageEvent) => handle(String(e.data)))
+    socket.addEventListener("message", (e: MessageEvent) => handle(String(e.data), wid))
     socket.addEventListener("close", () => {
       const wasReady = ready
       ready = false
