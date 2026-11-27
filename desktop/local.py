@@ -175,6 +175,19 @@ class LocalPlugins:
                 ]
         if found := shutil.which(command):
             return Path(found)
+        if not WINDOWS:
+            # GUI 进程（桌面自启/双击启动）不经过用户 shell，PATH 里没有 nvm/bun/asdf
+            # 等工具注入的目录——以用户登录 shell 的视角再找一次。interactive(-i) 才会
+            # 加载 .zshrc/.bashrc（nvm 就在这里注入）；超时/无 shell 则退回静态 fallback。
+            shell = os.environ.get("SHELL") or "/bin/bash"
+            if Path(shell).is_file():
+                try:
+                    result = run([shell, "-i", "-l", "-c", f"which {command}"], timeout=10)
+                    candidate = Path(result.stdout.strip())
+                    if result.returncode == 0 and candidate.is_file():
+                        return candidate
+                except (OSError, RuntimeError):
+                    pass
         return next((path for path in fallback if path.is_file()), None)
 
     def detect(self) -> dict:
