@@ -4,7 +4,6 @@
 
 - Windows x64 双击 EXE。安装器会将管理器安装到 `%USERPROFILE%\agent-swarm-manager`，添加当前用户的开始菜单快捷方式，开启登录自启并打开管理器。
 - Debian、Ubuntu 等 Linux x64 桌面系统用软件安装器打开 DEB。软件安装器可能要求系统安装授权。包会注册应用菜单和 XDG 自启动。首次从应用菜单打开或登录桌面时，管理器会以当前用户权限安装到 `~/agent-swarm-manager`。
-- macOS Apple Silicon 解压 ZIP 并打开其中的应用。
 
 1. 输入 Swarm 服务地址，例如 `http://10.0.0.1:8700`，用 Swarm 用户名和密码登录。
 2. 在列表查看检测到的客户端和版本。点击各行的「安装」或「更新」，也可以全部安装、全部更新。管理器以插件内容版本检查更新，先前通过命令安装的插件可能显示「已安装（未知版本）」。
@@ -23,4 +22,4 @@ python -m pip install PyInstaller Pillow
 python desktop/build.py
 ```
 
-请在各平台原生构建，Linux 打包需要 `dpkg-deb`。产物在 `desktop/dist/`。GitHub Actions 的 `plugin-manager` 工作流可手动构建，推送发布标签时也会把产物上传到 GitHub Releases。自托管环境可将 `AgentSwarmManager-windows-x64-setup.exe`、`AgentSwarmManager-linux-x64.deb` 和 `AgentSwarmManager-macos-arm64.zip` 复制到服务器 `data/`，网站会优先提供本地文件。插件版本从 `/download/plugin-manifest.json` 获取，旧服务器通过现有插件包兼容检测。
+请在各平台原生构建，Linux 打包需要 `dpkg-deb`。产物在 `desktop/dist/`。GitHub Actions 的 `plugin-manager` 工作流可手动构建，推送发布标签时也会把产物上传到 GitHub Releases。自托管环境可在后台管理页上传 `AgentSwarmManager-windows-x64-setup.exe`、`AgentSwarmManager-linux-x64.deb` 到服务器 `data/`，网站会优先提供本地文件（未上传时下载端点回退 GitHub Release）。插件版本从 `/download/plugin-manifest.json` 获取，旧服务器通过现有插件包兼容检测。

@@ -58,7 +58,6 @@ def plugin_manager(request: Request) -> Response:
     names = {
         "windows": "AgentSwarmManager-windows-x64-setup.exe",
         "linux": "AgentSwarmManager-linux-x64.deb",
-        "macos": "AgentSwarmManager-macos-arm64.zip",
     }
     if platform not in names:
         return PlainTextResponse("platform not supported", 404)

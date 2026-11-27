@@ -546,4 +546,28 @@ export const adminApi = {
     adminRequest(`/api/admin/calls${workspaceId ? `?workspace_id=${encodeURIComponent(workspaceId)}` : ""}`) as Promise<{
       calls: AdminCall[]
     }>,
+  installers: () => adminRequest("/api/admin/installers") as Promise<{
+    installers: { platform: string; filename: string; exists: boolean; size: number; updated_at: string | null }[]
+  }>,
+  uploadInstaller: (platform: string, file: File) => {
+    // multipart 上传：不能让 adminRequest 的默认 Content-Type(JSON) 进来，单独 fetch
+    const token = localStorage.getItem("swarm_admin_token") ?? ""
+    return fetch(`${BASE}/api/admin/installers/${encodeURIComponent(platform)}`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: (() => {
+        const fd = new FormData()
+        fd.append("file", file)
+        return fd
+      })(),
+    }).then(async (rsp) => {
+      const body = await rsp.json().catch(() => ({}))
+      if (!rsp.ok) throw new Error(body.detail ?? tGlobal("上传失败", "Upload failed"))
+      return body as { ok: boolean; size: number }
+    })
+  },
+  deleteInstaller: (platform: string) =>
+    adminRequest(`/api/admin/installers/${encodeURIComponent(platform)}`, { method: "DELETE" }) as Promise<{
+      ok: boolean
+    }>,
 }

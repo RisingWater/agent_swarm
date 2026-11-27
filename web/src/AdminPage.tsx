@@ -142,7 +142,7 @@ function StatCard({ label, value, sub }: { label: string; value: string | number
 
 function PanelPage({ toast, onLogout }: { toast: (m: string) => void; onLogout: () => void }) {
   const { t } = useI18n()
-  const [tab, setTab] = useState<"stats" | "users" | "workspaces" | "calls">("stats")
+  const [tab, setTab] = useState<"stats" | "users" | "workspaces" | "calls" | "installers">("stats")
   const [stats, setStats] = useState<AdminStats | null>(null)
   const [users, setUsers] = useState<AdminUser[]>([])
   const [workspaces, setWorkspaces] = useState<AdminWorkspace[]>([])
@@ -152,11 +152,13 @@ function PanelPage({ toast, onLogout }: { toast: (m: string) => void; onLogout: 
   const [userQuery, setUserQuery] = useState("")
   const [wsQuery, setWsQuery] = useState("")
   const [callQuery, setCallQuery] = useState("")
+  const [installers, setInstallers] = useState<{ platform: string; filename: string; exists: boolean; size: number; updated_at: string | null }[]>([])
 
   const refresh = useCallback(() => {
     adminApi.stats().then(setStats).catch((e) => toast(e.message))
     adminApi.users().then((r) => setUsers(r.users)).catch((e) => toast(e.message))
     adminApi.workspaces().then((r) => setWorkspaces(r.workspaces)).catch((e) => toast(e.message))
+    adminApi.installers().then((r) => setInstallers(r.installers)).catch(() => {})
   }, [toast])
   useEffect(() => { refresh() }, [refresh])
   useEffect(() => {
@@ -186,6 +188,7 @@ function PanelPage({ toast, onLogout }: { toast: (m: string) => void; onLogout: 
           <a className={tab === "users" ? "active" : ""} onClick={() => setTab("users")}>{t("用户", "Users")}</a>
           <a className={tab === "workspaces" ? "active" : ""} onClick={() => setTab("workspaces")}>{t("工作区", "Workspaces")}</a>
           <a className={tab === "calls" ? "active" : ""} onClick={() => setTab("calls")}>{t("调用记录", "Calls")}</a>
+          <a className={tab === "installers" ? "active" : ""} onClick={() => setTab("installers")}>{t("安装包", "Installers")}</a>
           <LangSwitch />
           <a style={{ color: "var(--text-weak)" }}
             onClick={() => { adminApi.logout(); onLogout() }}>{t("退出登录", "Log out")}</a>
@@ -316,6 +319,55 @@ function PanelPage({ toast, onLogout }: { toast: (m: string) => void; onLogout: 
                     </td>
                     <td style={{ fontSize: 12 }}>{statusBadge(c.status, t)}</td>
                     <td style={{ fontSize: 12, whiteSpace: "nowrap" }}>{fmtDate(c.created_at)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </>
+        )}
+        {tab === "installers" && (
+          <>
+            <p className="section-label">{t("[ 安装包 ]", "[ Installers ]")}</p>
+            <p style={{ color: "var(--text-weak)", fontSize: 12, margin: "0 0 12px" }}>
+              {t("上传后主页下载按钮直接从本服务器分发；未上传时回退 GitHub Release。",
+                "Once uploaded, the home-page download buttons serve files from this server; without a local file they fall back to GitHub Releases.")}
+            </p>
+            <table className="admin-table">
+              <thead>
+                <tr><th>{t("平台", "Platform")}</th><th>{t("文件", "File")}</th><th>{t("状态", "Status")}</th><th>{t("大小", "Size")}</th><th>{t("更新时间", "Updated")}</th><th></th></tr>
+              </thead>
+              <tbody>
+                {installers.map((it) => (
+                  <tr key={it.platform}>
+                    <td>{it.platform === "windows" ? "Windows x64" : "Linux x64"}</td>
+                    <td style={{ fontSize: 12 }}>{it.filename}</td>
+                    <td>{it.exists
+                      ? <span style={{ color: "var(--ok, #2e9e5b)" }}>{t("已上传（本服务器分发）", "Uploaded (served locally)")}</span>
+                      : <span style={{ color: "var(--text-weak)" }}>{t("未上传（回退 GitHub）", "Not uploaded (GitHub fallback)")}</span>}</td>
+                    <td style={{ fontSize: 12 }}>{it.exists ? `${(it.size / 1048576).toFixed(1)} MB` : "—"}</td>
+                    <td style={{ fontSize: 12, whiteSpace: "nowrap" }}>{it.updated_at ? fmtDate(it.updated_at) : "—"}</td>
+                    <td style={{ whiteSpace: "nowrap" }}>
+                      <label className="btn btn-sm" style={{ cursor: "pointer", display: "inline-block", padding: "4px 10px", fontSize: 12, border: "1px solid var(--border)", borderRadius: 4 }}>
+                        {t("上传", "Upload")}
+                        <input type="file" accept={it.platform === "windows" ? ".exe" : ".deb"} style={{ display: "none" }}
+                          onChange={async (e) => {
+                            const f = e.target.files?.[0]
+                            e.target.value = "" // 允许重复选同一文件
+                            if (!f) return
+                            try {
+                              await adminApi.uploadInstaller(it.platform, f)
+                              toast(t("上传成功", "Uploaded"))
+                              adminApi.installers().then((r) => setInstallers(r.installers)).catch(() => {})
+                            } catch (err: any) { toast(err.message) }
+                          }} />
+                      </label>{" "}
+                      {it.exists && (
+                        <Btn size="sm" onClick={async () => {
+                          try { await adminApi.deleteInstaller(it.platform); toast(t("已删除", "Deleted")); adminApi.installers().then((r) => setInstallers(r.installers)).catch(() => {}) }
+                          catch (err: any) { toast(err.message) }
+                        }}>{t("删除", "Delete")}</Btn>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>

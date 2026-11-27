@@ -1229,7 +1229,6 @@ function PluginManagerDownloads() {
     <div className="plugin-manager-downloads" aria-label={t("下载桌面安装管理器", "Download the desktop plugin manager")}>
       <a className="btn btn-primary" href="/download/plugin-manager/windows">Windows x64 (.exe)</a>
       <a className="btn" href="/download/plugin-manager/linux">Linux x64 (.deb)</a>
-      <a className="btn" href="/download/plugin-manager/macos">macOS Apple Silicon (.zip)</a>
     </div>
   )
 }

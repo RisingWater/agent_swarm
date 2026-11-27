@@ -6,6 +6,7 @@
 """
 import secrets
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
@@ -15,6 +16,9 @@ from server import models
 from server.api.workspaces import ws_is_online
 from server.auth import admin_credentials, create_admin_token, require_admin
 from server.db import get_session
+
+# 与 server/download.py 的 PROJECT_ROOT 一致：安装包放 data/，/download/plugin-manager 本地优先
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
@@ -200,3 +204,91 @@ def admin_calls(
             }
         )
     return {"calls": out}
+
+
+# ---------------- 安装包管理（管理页上传，data/ 供 /download/plugin-manager 优先分发） ----------------
+
+# 平台 → 标准文件名（与 server/download.py plugin_manager 的 names 保持一致；
+# macos 暂不提供，上传/列表均不收）
+INSTALLER_NAMES = {
+    "windows": "AgentSwarmManager-windows-x64-setup.exe",
+    "linux": "AgentSwarmManager-linux-x64.deb",
+}
+
+def _installer_dir() -> Path:
+    """安装包落盘目录：data/（download 端点本地优先查找处），随数据卷持久化。"""
+    d = PROJECT_ROOT / "data"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+@router.get("/installers")
+def admin_installers(request: Request):
+    """列出各平台本地安装包状态（是否存在 / 大小 / 更新时间）。"""
+    _check(request)
+    out = []
+    for platform, name in INSTALLER_NAMES.items():
+        p = _installer_dir() / name
+        st = p.stat() if p.is_file() else None
+        out.append(
+            {
+                "platform": platform,
+                "filename": name,
+                "exists": st is not None,
+                "size": st.st_size if st else 0,
+                "updated_at": datetime.fromtimestamp(st.st_mtime, timezone.utc).isoformat() if st else None,
+            }
+        )
+    return {"installers": out}
+
+
+@router.post("/installers/{platform}")
+async def admin_upload_installer(platform: str, request: Request):
+    """上传安装包（multipart file 字段），覆盖同名旧包。内容不做校验——管理员自担。"""
+    _check(request)
+    name = INSTALLER_NAMES.get(platform)
+    if not name:
+        raise HTTPException(404, "platform not supported")
+    # multipart 解析（python-multipart）；不用 fastapi UploadFile 签名以保持与
+    # 文件大小上限的自定义控制一致（超限直接 413，不落盘）
+    ctype = request.headers.get("content-type", "")
+    if "multipart/form-data" not in ctype:
+        raise HTTPException(422, "multipart/form-data required")
+    max_mb = 500
+    declared = request.headers.get("content-length")
+    if declared and int(declared) > max_mb * 1024 * 1024:
+        raise HTTPException(413, f"file too large (max {max_mb}MB)")
+    form = await request.form()
+    upload = form.get("file")
+    if upload is None or isinstance(upload, str):
+        raise HTTPException(422, "file field required")
+    data = await upload.read()
+    if not data:
+        raise HTTPException(422, "empty file")
+    if len(data) > max_mb * 1024 * 1024:
+        raise HTTPException(413, f"file too large (max {max_mb}MB)")
+    target = _installer_dir() / name
+    tmp = target.with_suffix(target.suffix + ".tmp")
+    tmp.write_bytes(data)
+    tmp.replace(target)  # 原子替换，下载端不会读到半截文件
+    st = target.stat()
+    return {
+        "ok": True,
+        "platform": platform,
+        "filename": name,
+        "size": st.st_size,
+        "updated_at": datetime.fromtimestamp(st.st_mtime, timezone.utc).isoformat(),
+    }
+
+
+@router.delete("/installers/{platform}")
+def admin_delete_installer(platform: str, request: Request):
+    """删除本地安装包（回退到 GitHub Release 分发）。"""
+    _check(request)
+    name = INSTALLER_NAMES.get(platform)
+    if not name:
+        raise HTTPException(404, "platform not supported")
+    target = _installer_dir() / name
+    if target.is_file():
+        target.unlink()
+    return {"ok": True, "platform": platform, "exists": target.is_file()}
