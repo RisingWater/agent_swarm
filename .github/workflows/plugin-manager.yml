@@ -14,8 +14,6 @@ jobs:
             file: AgentSwarmManager-windows-x64-setup.exe
           - runner: ubuntu-22.04
             file: AgentSwarmManager-linux-x64.deb
-          - runner: macos-14
-            file: AgentSwarmManager-macos-arm64.zip
     runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
