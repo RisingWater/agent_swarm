@@ -25,7 +25,8 @@
 - **👀 监控模式** —— 默认开启：你在 TUI 里的日常对话按轮次实时同步到网页，像给 agent 开了一扇观察窗
 - **💬 飞书 & 微信接入** —— 绑定飞书，或把自己的微信扫码接入为 ClawBot 机器人；在聊天里派任务、收时间线直播/详细流与完成简报、远程应答权限请求（两个渠道全支持）
 - **🛡️ 自托管 & 轻量** —— 单个 FastAPI 服务 + SQLite，一条命令启动，数据完全留在自己机器上
-- **🎛️ 后台管理** —— 独立登录的管理控制台：用户 / 工作区 / 调用量面板
+- **🎛️ 后台管理** —— 独立登录的管理控制台：用户 / 工作区 / 调用量面板 / 安装包上传
+- **🖥️ 桌面插件管理器** —— 首页可下载的 Windows EXE / Linux DEB：自动检测已装客户端与版本，按客户端安装/更新 Swarm 插件，托盘 + 开机自启；安装包可经后台管理页自托管（无本地包时回退 GitHub Release）
 - **🌏 中英双语界面（English / 中文）** —— 顶栏（以及后台管理页）有「中 / EN」切换，整站界面即时切换；语言记在 `localStorage`（默认中文）。所有面向用户文案均双语；代码、命令、字段名与 URL 保持原样
 
 ## 部署
@@ -73,7 +74,7 @@ docker build -t agent-swarm -f docker/Dockerfile .
 
 ### 接入 agent 工作区
 
-在运行 AI 编程工具的电脑上，从 Swarm 首页下载桌面插件管理器。Windows 运行 EXE，Linux 用软件安装器安装 DEB，macOS 解压后打开应用。Windows 和 Linux 会添加菜单入口，并默认启用开机启动。打开管理器并用 Swarm 账号登录，即可分别或批量安装、更新四个客户端的插件。使用和打包方式见[桌面插件管理器](docs/plugin-manager.md)。
+在运行 AI 编程工具的电脑上，从 Swarm 首页下载桌面插件管理器。Windows 运行 EXE，Linux 用软件安装器安装 DEB。Windows 和 Linux 会添加菜单入口，并默认启用开机启动。打开管理器并用 Swarm 账号登录，即可分别或批量安装、更新四个客户端的插件。使用和打包方式见[桌面插件管理器](docs/plugin-manager.md)。
 
 - **opencode**：写入服务配置 → 注册 MCP 端点 → 部署心跳插件 → 拷贝 `/swarm-*` 命令。**重启 opencode 后生效**（V1/V2 双版本自动分流）
 - **claude code**：注册 remote MCP + 本地 keepalive（心跳保活）→ 拷贝 `/swarm-*` 命令。**重启后生效**；claude 仅支持后台会话，不支持前台注入
@@ -164,6 +165,7 @@ FEISHU_APP_SECRET=xxx
 - **面板**：用户数 / 在线工作区数 / 指令总数 + 近 30 天每日指令折线图
 - **用户**：列表（含绑定飞书 ID）、重置密码（一次性展示新密码，不动 API Key）
 - **工作区**：全量列表（归属用户 / 用途 / 当前会话 / 在线状态 / 24h 调用量）
+- **安装包**：上传桌面插件管理器安装包（Windows EXE / Linux DEB）到服务器 `data/`——主页下载按钮改为本服务器直接分发，不再回退 GitHub Release
 
 ### 调用记录
 
@@ -264,6 +266,8 @@ server/            FastAPI 服务端（api/ REST、mcp_endpoint.py MCP 工具、
 plugins/opencode/  opencode 插件（TS）：心跳、任务接收执行、监控上报、中枢直连；commands/ 为 /swarm-* 命令源
 plugins/claude/    claude code 接入：keepalive.mjs（本地 MCP 保活）+ 后台任务执行 + /swarm-* 命令
 plugins/deepseek/  deepseek harness（dsh）接入：Cordus 插件 bundle（监控/权限/任务执行），安装器 + skill
+plugins/codex/     Codex CLI 接入：swarm-mcp.mjs stdio MCP 桥 + 常驻 worker（后台任务 / 绑定 TUI 会话），install.mjs + $swarm-* skill
+desktop/           跨平台桌面插件管理器（PySide6）：检测客户端与版本、安装/更新各插件、托盘 + 开机自启；build.py 打包 Windows EXE / Linux DEB
 web/               React 管理前端（首页、文档、中枢、工作区、调用记录、账号、后台管理）
 deploy/            启动/停止脚本 + 安装分发器（sh + ps1）
 docker/            Dockerfile + compose.yaml

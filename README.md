@@ -27,7 +27,8 @@
 - **👀 Monitor mode** — Always on: your everyday TUI conversations sync round-by-round to the web hub, like an observation window into your agent
 - **💬 Chat integrations (Feishu & WeChat)** — Bind Feishu (Lark) or scan your own WeChat as a ClawBot account; dispatch tasks from chat, watch thinking/tool calls stream, receive completion briefs, and answer permission requests remotely across both channels
 - **🛡️ Self-hosted & lightweight** — A single FastAPI service + SQLite, one command to start, your data stays on your machine
-- **🎛️ Admin console** — Separately-authenticated admin UI: users / workspaces / task-volume dashboard
+- **🎛️ Admin console** — Separately-authenticated admin UI: users / workspaces / task-volume dashboard / installer uploads
+- **🖥️ Desktop Plugin Manager** — Downloadable Windows EXE / Linux DEB from the home page: detects installed AI CLIs and versions, installs or updates all Swarm plugins per client, tray + login autostart; installers can be self-hosted via the admin console (GitHub Releases fallback)
 - **🌏 Bilingual UI (English / 中文)** — A 中 / EN toggle in the top nav (and on the admin console) switches the entire web UI instantly; the choice is remembered in `localStorage` (default 中文). All user-facing text is bilingual; code, commands, field names and URLs stay as-is
 
 ## Deployment
@@ -75,7 +76,7 @@ Open `http://localhost:8700`, register an account, and copy your API key from th
 
 ### Connect an agent workspace
 
-Download the desktop Plugin Manager from the Swarm home page. Run the Windows EXE, open the Linux DEB in your software installer, or open the app from the macOS ZIP. Windows and Linux add a menu entry and enable startup at login. Sign in with your server address, username, and password to install or update OpenCode, Claude Code, dsh, and Codex. See the [desktop manager guide](docs/plugin-manager.md).
+Download the desktop Plugin Manager from the Swarm home page. Run the Windows EXE or open the Linux DEB in your software installer. Windows and Linux add a menu entry and enable startup at login. Sign in with your server address, username, and password to install or update OpenCode, Claude Code, dsh, and Codex. See the [desktop manager guide](docs/plugin-manager.md).
 
 - **opencode**: detects your opencode version (`opencode --version`) and installs the matching plugin — **V1** (`plugin` array in `opencode.jsonc` + `tui.jsonc`) or **V2** (auto-discovered under `~/.config/opencode/plugins/agent-swarm/`, no config entry / no `node_modules` needed) — writes the service config, registers the MCP endpoint, and copies `/swarm-*` commands. **Takes effect after restarting opencode**
 - **claude code**: registers a remote MCP + local keepalive (heartbeat) → copies `/swarm-*` commands. **Takes effect after restarting claude**; claude supports background sessions only, no foreground injection
@@ -168,6 +169,7 @@ Visit `/#/admin` (separate login, credentials in the config table):
 - **Dashboard**: users / online workspaces / total tasks + a 30-day daily task line chart
 - **Users**: list (incl. bound Feishu IDs), password reset (one-time password shown, API keys untouched)
 - **Workspaces**: full list (owner / purpose / current session / online status / 24h call count)
+- **Installers**: upload the Plugin Manager installers (Windows EXE / Linux DEB) to the server's `data/` — the home-page download buttons then serve files locally instead of falling back to GitHub Releases
 
 ### Call records
 
@@ -268,6 +270,8 @@ server/            FastAPI service (api/ REST, mcp_endpoint.py MCP tools, feishu
 plugins/opencode/  opencode plugin (TS), V1 + V2: V1 = src/index.ts + src/tui.ts; V2 = index.ts + tui.ts + src/v2/* (task execution, monitor reporting, hub connection; in V2 the presence heartbeat runs in the CLI plugin); commands/ hosts the /swarm-add source
 plugins/claude/    claude code integration: keepalive.mjs (local MCP keep-alive) + background tasks + /swarm-* commands
 plugins/deepseek/  deepseek harness (dsh) integration: Cordus plugin bundle (monitor / permissions / task execution), installer + skill
+plugins/codex/     Codex CLI integration: swarm-mcp.mjs stdio MCP bridge + resident worker (background tasks / bound TUI threads), install.mjs + $swarm-* skills
+desktop/           cross-platform desktop Plugin Manager (PySide6): detect clients & versions, install/update plugins, tray + autostart; build.py packs the Windows EXE / Linux DEB
 web/               React admin frontend (home, docs, hub, workspaces, calls, account, admin console)
 deploy/            start/stop scripts + installer dispatchers (sh + ps1)
 docker/            Dockerfile + compose.yaml
