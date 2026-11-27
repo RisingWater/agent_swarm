@@ -11,6 +11,24 @@ from tempfile import TemporaryDirectory
 import tomllib
 
 from PIL import Image
+from PySide6.QtGui import QImage, QPainter
+from PySide6.QtSvg import QSvgRenderer
+
+
+def render_logo(svg: Path, png: Path) -> None:
+    renderer = QSvgRenderer(str(svg))
+    if not renderer.isValid():
+        raise ValueError(f"无效的图标文件 {svg}")
+    image = QImage(1024, 1024, QImage.Format.Format_ARGB32_Premultiplied)
+    image.fill(0)
+    painter = QPainter(image)
+    try:
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        renderer.render(painter)
+    finally:
+        painter.end()
+    if not image.save(str(png)):
+        raise OSError(f"无法保存图标 {png}")
 
 
 def build_deb(binary: Path, logo: Path, architecture: str) -> None:
@@ -67,7 +85,9 @@ def main():
         name += "-setup"
     work, dist = directory / "build", directory / "dist"
     work.mkdir(parents=True, exist_ok=True)
-    logo = root / "web/public/logo-1024.png"
+    svg = directory / "assets/manager.svg"
+    logo = work / "manager.png"
+    render_logo(svg, logo)
     platform_icon = []
     if system != "linux":
         icon_path = work / ("swarm.ico" if system == "windows" else "swarm.icns")
@@ -79,7 +99,7 @@ def main():
     mode = ["--onedir", "--windowed", "--osx-bundle-identifier", "org.agentswarm.manager"] if system == "macos" else ["--onefile", "--windowed"]
     subprocess.run([sys.executable, "-m", "PyInstaller", "--noconfirm", "--name", name,
                     "--specpath", str(work), "--workpath", str(work), "--distpath", str(dist),
-                    "--paths", str(root), "--add-data", f"{logo}:web/public", *platform_icon,
+                    "--paths", str(root), "--add-data", f"{svg}:desktop/assets", *platform_icon,
                     *mode, str(directory / "manager.py")], cwd=root, check=True)
     if system == "macos":
         subprocess.run(["ditto", "-c", "-k", "--keepParent", str(dist / (name + ".app")), str(dist / (name + ".zip"))], check=True)

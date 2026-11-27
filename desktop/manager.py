@@ -46,17 +46,17 @@ QLineEdit { background: #fdfcfc; border: 1px solid #e2dfdf; border-radius: 4px; 
 QLineEdit:focus { border-color: #201d1d; }
 QProgressBar { border: 0; height: 3px; background: #e9e6e6; }
 QProgressBar::chunk { background: #201d1d; }
-QFrame#loginMask { background: rgba(32, 29, 29, 100); }
-QFrame#loginPanel { background: #fdfcfc; border: 1px solid #e2dfdf; border-radius: 6px; }
-QFrame#loginPanel QLabel { background: transparent; }
-QFrame#loginPanel QProgressBar { border-radius: 2px; }
-QFrame#loginPanel QProgressBar::chunk { border-radius: 2px; }
+QFrame#operationMask { background: rgba(32, 29, 29, 100); }
+QFrame#operationPanel { background: #fdfcfc; border: 1px solid #e2dfdf; border-radius: 6px; }
+QFrame#operationPanel QLabel { background: transparent; }
+QFrame#operationPanel QProgressBar { border-radius: 2px; }
+QFrame#operationPanel QProgressBar::chunk { border-radius: 2px; }
 """
 
 
 def icon() -> QIcon:
     resources = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent.parent))
-    return QIcon(str(resources / "web/public/logo-1024.png"))
+    return QIcon(str(resources / "desktop/assets/manager.svg"))
 
 
 class Operation(QThread):
@@ -199,6 +199,7 @@ class Window(QMainWindow):
         self.table.setShowGrid(False)
         self.table.setWordWrap(False)
         self.table.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.table.setMinimumHeight(header.height() + self.table.verticalHeader().length() + 2 * self.table.frameWidth())
         card_layout.addWidget(self.table)
         layout.addWidget(table_card, 1)
 
@@ -220,39 +221,33 @@ class Window(QMainWindow):
             actions.addWidget(button)
         layout.addLayout(actions)
 
-        self.progress = QProgressBar()
-        self.progress.setRange(0, 0)
-        self.progress.setTextVisible(False)
-        self.progress.hide()
-        layout.addWidget(self.progress)
         self.status = QLabel("正在检测本机客户端…")
         self.status.setObjectName("muted")
         self.status.setTextFormat(Qt.TextFormat.PlainText)
-        self.status.setWordWrap(True)
         layout.addWidget(self.status)
 
-        self.login_mask = QFrame(objectName="loginMask")
-        mask_layout = QVBoxLayout(self.login_mask)
-        panel = QFrame(objectName="loginPanel")
+        self.operation_mask = QFrame(objectName="operationMask")
+        mask_layout = QVBoxLayout(self.operation_mask)
+        panel = QFrame(objectName="operationPanel")
         panel.setFixedWidth(304)
         panel_layout = QVBoxLayout(panel)
         panel_layout.setContentsMargins(20, 18, 20, 18)
         panel_layout.setSpacing(12)
-        self.login_status = QLabel()
-        self.login_status.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.login_status.setTextFormat(Qt.TextFormat.PlainText)
-        self.login_status.setWordWrap(True)
-        panel_layout.addWidget(self.login_status)
-        login_progress = QProgressBar()
-        login_progress.setRange(0, 0)
-        login_progress.setFixedHeight(5)
-        login_progress.setTextVisible(False)
-        panel_layout.addWidget(login_progress)
+        self.operation_status = QLabel()
+        self.operation_status.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.operation_status.setTextFormat(Qt.TextFormat.PlainText)
+        self.operation_status.setWordWrap(True)
+        panel_layout.addWidget(self.operation_status)
+        progress = QProgressBar()
+        progress.setRange(0, 0)
+        progress.setFixedHeight(5)
+        progress.setTextVisible(False)
+        panel_layout.addWidget(progress)
         mask_layout.addStretch()
         mask_layout.addWidget(panel, alignment=Qt.AlignmentFlag.AlignHCenter)
         mask_layout.addStretch()
-        stack.addWidget(self.login_mask)
-        self.login_mask.hide()
+        stack.addWidget(self.operation_mask)
+        self.operation_mask.hide()
 
         self.tray = QSystemTrayIcon(app_icon, self)
         self.tray.setToolTip("Agent Swarm 插件管理器")
@@ -283,28 +278,22 @@ class Window(QMainWindow):
         self.job = Operation(self.manager, action, args)
         self.job.progress.connect(self.report_progress)
         self.job.finished.connect(self.done)
-        self.report_progress({"check": "正在检查客户端和插件版本…", "install": "正在下载插件…",
-                              "logout": "正在卸载插件…", "login": "正在登录…", "restart": "正在重启客户端…"}[action])
-        if action == "login":
-            self.body.setEnabled(False)
-            self.login_mask.show()
-            self.login_mask.raise_()
-        else:
-            self.progress.show()
+        self.operation_status.setText({"check": "正在检查客户端和插件版本…", "install": "正在下载插件…",
+                                       "logout": "正在卸载插件…", "login": "正在登录…",
+                                       "restart": "正在重启客户端…"}[action])
+        self.body.setEnabled(False)
+        self.operation_mask.show()
+        self.operation_mask.raise_()
         self.render()
         self.job.start()
 
     def report_progress(self, message):
-        self.status.setText(message)
-        if self.job and self.job.action == "login":
-            self.login_status.setText(message)
+        self.operation_status.setText(message)
 
     def done(self):
         job, self.job = self.job, None
-        self.progress.hide()
-        if job.action == "login":
-            self.login_mask.hide()
-            self.body.setEnabled(True)
+        self.operation_mask.hide()
+        self.body.setEnabled(True)
         if job.data is not None:
             self.snapshot = job.data
         for name, (ok, message) in job.results.items():
@@ -313,23 +302,15 @@ class Window(QMainWindow):
             elif ok and message == "桌面客户端已重启":
                 self.pending_restart.discard(name)
         self.render()
-        details = [
-            f"{AGENTS[name].label}  {'成功' if ok else '失败'} · {message}"
-            for name, (ok, message) in job.results.items()
-        ]
+        self.status.setText("可以安装或更新插件。" if self.snapshot["account"] else "登录后可安装或更新插件。")
+        details = [f"{AGENTS[name].label} · {message}" for name, (ok, message) in job.results.items() if not ok]
         if job.error:
             details.append(job.error)
-        if details and (job.error or any(not ok for ok, _ in job.results.values())):
+        if details:
             if self.isVisible():
                 QMessageBox.warning(self, "操作未全部完成", "\n\n".join(details))
             elif self.tray.isVisible():
                 self.tray.showMessage("Agent Swarm", details[-1], QSystemTrayIcon.MessageIcon.Warning)
-        if details:
-            self.status.setText("\n".join(details))
-        elif job.action == "logout":
-            self.status.setText("已退出登录，Swarm 插件已卸载。")
-        else:
-            self.status.setText("可以安装或更新插件。" if self.snapshot["account"] else "登录后可安装或更新插件。")
         job.deleteLater()
         updates = tuple((name, row["latest"]) for name, row in self.snapshot["rows"].items() if row["needs_update"])
         if updates and updates != self.notified and self.tray.isVisible() and job.action == "check":
@@ -438,7 +419,7 @@ class Window(QMainWindow):
     def quit(self):
         if self.job is not None:
             self.reveal()
-            self.status.setText("当前操作还在进行，完成后可退出程序。")
+            self.operation_status.setText("当前操作还在进行，完成后可退出程序。")
             return
         self.force_close = True
         self.tray.hide()
@@ -472,7 +453,7 @@ def main():
             app_icon = icon()
             window = Window(PluginManager(root, LocalPlugins(root)), app_icon)
             window.render()
-            return 0 if window.table.rowCount() == 4 and not app_icon.isNull() else 1
+            return 0 if window.table.rowCount() == 4 and not app_icon.pixmap(16, 16).isNull() else 1
     source = Path(sys.executable)
     if getattr(sys, "frozen", False) and (
         (sys.platform == "win32" and source.resolve() != installed_executable().resolve())
