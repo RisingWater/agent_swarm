@@ -1,4 +1,7 @@
 import { AppServer, launchCodex } from "./app-server.mjs"
+import { randomUUID } from "node:crypto"
+import { setTimeout as delay } from "node:timers/promises"
+import { openForeground, prepareForegroundThread } from "./foreground.mjs"
 import { agentMessage, artifactUpdate, statusUpdate, streamStatus, toolStatus } from "../claude/nexus_a2a.mjs"
 
 const LIMIT = 24_000
@@ -13,15 +16,32 @@ function toolName(item) {
   }
 }
 
-// 一个 App Server 仅执行一个独立任务。忽略其他线程、其他 turn 和未公开的推理事件。
-export async function executeTask(job, cwd, emit, signal, launch = launchCodex) {
-  const app = new AppServer(launch(["app-server", "--listen", "stdio://"], { cwd }))
+// 两种执行方式共用事件归一化。前台只关联带有本次提交 ID 的用户消息。
+export async function executeTask(job, cwd, emit, signal, launch = launchCodex, {
+  threadTarget, connect, hasSwarmMcp = false,
+} = {}) {
+  const foreground = Boolean(threadTarget)
+  const mode = foreground ? "前台" : "后台"
+  const metadata = { background: !foreground, agent: "codex", message_id: job.messageId }
+  let app, readHistory
+  try {
+    if (foreground) ({ app, readHistory } = await openForeground(cwd, launch, connect))
+    else {
+      // Codex 启动 MCP 时过滤父环境，需要显式配置 MCP 的 env。
+      const args = ["app-server", "--listen", "stdio://"]
+      if (hasSwarmMcp) args.push("-c", 'mcp_servers.agent-swarm.env.AGENT_SWARM_CODEX_NO_WORKER="1"')
+      app = new AppServer(launch(args, { cwd }))
+    }
+  } catch (error) {
+    emit(statusUpdate(job, "failed", { final: true, metadata, message: agentMessage(error.message, job) }))
+    return "failed"
+  }
   const messages = new Map()
   const commandOutputs = new Map()
   const completedItems = new Set()
-  let threadId, turnId, turnStart, stop
+  const clientId = foreground ? randomUUID() : job.messageId
+  let threadId, turnId, turnStart, queued, submissionId, cancellation, stop
   let settled = false
-  const metadata = { background: true, agent: "codex", message_id: job.messageId }
   const result = new Promise(resolve => {
     stop = outcome => {
       if (settled) return
@@ -30,21 +50,34 @@ export async function executeTask(job, cwd, emit, signal, launch = launchCodex) 
     }
   })
   const fail = reason => stop({ state: "failed", reason })
-  const cancel = () => {
+  const stopTask = outcome => {
     if (settled) return
-    stop({ state: "canceled" })
-    if (threadId && turnId) app.call("turn/interrupt", { threadId, turnId }, 1500).catch(() => {})
+    stop(outcome)
+    cancellation = (async () => {
+      if (queued) await queued.catch(() => {})
+      if (!turnId && submissionId) {
+        try {
+          await app.call("thread/queue/delete", { threadId, queuedSubmissionId: submissionId }, 1500)
+          return
+        } catch { /* 消息可能已经出队，只尝试中断已确认归属的 turn */ }
+      }
+      if (!readHistory && threadId && turnId) await app.call("turn/interrupt", { threadId, turnId }, 1500).catch(() => {})
+    })()
   }
+  const cancel = () => stopTask({ state: "canceled" })
   app.on("closed", () => fail("Codex App Server 连接中断"))
   // 后台没有原生审批界面。收到服务端请求就停止该任务，不代答或改变权限配置。
-  app.on("request", () => fail("Codex 后台任务需要人工交互，任务已停止"))
+  if (!foreground) app.on("request", () => fail("Codex 后台任务需要人工交互，任务已停止"))
   signal.addEventListener("abort", cancel, { once: true })
 
-  app.on("notification", ({ method, params: p }) => {
-    if (settled || !threadId || p?.threadId !== threadId) return
-    if (method === "turn/started" && turnStart && !turnId) turnId = p.turn?.id
-    if ((p.turnId ?? p.turn?.id) !== turnId || !turnId) return
+  const notification = ({ method, params: p }) => {
+    if (!threadId || p?.threadId !== threadId) return
     const item = p.item
+    if (!turnId && foreground && (method === "item/started" || method === "item/completed")
+      && item?.type === "userMessage" && item.clientId === clientId) turnId = p.turnId
+    if (!foreground && method === "turn/started" && turnStart && !turnId) turnId = p.turn?.id
+    if (settled) return
+    if ((p.turnId ?? p.turn?.id) !== turnId || !turnId) return
     if (method === "item/agentMessage/delta" && !completedItems.has(p.itemId)) {
       const entry = messages.get(p.itemId) ?? { text: "" }
       entry.text = (entry.text + p.delta).slice(0, LIMIT)
@@ -82,31 +115,74 @@ export async function executeTask(job, cwd, emit, signal, launch = launchCodex) 
       else if (p.turn.status === "interrupted") stop({ state: "canceled" })
       else fail(p.turn.error?.message?.slice(0, 1000) ?? "Codex 执行失败")
     }
-  })
+  }
+  app.on("notification", notification)
 
-  const timer = setTimeout(() => fail("Codex 后台任务超时"), 30 * 60_000)
+  async function pollForegroundResult() {
+    while (!settled) {
+      const { data } = await app.call("thread/turns/list", { threadId, limit: 20, itemsView: "full" })
+      if (settled) return
+      const turn = data.find(candidate => candidate.items.some(item => item.type === "userMessage" && item.clientId === clientId))
+      if (turn) {
+        turnId = turn.id
+        // 独立 App Server 看不到另一进程的运行状态，会把未结束的历史轮次标成 interrupted。
+        // 中断或失败须有落盘的结束时间，不能仅凭快照状态提前收尾。
+        const terminal = turn.status === "completed"
+          || (Number.isFinite(turn.completedAt) && ["interrupted", "failed"].includes(turn.status))
+        if (terminal) {
+          for (const item of turn.items) {
+            notification({ method: "item/completed", params: { threadId, turnId, item } })
+          }
+          notification({ method: "turn/completed", params: { threadId, turn } })
+          return
+        }
+      }
+      await delay(1000)
+    }
+  }
+
+  const timer = setTimeout(() => stopTask({ state: "failed", reason: `Codex ${mode}任务超时` }), 30 * 60_000)
   try {
     const bootstrap = async () => {
-      await app.initialize()
-      const { thread } = await app.call("thread/start", { cwd, ephemeral: true })
-      threadId = thread.id
+      if (foreground) {
+        await prepareForegroundThread(app, threadTarget, cwd, readHistory)
+        threadId = threadTarget
+      } else {
+        await app.initialize()
+        const { thread } = await app.call("thread/start", { cwd, ephemeral: true })
+        threadId = thread.id
+      }
       metadata.session_id = threadId
-      if (signal.aborted) return
+      if (settled) return
       emit(statusUpdate(job, "working", { metadata }))
       const text = [
-        `[Agent Swarm 后台任务 ${job.taskId}，发送者 ${job.fromWorkspace || job.caller}]`,
+        `[Agent Swarm ${mode}任务 ${job.taskId}，发送者 ${job.fromWorkspace || job.caller}]`,
         job.text,
         "直接在最终答复中给出结果。Swarm 会自动回传，请勿再次发送相同答复。",
       ].join("\n\n")
-      turnStart = app.call("turn/start", {
-        threadId, clientUserMessageId: job.messageId, input: [{ type: "text", text, text_elements: [] }],
-      })
-      const { turn } = await turnStart
-      turnId = turn.id
+      const input = { threadId, clientUserMessageId: clientId, input: [{ type: "text", text, text_elements: [] }] }
+      if (foreground) {
+        queued = app.call("thread/queue/add", input).then(({ queuedSubmission }) => {
+          submissionId = queuedSubmission.id
+        })
+        await queued
+        if (readHistory && !settled) await pollForegroundResult()
+      } else {
+        turnStart = app.call("turn/start", input)
+        const { turn } = await turnStart
+        turnId = turn.id
+      }
     }
     if (signal.aborted) cancel()
-    else bootstrap().catch(() => fail("Codex 无法启动后台任务"))
+    else bootstrap().catch(error => {
+      if (readHistory && submissionId) {
+        stopTask({ state: "failed", reason: error.message.slice(0, 1000) })
+      } else {
+        fail(foreground ? error.message.slice(0, 1000) : "Codex 无法启动后台任务")
+      }
+    })
     const outcome = await result
+    await cancellation
     await app.close()
     if (outcome.state === "completed") {
       const replies = [...messages.values()].reverse()

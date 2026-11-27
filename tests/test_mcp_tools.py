@@ -104,23 +104,43 @@ def test_workspace_add_update_remove(as_user):
     assert mcp_endpoint.workspace_remove(workspace_id=r3["workspace_id"])["ok"] is True
 
 
-def test_codex_registration_preserves_adapter_and_disabled_status(as_user):
+def test_codex_registration_waits_for_worker_and_preserves_disabled_status(as_user):
     path = "/tmp/codex-workspace"
     result = mcp_endpoint.workspace_add(path=path, agent_type="codex")
     wid = result["workspace_id"]
+    assert result["status"] == "offline"
     assert mcp_endpoint.workspace_add(path=path)["workspace_id"] == wid
+    assert mcp_endpoint.heartbeat(workspace_id=wid, agent_type="codex")["ok"]
     assert next(w for w in mcp_endpoint.list_workspaces()["workspaces"] if w["workspace_id"] == wid)["agent_type"] == "codex"
-    with Session(engine) as session:
-        assert session.get(models.Workspace, wid).agent_type == "codex"
     mcp_endpoint.workspace_disable(workspace_id=wid)
     assert mcp_endpoint.workspace_add(path=path, agent_type="codex")["status"] == "disabled"
     mcp_endpoint.workspace_remove(workspace_id=wid)
-    other = "/tmp/other-adapter"
-    other_wid = mcp_endpoint.workspace_add(path=other)["workspace_id"]
-    with pytest.raises(ValueError, match="different adapter"):
-        mcp_endpoint.workspace_add(path=other, agent_type="codex")
-    mcp_endpoint.workspace_disable(workspace_id=other_wid)
-    mcp_endpoint.workspace_remove(workspace_id=other_wid)
+
+
+def test_codex_takeover_preserves_id_role_and_notes(as_user, monkeypatch):
+    from server import nexus_a2a
+
+    path = "/tmp/codex-takeover"
+    wid = mcp_endpoint.workspace_add(path=path, name="Custom workspace", role="planner")["workspace_id"]
+    mcp_endpoint.update_notes(workspace_id=wid, notes="keep this")
+    mcp_endpoint.heartbeat(workspace_id=wid, agent_type="claude", session_id="old", session_title="Old session")
+    monkeypatch.setattr(nexus_a2a, "ws_online", lambda workspace_id: workspace_id == wid)
+    with pytest.raises(ValueError, match="disconnect"):
+        mcp_endpoint.workspace_add(path=path, agent_type="codex")
+    assert not mcp_endpoint.heartbeat(workspace_id=wid, agent_type="codex")["ok"]
+    monkeypatch.setattr(nexus_a2a, "ws_online", lambda workspace_id: False)
+    switched = mcp_endpoint.workspace_add(path=path, agent_type="codex")
+    assert (switched["workspace_id"], switched["role"], switched["status"]) == (wid, "planner", "offline")
+    assert switched["name"] == "Custom workspace"
+    assert not mcp_endpoint.heartbeat(workspace_id=wid, agent_type="claude")["ok"]
+    with Session(engine) as session:
+        row = session.get(models.Workspace, wid)
+        assert row.agent_type == "codex"
+        assert row.session_id is None and row.session_title is None and row.session_title_enc is None
+        assert row.last_heartbeat is None
+    listed = mcp_endpoint.list_workspaces(include_offline=True)["workspaces"]
+    assert next(w for w in listed if w["workspace_id"] == wid)["notes"] == "keep this"
+    mcp_endpoint.workspace_remove(workspace_id=wid)
 
 
 def test_enable_disable_offline_cycle(as_user, ws):

@@ -37,7 +37,7 @@ test("Codex 发现新装技能，升级与卸载保留用户的技能", { timeou
       await app.initialize()
       const { data } = await app.call("skills/list", { cwds: [home] })
       const names = new Set(data.flatMap(entry => entry.skills.map(item => item.name)))
-      for (const suffix of ["add", "register", "add-planner", "enable", "disable", "remove", "list", "notes"]) {
+      for (const suffix of ["add", "register", "add-planner", "enable", "disable", "remove", "list", "notes", "bind"]) {
         assert.ok(names.has("swarm-" + suffix), JSON.stringify([...names]))
       }
     } finally {
@@ -49,6 +49,7 @@ test("Codex 发现新装技能，升级与卸载保留用户的技能", { timeou
     assert.equal(await readFile(skill("swarm-notes"), "utf8"), modified)
     install("--uninstall")
     await assert.rejects(readFile(skill("swarm-add")), { code: "ENOENT" })
+    await assert.rejects(readFile(skill("swarm-bind")), { code: "ENOENT" })
     assert.equal(await readFile(skill("swarm-notes"), "utf8"), modified)
   } finally {
     await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
@@ -144,7 +145,7 @@ async function stop(child) {
 }
 
 const python = process.env.SWARM_CODEX_TEST_PYTHON
-test("Swarm → MCP/WS → Codex worker → 最终结果", { skip: !python, timeout: 60_000 }, () => withMockCodex(async fixture => {
+test("Swarm → MCP/WS → Codex worker → 最终结果", { skip: !python, timeout: 150_000 }, () => withMockCodex(async fixture => {
   const central = spawn(python, ["-u", "-c", `
 import socket
 import uvicorn
@@ -154,7 +155,7 @@ sock.bind(("127.0.0.1", 0))
 print(sock.getsockname()[1], flush=True)
 uvicorn.Server(uvicorn.Config(app, log_level="error")).run(sockets=[sock])
 `], { env: { ...fixture.env, AGENT_SWARM_DB: join(fixture.dir, "swarm.db") }, stdio: ["ignore", "pipe", "inherit"] })
-  let worker, bridge
+  let bridge
   try {
     const portLine = once(createInterface({ input: central.stdout }), "line")
     const [port] = await Promise.race([
@@ -174,7 +175,7 @@ uvicorn.Server(uvicorn.Config(app, log_level="error")).run(sockets=[sock])
     })
     assert.equal(install.status, 0, install.stderr)
     const installed = join(fixture.home, "agent-swarm", "codex")
-    bridge = spawn(process.execPath, [join(installed, "swarm-mcp.mjs")], { env: fixture.env })
+    bridge = spawn(process.execPath, [join(installed, "swarm-mcp.mjs")], { env: fixture.env, cwd: fixture.cwd })
     const lines = createInterface({ input: bridge.stdout })
     async function mcp(request) {
       const response = once(lines, "line")
@@ -186,25 +187,25 @@ uvicorn.Server(uvicorn.Config(app, log_level="error")).run(sockets=[sock])
     } })
     const listed = await mcp({ method: "tools/list", params: {} })
     assert.ok(listed.result.tools.some(tool => tool.name === "a2a_call"))
-    worker = spawn(process.execPath, [join(installed, "worker.mjs"), fixture.cwd], {
-      env: fixture.env, stdio: ["ignore", "pipe", "pipe"],
+    // Codex 启动时会拉起 MCP 子进程（bridge），由它自动启动后台 worker：无需手动运行 worker.mjs。
+    const onlineWorkspace = await until(async () => {
+      const { workspaces } = await callTool(config, "list_workspaces", { include_offline: true })
+      return workspaces.find(workspace => workspace.path === fixture.cwd.replaceAll("\\", "/")
+        && workspace.agent_type === "codex" && workspace.status === "online")
     })
-    const workerLines = createInterface({ input: worker.stderr })
-    await Promise.race([
-      (async () => {
-        const diagnostics = []
-        for await (const line of workerLines) {
-          if (line === "nexus a2a ready") return
-          diagnostics.push(line)
-        }
-        throw new Error(`Codex worker exited before connecting: ${diagnostics.join("\n")}`)
-      })(),
-      delay(10_000, undefined, { ref: false }).then(() => { throw new Error("Codex worker connection timed out") }),
-    ])
+    const target = onlineWorkspace.workspace_id
+    assert.equal((await callTool(config, "workspace_add", { path: fixture.cwd.replaceAll("\\", "/") })).workspace_id, target)
+    assert.equal((await callTool(config, "heartbeat", { workspace_id: target, agent_type: "claude" })).ok, false)
     const { workspace_id: from } = await callTool(config, "workspace_add", { path: "/fixture/sender" })
-    const { workspaces } = await callTool(config, "list_workspaces", { include_offline: true })
-    const target = workspaces.find(workspace => workspace.agent_type === "codex")?.workspace_id
-    assert.ok(target)
+    const legacy = new WebSocket(server.replace(/^http/, "ws") + "/ws/plugin")
+    try {
+      await once(legacy, "open")
+      const response = once(legacy, "message")
+      legacy.send(JSON.stringify({ type: "hello", apikey: config.apiKey, workspace_id: target }))
+      assert.equal(JSON.parse((await response)[0].data).type, "hello_err")
+    } finally {
+      legacy.close()
+    }
     const rpc = await mcp({ method: "tools/call", params: { name: "a2a_call", arguments: {
       target, from_workspace: from, context_id: "fixture-context", message: "Reply PONG", wait_seconds: 10,
     } } })
@@ -216,12 +217,10 @@ uvicorn.Server(uvicorn.Config(app, log_level="error")).run(sockets=[sock])
     assert.equal(fixture.requests(), 1)
     bridge.stdin.end()
     await once(bridge, "close")
-    await stop(worker)
     install = spawnSync(process.execPath, [join(installed, "install.mjs"), "--uninstall"], { env: fixture.env, encoding: "utf8" })
     assert.equal(install.status, 0, install.stderr)
   } finally {
     await stop(bridge)
-    await stop(worker)
     await stop(central)
   }
 }))

@@ -154,6 +154,8 @@ def create_workspace(
     else:
         ws = existing
         created = False
+        if ws.agent_type == "codex":
+            raise HTTPException(409, "workspace is registered to Codex")
     purpose = str(body.get("purpose") or "").strip()
     if purpose:
         purpose_enc = crypto.encrypt(user.api_key or "", purpose)

@@ -1723,8 +1723,12 @@ async def ws_plugin(ws: WebSocket):
                 if row is None:
                     await _send_json(ws, {"type": "hello_err", "error": "workspace not found"})
                     continue
+                execution_mode = str(msg.get("execution_mode") or "foreground")
+                if row.agent_type == "codex" and execution_mode != "background":
+                    await _send_json(ws, {"type": "hello_err", "error": "Codex workspace requires a background worker"})
+                    continue
                 plugin = PluginConn(ws=ws, user_id=user.id, workspace_id=wid)
-                plugin.execution_mode = str(msg.get("execution_mode") or "foreground")
+                plugin.execution_mode = execution_mode
                 lst = plugins.setdefault(wid, [])
                 was_empty = len(lst) == 0
                 lst.append(plugin)

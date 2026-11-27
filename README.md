@@ -89,7 +89,7 @@ curl -fsSL http://<server>:8700/download/install.sh | bash -s -- --api-key <your
 - **claude code**: registers a remote MCP + local keepalive (heartbeat) → copies `/swarm-*` commands. **Takes effect after restarting claude**; claude supports background sessions only, no foreground injection
 - **deepseek harness (dsh)**: installs a Cordus plugin bundle, writes the service config, and registers the workspace via MCP directly. **Takes effect after restarting dsh**; no foreground/background split — the dsh process is a resident web server (online = process alive), tasks run in per-caller sessions that keep running with the browser closed; monitor / permission / brief all supported
 
-- **Codex**: adds Swarm MCP tools and `$swarm-*` skills to the standard `codex` TUI. Use `$swarm-add` or select it from `/skills`. An opt-in worker runs incoming tasks in separate App Server sessions. See the [Codex install and verification guide](docs/codex-integration.md).
+- **Codex**: adds Swarm MCP tools and `$swarm-*` skills to the standard `codex` TUI. Use `$swarm-add` or select it from `/skills`. The worker starts with the Codex MCP subprocess and can deliver tasks to a bound TUI session or run them in separate App Server sessions. See the [Codex install and verification guide](docs/codex-integration.md).
 
 ### Connect Feishu (optional)
 

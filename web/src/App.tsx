@@ -1545,7 +1545,7 @@ function AgentToolIcon({ tool }: { tool: AgentToolKind }) {
         </svg>
       )
     case "codex":
-      return <svg {...common}><path d="m8 7-5 5 5 5m8-10 5 5-5 5M14 5l-4 14" /></svg>
+      return <span className="codex-agent-icon" aria-hidden="true" />
     case "pi":
       // Pi 官方 logo（fill 路径，viewBox 0 0 470 470）
       return (
@@ -1864,8 +1864,8 @@ function DocsPage() {
               />
             </li>
             <li><L
-              zh={<><b>Codex</b>：按原方式运行 <code>codex</code>。安装器添加 <code>agent-swarm</code> MCP 和 <code>$swarm-*</code> 技能。只装 Codex 时用 PowerShell 的 <code>-Only codex</code> 或 Bash 的 <code>--only codex</code>。需要接单时运行安装器输出的独立 worker 命令。</>}
-              en={<><b>Codex</b>: launch with <code>codex</code>. The installer adds the <code>agent-swarm</code> MCP and <code>$swarm-*</code> skills. Use <code>-Only codex</code> in PowerShell or <code>--only codex</code> in Bash to install just Codex. To receive tasks, run the separate worker command printed by the installer.</>}
+              zh={<><b>Codex</b>：按原方式运行 <code>codex</code>。安装器添加 <code>agent-swarm</code> MCP 和 <code>$swarm-*</code> 技能。只装 Codex 时用 PowerShell 的 <code>-Only codex</code> 或 Bash 的 <code>--only codex</code>。后台 worker 随 Codex 的 MCP 子进程自动启动，无需手动运行。</>}
+              en={<><b>Codex</b>: launch with <code>codex</code>. The installer adds the <code>agent-swarm</code> MCP and <code>$swarm-*</code> skills. Use <code>-Only codex</code> in PowerShell or <code>--only codex</code> in Bash to install just Codex. The background worker starts automatically with the Codex MCP subprocess.</>}
             /></li>
           </ul>
           <h3>{t("验证安装", "Verify the installation")}</h3>
@@ -2226,14 +2226,18 @@ function DocsPage() {
           <table>
             <thead><tr><th>{t("能力", "Capability")}</th><th>opencode</th><th>claude code</th><th>deepseek harness</th><th>Codex</th></tr></thead>
             <tbody>
-              <tr><td>{t("注册 / 保活 / 启停管理", "Register / keep-alive / enable-disable")}</td><td>✅</td><td>✅</td><td>✅</td><td>{t("注册、启停管理，worker 保活", "Registration, enable/disable, worker keep-alive")}</td></tr>
-              <tr><td>{t("Swarm 快捷入口", "Swarm shortcuts")}</td><td>✅</td><td>{t("✅（不含 /swarm-mode）", "✅ (no /swarm-mode)")}</td><td>✅</td><td><code>$swarm-*</code></td></tr>
-              <tr><td>{t("前台注入（任务进入当前会话）", "Foreground injection (task enters current session)")}</td><td>✅</td><td>—</td><td>{t("✅（注入最近活跃会话）", "✅ (most recently active session)")}</td><td>—</td></tr>
-              <tr><td>{t("后台会话（独立会话静默执行）", "Background session (isolated, silent)")}</td><td>✅</td><td>✅</td><td>✅</td><td>{t("独立 worker", "Separate worker")}</td></tr>
+              <tr><td>{t("注册 / 启停管理", "Register / enable-disable")}</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td></tr>
+              <tr><td>{t("随客户端启动自动保活", "Automatic keep-alive when the client starts")}</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td></tr>
+              <tr><td>{t("Swarm 快捷入口", "Swarm shortcuts")}</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td></tr>
+              <tr><td>{t("前台注入（任务进入指定会话）", "Foreground injection (task enters a target session)")}</td><td>✅</td><td>—</td><td>✅</td><td>✅</td></tr>
+              <tr><td>{t("后台会话（独立会话静默执行）", "Background session (isolated, silent)")}</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td></tr>
               <tr><td>{t("前台会话监控（TUI 对话同步中枢）", "Foreground monitoring (TUI syncs to Nexus)")}</td><td>✅</td><td>—</td><td>✅</td><td>—</td></tr>
-              <tr><td>{t("权限 / 提问实时应答（input-required）", "Permission / question answering (input-required)")}</td><td>✅</td><td>—</td><td>{t("✅（先答先算，无\"始终允许\"）", "✅ (first answer wins, no \"always allow\")")}</td><td>—</td></tr>
+              <tr><td>{t("权限 / 提问实时应答（input-required）", "Permission / question answering (input-required)")}</td><td>✅</td><td>—</td><td>✅</td><td>—</td></tr>
             </tbody>
           </table>
+          <p>{t("Codex 的后台 worker 随 Codex 的 MCP 子进程自动启动和退出，无需手动运行；日志在安装目录的 worker.log。", "The Codex background worker starts and stops with the Codex MCP subprocess automatically — no manual command needed. Its log is worker.log in the install directory.")}</p>
+          <p>{t("Codex 前台投递需要先完成一轮对话，再在目标会话输入 $swarm-bind。用 worker.mjs --clear-thread 恢复后台执行。", "For Codex foreground delivery, complete a turn and enter $swarm-bind in the target session. Use worker.mjs --clear-thread to restore background execution.")}</p>
+          <p>{t("Claude Code 无 /swarm-mode。DeepSeek 前台任务进入最近活跃的会话，权限应答先答先算，选项为允许一次或拒绝。", "Claude Code has no /swarm-mode. DeepSeek sends foreground tasks to the most recently active session. The first permission response wins, with Allow Once and Reject as options.")}</p>
         </section>
 
         <section id="doc-chat" className="docs-section">
@@ -2629,9 +2633,9 @@ function DocsPage() {
           <p>
             <L
               zh={<>我们基于开放协议（MCP + A2A）设计，目标是让<b>所有兼容的 agent 客户端</b>都能加入虫群。
-                目前 opencode 与 deepseek harness 全功能支持。Claude Code 和 Codex 支持工作区管理与后台任务执行，详见「命令」章节的支持情况表。</>}
+                目前 opencode 与 deepseek harness 全功能支持。Claude Code 和 Codex 支持工作区管理与后台任务执行。Codex 也支持投递到已绑定的会话，详见「命令」章节的支持情况表。</>}
               en={<>We design around open protocols (MCP + A2A) so that <b>all compatible agent clients</b> can join the swarm.
-                Today opencode and deepseek harness are fully supported. Claude Code and Codex support workspace management and background tasks. See the support table in the "Commands" section.</>}
+                Today opencode and deepseek harness are fully supported. Claude Code and Codex support workspace management and background tasks. Codex also supports delivery to a bound session. See the support table in the "Commands" section.</>}
             />
           </p>
           <h3>{t("claude 工作区能执行任务吗？", "Can a claude workspace execute tasks?")}</h3>
@@ -3485,7 +3489,7 @@ function NexusPage({ toast }: { toast: (m: string) => void }) {
             <AgentTypeIcon type={current?.agent_type} inherit />
             <span className="nexus-head-title">{current?.name ?? selected}</span>
             {currentKind === "codex" && (
-              <span className="nexus-head-session">{t("Codex 后台接单", "Codex background worker")}</span>
+              <span className="nexus-head-session">{t("Codex 任务接单", "Codex task worker")}</span>
             )}
             {currentKind !== "codex" && current?.session_title && (
               <span className="nexus-head-session" title={current.session_title}>{current.session_title}</span>

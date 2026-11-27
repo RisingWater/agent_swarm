@@ -38,15 +38,17 @@ export class AppServer extends EventEmitter {
   #closed = false
   #exited
   #closing
+  #socket
 
-  constructor(child) {
+  constructor(child, socket) {
     super()
     this.child = child
+    this.#socket = socket
     this.#exited = new Promise(resolve => child.once("close", resolve))
     this.stderr = ""
     child.stderr.setEncoding("utf8")
     child.stderr.on("data", chunk => { this.stderr = (this.stderr + chunk).slice(-4000) })
-    createInterface({ input: child.stdout, crlfDelay: Infinity }).on("line", line => {
+    const receive = line => {
       let message
       try { message = JSON.parse(line) } catch { return }
       if (!message || this.#closed) return
@@ -61,7 +63,13 @@ export class AppServer extends EventEmitter {
         if (message.error) pending.reject(new Error(message.error.message ?? "App Server RPC error"))
         else pending.resolve(message.result)
       }
-    })
+    }
+    if (socket) {
+      socket.addEventListener("message", event => receive(event.data))
+      socket.addEventListener("close", () => this.#finish(new Error("Codex Proxy WebSocket 已断开")))
+    } else {
+      createInterface({ input: child.stdout, crlfDelay: Infinity }).on("line", receive)
+    }
     child.stdin.on("error", error => this.#finish(error))
     child.on("error", error => this.#finish(error))
     child.on("close", (code, signal) => this.#finish(new Error(`App Server 已退出 (${code ?? signal})`)))
@@ -80,7 +88,9 @@ export class AppServer extends EventEmitter {
 
   send(message) {
     if (this.#closed || !this.child.stdin.writable) throw new Error("App Server 连接已关闭")
-    this.child.stdin.write(JSON.stringify(message) + "\n")
+    const json = JSON.stringify(message)
+    if (this.#socket) this.#socket.send(json)
+    else this.child.stdin.write(json + "\n")
   }
 
   call(method, params, timeout = 15_000) {
@@ -101,10 +111,10 @@ export class AppServer extends EventEmitter {
     })
   }
 
-  async initialize() {
+  async initialize(experimentalApi = false) {
     await this.call("initialize", {
       clientInfo: { name: "agent_swarm", title: "Agent Swarm", version: "0.1.0" },
-      capabilities: { experimentalApi: false },
+      capabilities: { experimentalApi },
     })
     this.send({ method: "initialized" })
   }
@@ -112,6 +122,7 @@ export class AppServer extends EventEmitter {
   close() {
     if (this.#closing) return this.#closing
     this.#finish(new Error("App Server 连接已关闭"))
+    this.#socket?.close()
     this.child.stdin.end()
     const timer = setTimeout(() => {
       if (this.child.exitCode === null && this.child.signalCode === null) this.child.kill()

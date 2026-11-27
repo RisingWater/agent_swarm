@@ -1139,6 +1139,16 @@ textarea.field { resize: vertical; }
   flex: 0 0 auto;
 }
 
+/* Codex 标识来源：https://github.com/agentsmd/agents.md/blob/main/public/logos/codex.svg */
+.codex-agent-icon {
+  display: inline-block;
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  background-color: currentColor;
+  mask: url("/codex.svg") center / contain no-repeat;
+}
+
 .home-video {
   padding: 40px 0;
 }

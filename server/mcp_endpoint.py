@@ -142,7 +142,8 @@ def workspace_add(
         role: 工作区角色（可选，留空 = 不修改）。普通工作区为 "agent"；
             规划器（planner）传 "planner"——它会在网页「规划器」只读页中展示。
             合法值：agent / planner。
-        agent_type: Codex 注册工作区时传 "codex"，其余调用方可省略。
+        agent_type: 传 "codex" 将当前目录注册到 Codex，已有工作区沿用原 ID。
+            切换前需断开原适配器。其余调用方可省略。
     """
     user = get_user()
     session = next(get_session())
@@ -160,8 +161,15 @@ def workspace_add(
             )
         ).first()
         now = utcnow()
-        if agent_type and ws is not None and ws.agent_type != agent_type:
-            raise ValueError("workspace path already belongs to a different adapter")
+        switching = agent_type == "codex" and ws is not None and ws.agent_type != agent_type
+        if switching:
+            from server.nexus_a2a import ws_online
+
+            if ws_online(ws.id):
+                raise ValueError("disconnect the current workspace adapter before switching to Codex")
+            ws.session_id = None
+            ws.session_title = None
+            ws.session_title_enc = None
         if ws is None:
             import shortuuid
 
@@ -186,9 +194,13 @@ def workspace_add(
             ws.role = role
         if agent_type or ws.agent_type != "codex":
             ws.agent_type = agent_type or "opencode"
-        if ws.agent_type != "codex" or ws.status != "disabled":
+        if ws.agent_type != "codex":
             ws.status = "online"
             ws.last_heartbeat = now
+        elif created or switching:
+            if ws.status != "disabled":
+                ws.status = "offline"
+            ws.last_heartbeat = None
         ws.updated_at = now
         session.add(ws)
         session.commit()
@@ -283,7 +295,7 @@ def heartbeat(
         workspace_id: 注册时返回的工作区 ID
         session_id: 当前会话 ID（可选；非空时覆盖）
         session_title: 当前会话标题（可选；非空时覆盖）
-        agent_type: agent 工具类型（可选，如 opencode；重复上报会更新）
+        agent_type: agent 工具类型（可选，如 opencode）。Codex 工作区只接收 Codex 心跳。
     """
     user = get_user()
     session = next(get_session())
@@ -291,6 +303,9 @@ def heartbeat(
         ws = _own_workspace(session, user, workspace_id)
         if ws.status == "disabled":
             return {"ok": False, "status": "disabled", "message": "workspace is disabled"}
+        agent_type = agent_type.strip().lower()
+        if ws.agent_type != agent_type and "codex" in (ws.agent_type, agent_type):
+            return {"ok": False, "status": ws.status, "message": "workspace adapter does not match"}
         ws.status = "online"
         ws.last_heartbeat = utcnow()
         # 空值不覆盖：插件端负责尽量报最近会话（pickRecentSession 兜底），
@@ -302,7 +317,7 @@ def heartbeat(
             ws.session_title_enc = title_enc
             ws.session_title = None if title_enc else session_title[:200]
         if agent_type:
-            ws.agent_type = agent_type.strip().lower()
+            ws.agent_type = agent_type
         session.add(ws)
         session.commit()
         # 任务派发已改走 nexus_a2a WS 链路（message/send → 插件实时推送 + 上线补推），

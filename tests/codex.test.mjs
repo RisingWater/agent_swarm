@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import { spawn } from "node:child_process"
-import { once } from "node:events"
+import { EventEmitter, once } from "node:events"
 import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -19,8 +19,9 @@ function server(mode) {
     const send = obj => process.stdout.write(JSON.stringify(obj) + '\\n')
     const notify = (method, params) => send({ method, params: { threadId: 'thread', turnId: 'turn', ...params } })
     const item = (type, id, props = {}) => ({ item: { type, id, ...props } })
+    let queuedClientId, historyReads = 0
     readline.createInterface({ input: process.stdin }).on('line', line => {
-      const { method, id } = JSON.parse(line)
+      const { method, id, params } = JSON.parse(line)
       if (method === 'initialize') {
         process.stderr.write('diagnostics\\n')
         send({ id, result: {} })
@@ -28,6 +29,31 @@ function server(mode) {
         send({ id, error: { message: 'Unknown method' } })
       } else if (method === 'thread/start') {
         send({ id, result: { thread: { id: 'thread' } } })
+      } else if (process.argv[1].startsWith('embedded') && method === 'thread/read') {
+        send({ id, result: { thread: { cwd: process.cwd(), status: { type: 'notLoaded' } } } })
+      } else if (process.argv[1].startsWith('embedded') && method === 'thread/queue/add') {
+        queuedClientId = params.clientUserMessageId
+        send({ id, result: { queuedSubmission: { id: 'embedded-queue' } } })
+      } else if (process.argv[1].startsWith('embedded') && method === 'thread/turns/list') {
+        const turn = (id, clientId, text) => ({ id, status: 'completed', items: [
+          { type: 'userMessage', clientId }, { id, type: 'agentMessage', phase: 'final_answer', text },
+        ] })
+        const data = []
+        if (queuedClientId) {
+          data.push(turn('manual', 'manual-id', 'unrelated'))
+          const current = turn('swarm', queuedClientId, 'PONG')
+          if (process.argv[1] === 'embedded-interrupted') {
+            current.status = 'interrupted'
+            current.completedAt = 1795753623
+            current.items.pop()
+          } else if (historyReads++ === 0) {
+            current.status = 'interrupted'
+            current.completedAt = null
+            current.items.pop()
+          }
+          data.push(current)
+        }
+        send({ id, result: { data } })
       } else if (method === 'turn/start') {
         notify('turn/started', { turn: { id: 'turn' } })
         send({ id, result: { turn: { id: 'turn' } } })
@@ -100,6 +126,77 @@ test("取消正在执行的 turn 只回传一个 canceled 终态", async () => {
     events.push(event)
     if (event.status.state === "working") setImmediate(() => controller.abort())
   }, controller.signal, () => server("cancel"))
+  assert.equal(state, "canceled")
+  assert.deepEqual(events.filter(e => e.final).map(e => e.status.state), ["canceled"])
+})
+
+const threadTarget = "01234567-89ab-cdef-0123-456789abcdef"
+function foregroundServer(submit) {
+  const app = new EventEmitter()
+  const requests = []
+  const notify = (method, params) => app.emit("notification", { method, params: { threadId: threadTarget, ...params } })
+  app.call = async (method, params) => {
+    requests.push([method, params])
+    switch (method) {
+      case "thread/loaded/list": return { data: [threadTarget] }
+      case "thread/read": return { thread: { cwd: process.cwd(), status: { type: "active" } } }
+      case "thread/resume":
+      case "thread/queue/delete": return {}
+      case "thread/queue/add":
+        setImmediate(() => submit(notify, params.clientUserMessageId))
+        return { queuedSubmission: { id: "queued-swarm" } }
+      default: assert.fail(`意外的 Codex 请求 ${method}`)
+    }
+  }
+  app.close = async () => {}
+  return { connect: async () => app, requests }
+}
+
+test("Codex 前台回传只包含本次提交对应的答复", { timeout: 3000 }, async () => {
+  const { connect } = foregroundServer((notify, clientId) => {
+    for (const [turnId, client, text] of [["manual", "manual-client", "无关对话"], ["swarm", clientId, "Swarm 答复"]]) {
+      notify("turn/started", { turn: { id: turnId } })
+      notify("item/started", { turnId, item: { type: "userMessage", clientId: client } })
+      notify("item/completed", { turnId, item: { type: "agentMessage", id: turnId, phase: "final_answer", text } })
+      notify("turn/completed", { turn: { id: turnId, status: "completed" } })
+    }
+  })
+  const events = []
+  const state = await executeTask(job, process.cwd(), event => events.push(event),
+    AbortSignal.timeout(2000), undefined, { threadTarget, connect })
+  assert.equal(state, "completed")
+  assert.deepEqual(events.filter(e => e.kind === "artifact-update").map(e => e.artifact.parts[0].text), ["Swarm 答复"])
+  assert.doesNotMatch(JSON.stringify(events), /无关对话/)
+})
+
+test("取消 Codex 前台排队任务只删除对应提交", { timeout: 3000 }, async () => {
+  const control = new AbortController()
+  const { connect, requests } = foregroundServer(notify => {
+    notify("turn/started", { turn: { id: "manual" } })
+    control.abort()
+  })
+  const state = await executeTask(job, process.cwd(), () => {},
+    AbortSignal.any([control.signal, AbortSignal.timeout(2000)]), undefined, { threadTarget, connect })
+  assert.equal(state, "canceled")
+  assert.deepEqual(requests.slice(3).map(([method]) => method), ["thread/queue/add", "thread/queue/delete"])
+  assert.deepEqual(requests.at(-1)[1], { threadId: threadTarget, queuedSubmissionId: "queued-swarm" })
+})
+
+test("共享 Proxy 不可用时从内置会话的历史回传对应的答复", { timeout: 5000 }, async () => {
+  const events = []
+  const connect = async () => { throw new Error("no shared socket") }
+  const state = await executeTask(job, process.cwd(), event => events.push(event),
+    AbortSignal.timeout(4000), () => server("embedded"), { threadTarget, connect })
+  assert.equal(state, "completed")
+  assert.deepEqual(events.filter(e => e.kind === "artifact-update").map(e => e.artifact.parts[0].text), ["PONG"])
+  assert.doesNotMatch(JSON.stringify(events), /unrelated/)
+})
+
+test("内置会话真正中断时仍回传 canceled", { timeout: 5000 }, async () => {
+  const events = []
+  const connect = async () => { throw new Error("no shared socket") }
+  const state = await executeTask(job, process.cwd(), event => events.push(event),
+    AbortSignal.timeout(4000), () => server("embedded-interrupted"), { threadTarget, connect })
   assert.equal(state, "canceled")
   assert.deepEqual(events.filter(e => e.final).map(e => e.status.state), ["canceled"])
 })

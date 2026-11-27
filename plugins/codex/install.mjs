@@ -9,7 +9,7 @@ const name = "agent-swarm"
 const root = resolve(process.env.CODEX_HOME || join(homedir(), ".codex"), "agent-swarm")
 const installed = join(root, "codex")
 const bridge = join(installed, "swarm-mcp.mjs")
-const sources = ["app-server.mjs", "swarm-mcp.mjs", "background.mjs", "worker.mjs", "install.mjs"]
+const sources = ["app-server.mjs", "swarm-mcp.mjs", "background.mjs", "foreground.mjs", "proxy.mjs", "worker.mjs", "install.mjs"]
 const skillSources = fileURLToPath(new URL("./skills/", import.meta.url))
 const skillBackups = join(installed, "skills")
 const userSkills = resolve(root, "..", "skills")
@@ -72,7 +72,7 @@ function install() {
       throw new Error("Codex MCP 配置卸载失败")
     }
     installSkills(true)
-    for (const file of [...sources, "swarm.json"]) rmSync(join(installed, file), { force: true })
+    for (const file of [...sources, "swarm.json", "worker.log"]) rmSync(join(installed, file), { force: true })
     rmSync(join(root, "claude", "nexus_a2a.mjs"), { force: true })
     console.log("已移除 Codex Swarm MCP 与适配器文件")
     return
@@ -107,8 +107,8 @@ function install() {
   }
   installSkills(false)
   console.log("已安装 Codex Swarm MCP，启动命令仍为 codex")
-  console.log("在 Codex 中用 /skills 或 $swarm-add 注册工作区")
-  console.log(`独立后台工作区：node "${join(installed, "worker.mjs")}" "<工作目录>"`)
+  console.log("启动 codex 后后台 worker 会自动运行；也可手动为指定目录单独启动：")
+  console.log(`node "${join(installed, "worker.mjs")}" "<工作目录>"`)
 }
 
 try { install() } catch (error) {
