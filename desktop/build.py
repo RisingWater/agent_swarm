@@ -65,7 +65,7 @@ def build_deb(binary: Path, logo: Path, architecture: str) -> None:
             f"Package: agent-swarm-manager\nVersion: {version}\n"
             f"Architecture: {deb_architecture}\n"
             "Section: devel\nPriority: optional\nMaintainer: Agent Swarm contributors\n"
-            "Depends: libegl1, libfontconfig1, libgl1, libglib2.0, libxkbcommon-x11-0, "
+            "Depends: libegl1, libfontconfig1, libgl1, libglib2.0-0t64 | libglib2.0-0, libxkbcommon-x11-0, "
             "libxcb-cursor0, libxcb-icccm4, libxcb-image0, libxcb-keysyms1, libxcb-render-util0, libxcb-xinerama0\n"
             "Description: Agent Swarm desktop plugin manager\n",
             encoding="utf-8",
